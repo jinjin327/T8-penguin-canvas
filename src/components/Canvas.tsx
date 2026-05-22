@@ -645,6 +645,58 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     [isRunning, nodes, edges, runNodesByOrder]
   );
 
+ // ===== ALT+拖动复制节点 =====
+  // 按住 ALT 键开始拖动时,在原位克隆一份副本,拖走的是原节点(视觉上等同于"复制并拖出")
+  const altDragCloneRef = useRef<boolean>(false);
+
+  const onNodeDragStart = useCallback(
+    (e: React.MouseEvent | MouseEvent, node: Node) => {
+      altDragCloneRef.current = false;
+      if (!e.altKey) return;
+      // ALT 按下: 克隆所有选中节点(或仅当前节点)到原位
+      const selected = nodes.filter((n) => n.selected);
+      const targets = selected.length > 0 && selected.some((n) => n.id === node.id)
+        ? selected
+        : [node];
+      const ids = new Set(targets.map((n) => n.id));
+      // 运行时字段黑名单
+      const RUNTIME_KEYS = ['status', 'taskId', 'progress', 'error', 'isRunning', 'isPolling', 'pollingTimer'];
+      const sanitize = (data: any) => {
+        const next: any = { ...(data || {}) };
+        for (const k of RUNTIME_KEYS) delete next[k];
+        next.status = 'idle';
+        return next;
+      };
+      const stamp = Date.now();
+      const idMap = new Map<string, string>();
+      const clones = targets.map((n, idx) => {
+        const newId = `${n.type}-${stamp}-${idx}-${Math.random().toString(36).slice(2, 5)}`;
+        idMap.set(n.id, newId);
+        return {
+          ...n,
+          id: newId,
+          selected: false,
+          position: { ...n.position },
+          data: sanitize(n.data),
+        } as Node;
+      });
+      // 克隆内部边
+      const cloneEdges = edges
+        .filter((e2) => ids.has(e2.source) && ids.has(e2.target))
+        .map((e2, idx) => {
+          const s = idMap.get(e2.source);
+          const t = idMap.get(e2.target);
+          if (!s || !t) return null;
+          return { ...e2, id: `e-alt-${stamp}-${idx}-${Math.random().toString(36).slice(2, 5)}`, source: s, target: t } as Edge;
+        })
+        .filter(Boolean) as Edge[];
+      setNodes((prev) => [...prev, ...clones]);
+      if (cloneEdges.length > 0) setEdges((prev) => [...prev, ...cloneEdges]);
+      altDragCloneRef.current = true;
+    },
+    [nodes, edges]
+  );
+
   // ===== 节点组(GroupBox) =====
   // 拖动组节点时使用,记录上一帧位置以计算 delta 同步偏移成员节点
   // memberIds 在拖动开始时根据当前几何关系动态计算(不依赖创组时快照)
@@ -1620,6 +1672,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         isValidConnection={onIsValidConnection}
+        onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onSelectionContextMenu={onSelectionContextMenu}
