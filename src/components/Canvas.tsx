@@ -60,6 +60,7 @@ import BrowserNode from './nodes/BrowserNode';
 import FrameExtractorNode from './nodes/FrameExtractorNode';
 import UploadNode from './nodes/UploadNode';
 import GroupBoxNode from './nodes/GroupBoxNode';
+import DeletableEdge from './edges/DeletableEdge';
 import { NODE_REGISTRY } from '../config/nodeRegistry';
 import type { NodeType, NodeMeta } from '../types/canvas';
 import {
@@ -158,6 +159,12 @@ function BulkPhantomNode() {
 }
 nodeTypes.bulkPhantom = BulkPhantomNode;
 const BULK_PHANTOM_ID = '__bulk_phantom__';
+
+// 边类型: 默认边采用可点击断开的 DeletableEdge
+const edgeTypes = {
+  default: DeletableEdge,
+  deletable: DeletableEdge,
+};
 
 interface CanvasInnerProps {
   onAddNodeRef?: React.MutableRefObject<((type: NodeType) => void) | null>;
@@ -1473,6 +1480,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     : isDark ? '#0a0a0b' : '#fafafa';
 
   const memoNodeTypes = useMemo(() => nodeTypes, []);
+  const memoEdgeTypes = useMemo(() => edgeTypes, []);
 
   if (!activeId) {
     return (
@@ -1523,6 +1531,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={memoNodeTypes}
+        edgeTypes={memoEdgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
