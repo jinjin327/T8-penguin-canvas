@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { ArrowRightLeft } from 'lucide-react';
 import { useUpdateNodeData } from './useUpdateNodeData';
@@ -14,6 +14,22 @@ const RelayNode = (p: NodeProps) => {
   const update = useUpdateNodeData(p.id);
   const { getEdges, getNodes } = useReactFlow();
   const d = p.data as any;
+
+  // 计算上游签名 - 仅在上游 data 变化时 effect 才会重跑,
+  // 避免原来 useEffect 无 deps 导致的 setState 风暴循环。
+  const upstreamSignature = useMemo(() => {
+    const edges = getEdges();
+    const nodes = getNodes();
+    const upstreamIds = edges.filter((e) => e.target === p.id).map((e) => e.source);
+    return upstreamIds
+      .map((uid) => {
+        const n = nodes.find((x) => x.id === uid);
+        const ud = (n?.data as any) || {};
+        return `${uid}|${ud.prompt || ''}|${ud.imageUrl || ''}|${(ud.urls || []).length}`;
+      })
+      .join('::');
+    // p.data 变化作为一个轻量重算触发点, 但计算出的字符串在上游未变时会相等
+  }, [p.id, p.data, getEdges, getNodes]);
 
   // 监听上游变化,自动透传
   useEffect(() => {
@@ -40,7 +56,8 @@ const RelayNode = (p: NodeProps) => {
     const cur = JSON.stringify({ prompt: d?.prompt, imageUrl: d?.imageUrl, urls: d?.urls });
     const next = JSON.stringify({ prompt: merged.prompt, imageUrl: merged.imageUrl, urls: merged.urls });
     if (cur !== next) update(merged);
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upstreamSignature]);
 
   const upstreamCount = getEdges().filter((e) => e.target === p.id).length;
 
