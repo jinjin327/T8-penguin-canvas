@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useRef, useState, useLayoutEffect } from 'react';
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import {
   AlertCircle,
@@ -301,8 +301,13 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
   const mainRef = useRef<HTMLDivElement>(null);
   const hasChat = history.length > 0 || !!streamingText;
 
-  // 动态计算左侧主体高度，让右侧面板对齐
-  const mainH = mainRef.current?.offsetHeight;
+  // 用 state + useLayoutEffect 精确测量左侧主体高度，确保右侧面板底部对齐
+  const [mainH, setMainH] = useState<number>(0);
+  useLayoutEffect(() => {
+    if (mainRef.current) {
+      setMainH(mainRef.current.offsetHeight);
+    }
+  });
 
   return (
     <div className="flex items-start gap-0">
@@ -560,7 +565,7 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
         className={`llm-chat-panel w-[260px] rounded-xl border-2 overflow-y-auto pl-2.5 pt-2.5 pb-2.5 pr-0 space-y-1.5 ${
           selected ? 'border-emerald-400/60' : 'border-white/10'
         }`}
-        style={{ background: 'rgba(20,20,22,.94)', backdropFilter: 'blur(8px)', maxHeight: mainH ? `${mainH}px` : '600px' }}
+        style={{ background: 'rgba(20,20,22,.94)', backdropFilter: 'blur(8px)', height: mainH ? `${mainH}px` : undefined }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {history.map((t, i) => (

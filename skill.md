@@ -816,7 +816,30 @@ SSE 按行 `split('\n')` 解析；`data: [DONE]` 立即 return；`delta.content`
 
 #### 11.10.5 LLMNode 节点 UI 范式
 
-[LLMNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LLMNode.tsx)（width=320）必须覆盖以下 8 点，与§11.3 一致：
+[LLMNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LLMNode.tsx) 采用**左右双列布局**（外层 `flex items-start gap-0`）：
+
+| 列 | 宽度 | 职责 |
+|---|---|---|
+| 左列·主体 | `w-[320px]` | 模型/参数/系统提示词/用户输入/图片上传/发送按钮，通过 `mainRef` 测量实际高度 |
+| 右列·会话面板 | `w-[260px]` | 仅当 `hasChat` 时渲染；`overflow-y-auto` 超长滚动 |
+
+> ⚠️ **底部对齐铁律（必读）**：
+>
+> 1. 右列 style 必须使用 **`height: mainH + 'px'`**（不是 maxHeight），确保右列与左列等高、底部对齐。
+> 2. `mainH` 必须通过 **`useLayoutEffect` + `useState`** 测量，禁止直接在 render 中读取 `mainRef.current.offsetHeight`（首次渲染时 ref 未挂载，值为 undefined 导致高度丢失）。
+> 3. `useLayoutEffect` 无依赖数组，每次渲染都重新测量，左列内容变化时右列自动跟随。
+> 4. 左列高度为**只读约束**，任何操作禁止修改。
+>
+> 示例代码：
+> ```tsx
+> const [mainH, setMainH] = useState<number>(0);
+> useLayoutEffect(() => {
+>   if (mainRef.current) setMainH(mainRef.current.offsetHeight);
+> });
+> // 右列: style={{ height: mainH ? `${mainH}px` : undefined }}
+> ```
+
+左列必须覆盖以下 8 点，与§11.3 一致：
 
 1. **5 模型下拉** — 来自 `LLM_MODELS`；默认 `DEFAULT_LLM_MODEL`。
 2. **参数三件套** — `temperature 0~2 step 0.1`（默认 0.7）/ `max_tokens 100~128000`（默认 4096）/ `stream 开关`（`isImageOutputLlm(model)` 时强制禁用）。
