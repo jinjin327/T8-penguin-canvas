@@ -50,9 +50,9 @@ export const IMAGE_MODELS: ImageModelDef[] = [
     paramKind: 'gpt-size',
     capabilities: ['t2i', 'i2i', 'edit', 'text-render'],
     apiModelOptions: [
-      { value: 'gpt-image-2-all', label: 'gpt-image-2-all (逆向分组)' },
-      { value: 'gpt-image-2', label: 'gpt-image-2 (官转分组)' },
-      { value: 'gpt-image-2-fal', label: 'gpt-image-2-fal (FAL 代理)' },
+      { value: 'gpt-image-2-all', label: 'gpt-image-2-all' },
+      { value: 'gpt-image-2', label: 'gpt-image-2' },
+      { value: 'gpt-image-2-fal', label: 'gpt-image-2-fal' },
     ],
     aspectRatios: GPT_RATIOS,
     defaultAspectRatio: '1:1',
