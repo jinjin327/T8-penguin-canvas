@@ -841,6 +841,24 @@ html[data-theme-style="pixel"] .react-flow__node.selected:not(.react-flow__node-
 
 后续新增任何「结构上能被业务节点区分」的画布辅助节点类型时，都需同步在该选择器中添 `:not(.react-flow__node-XXX)`。
 
+### 14.6.1 组容器 4 角缩放手柄
+
+- 在 `<div style={outerStyle}>` 内部 4 个角绝对定位的 16×16 热区（偏移 -7px 跨边），中间放一个小色块/色点作为视觉提示。
+- `cursor`：`tl` / `br` = `nwse-resize`；`tr` / `bl` = `nesw-resize`。
+- 默认小色块 8px 透明度 0.55；悬停或选中时 12px 不透明（过渡 120ms）。像素风：黑色方块 + 组色边框 + 1px 硬阴影；科技风：组色圆点 + 白边 + 柔阴。
+- `className="nodrag"` + `onMouseDown` 里 `e.stopPropagation() / preventDefault()` 防 ReactFlow 误作为节点拖拽。
+- **拖拽逻辑**（`startResize(corner)`）：
+  - 记录 `startX/Y/W/H/posX/posY` 与当前 `getZoom()`
+  - 全局 `mousemove`：`dx = (clientX - startX) / zoom`（屏幕 → 画布坐标换算）
+  - 按角位调整：
+    - `br`: `width += dx`, `height += dy`
+    - `bl`: `width -= dx`, `height += dy`, `position.x += dx`
+    - `tr`: `width += dx`, `height -= dy`, `position.y += dy`
+    - `tl`: `width -= dx`, `height -= dy`, `position.x += dx`, `position.y += dy`
+  - 最小尺寸 `MIN_W=160 / MIN_H=100`；封顶后 **补正 position** 避免拖越后反向跳动
+  - `mouseup` 移除监听
+- **不联动成员**：组容器只是视觉框，缩放仅改自身 `width/height/position`；成员可超出边界，与主项目 `NodeGroupBox` 一致。
+
 ### 14.7 验收清单
 1. 框选多个普通节点 → 右键 → "打组" → 出现颜色框；标题栏可双击改名；颜色点点击可换色。
 2. 拖拽组容器，组内所有成员同步位移；松手不残留 ref（再拖另一个组不会从老位置开始）。
@@ -848,6 +866,7 @@ html[data-theme-style="pixel"] .react-flow__node.selected:not(.react-flow__node-
 4. 右上角 X 仅删除组容器本身，成员节点保留。
 5. 删除组内某成员后再点 ▶，不报错（dangling 容错）。
 6. 双主题（科技 / 像素）切换样式正常；**选中组后成员节点仍可见**（验证 `elevateNodesOnSelect={false}` + `zIndex: -1000` + `:not(.react-flow__node-groupBox)` 三重保护生效）。
+7. 鼠标悬停组的 4 角 → 小色块高亮 + cursor 变为 `nwse-resize` / `nesw-resize`；拖动可拉大拉小。拖到最小尺寸后不会反向跳动。
 
 ---
 

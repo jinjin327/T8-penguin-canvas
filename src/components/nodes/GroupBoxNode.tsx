@@ -33,13 +33,16 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';
 
-  const { setNodes } = useReactFlow();
+  const { setNodes, getNodes, getZoom } = useReactFlow();
   const requestExecute = useGroupBusStore((s) => s.requestExecute);
   const requestDelete = useGroupBusStore((s) => s.requestDelete);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [hoverCorner, setHoverCorner] = useState<
+    'tl' | 'tr' | 'bl' | 'br' | null
+  >(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -66,6 +69,91 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
     else setEditValue(name);
     setIsEditing(false);
   }, [editValue, name, updateData]);
+
+  // 4 角缩放: 鼠标按下后监听全局 mousemove/mouseup实时改 width/height
+  // 左/上角拖动需同步调 position；dx/dy / zoom 进行画布坐标换算
+  const startResize = useCallback(
+    (corner: 'tl' | 'tr' | 'bl' | 'br') => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = width;
+      const startH = height;
+      const cur = getNodes().find((n) => n.id === id);
+      if (!cur) return;
+      const startPosX = cur.position.x;
+      const startPosY = cur.position.y;
+      const zoom = getZoom() || 1;
+      const MIN_W = 160;
+      const MIN_H = 100;
+
+      const onMove = (ev: MouseEvent) => {
+        const dx = (ev.clientX - startX) / zoom;
+        const dy = (ev.clientY - startY) / zoom;
+        let newW = startW;
+        let newH = startH;
+        let newX = startPosX;
+        let newY = startPosY;
+
+        if (corner === 'br') {
+          newW = startW + dx;
+          newH = startH + dy;
+        } else if (corner === 'bl') {
+          newW = startW - dx;
+          newH = startH + dy;
+          newX = startPosX + dx;
+        } else if (corner === 'tr') {
+          newW = startW + dx;
+          newH = startH - dy;
+          newY = startPosY + dy;
+        } else if (corner === 'tl') {
+          newW = startW - dx;
+          newH = startH - dy;
+          newX = startPosX + dx;
+          newY = startPosY + dy;
+        }
+
+        // 最小尺寸保护 (需同步修正 position，避免拖过小后反向跳动)
+        if (newW < MIN_W) {
+          if (corner === 'bl' || corner === 'tl') {
+            newX = startPosX + (startW - MIN_W);
+          }
+          newW = MIN_W;
+        }
+        if (newH < MIN_H) {
+          if (corner === 'tl' || corner === 'tr') {
+            newY = startPosY + (startH - MIN_H);
+          }
+          newH = MIN_H;
+        }
+
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === id
+              ? {
+                  ...n,
+                  position: { x: newX, y: newY },
+                  data: {
+                    ...(n.data as object),
+                    width: newW,
+                    height: newH,
+                  },
+                }
+              : n
+          )
+        );
+      };
+
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [id, width, height, getNodes, getZoom, setNodes]
+  );
 
   // 主题派生颜色
   const headerBg = isPixel
@@ -411,6 +499,57 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
           pointerEvents: 'none',
         }}
       />
+
+      {/* 4 角缩放手柄: 默认弱可见，悬停/选中时高亮；nodrag 防止 ReactFlow 抓取为节点拖拽 */}
+      {(
+        [
+          { c: 'tl' as const, style: { left: -7, top: -7, cursor: 'nwse-resize' } },
+          { c: 'tr' as const, style: { right: -7, top: -7, cursor: 'nesw-resize' } },
+          { c: 'bl' as const, style: { left: -7, bottom: -7, cursor: 'nesw-resize' } },
+          { c: 'br' as const, style: { right: -7, bottom: -7, cursor: 'nwse-resize' } },
+        ]
+      ).map(({ c, style: posStyle }) => {
+        const active = hoverCorner === c || selected;
+        const dotBg = isPixel ? '#1A1410' : color;
+        const dotBorder = isPixel ? color : '#FFFFFF';
+        return (
+          <div
+            key={c}
+            className="nodrag"
+            onMouseDown={startResize(c)}
+            onMouseEnter={() => setHoverCorner(c)}
+            onMouseLeave={() => setHoverCorner(null)}
+            title="拖动缩放组范围"
+            style={{
+              position: 'absolute',
+              width: 16,
+              height: 16,
+              zIndex: 10,
+              ...posStyle,
+              // 热区透明，小色块在中间
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: active ? 12 : 8,
+                height: active ? 12 : 8,
+                background: dotBg,
+                border: `2px solid ${dotBorder}`,
+                borderRadius: isPixel ? 2 : '50%',
+                boxShadow: isPixel
+                  ? `1px 1px 0 ${color}`
+                  : `0 1px 4px rgba(0,0,0,0.3)`,
+                transition: 'width 0.12s, height 0.12s, opacity 0.12s',
+                opacity: active ? 1 : 0.55,
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 };
