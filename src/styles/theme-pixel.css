@@ -381,7 +381,8 @@ html[data-theme-style="pixel"] .react-flow__node button {
 
 /* 节点内主操作按钮(全宽 / 主要 CTA)统一像素胶囊 mint 风格,
    修复 bg-orange-500/20 text-orange-200 等浅色按钮在奶油底上对比度过低问题 */
-html[data-theme-style="pixel"] .react-flow__node button.w-full {
+html[data-theme-style="pixel"] .react-flow__node button.w-full,
+html[data-theme-style="pixel"] .react-flow__node button.flex-1 {
   background: var(--px-mint) !important;
   background-image: none !important;
   color: var(--px-ink) !important;
@@ -392,22 +393,26 @@ html[data-theme-style="pixel"] .react-flow__node button.w-full {
   letter-spacing: 0.2px !important;
   transition: transform 0.08s, box-shadow 0.08s, background-color 0.12s !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full:hover:not(:disabled) {
+html[data-theme-style="pixel"] .react-flow__node button.w-full:hover:not(:disabled),
+html[data-theme-style="pixel"] .react-flow__node button.flex-1:hover:not(:disabled) {
   background: var(--px-mint-deep) !important;
   color: var(--px-ink) !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full:active:not(:disabled) {
+html[data-theme-style="pixel"] .react-flow__node button.w-full:active:not(:disabled),
+html[data-theme-style="pixel"] .react-flow__node button.flex-1:active:not(:disabled) {
   transform: translate(2px, 2px) !important;
   box-shadow: 0 0 0 var(--px-ink) !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full:disabled {
+html[data-theme-style="pixel"] .react-flow__node button.w-full:disabled,
+html[data-theme-style="pixel"] .react-flow__node button.flex-1:disabled {
   background: var(--px-muted) !important;
   color: var(--px-ink-dim) !important;
   opacity: 1 !important;
   box-shadow: 2px 2px 0 var(--px-ink-dim) !important;
   cursor: not-allowed !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full svg {
+html[data-theme-style="pixel"] .react-flow__node button.w-full svg,
+html[data-theme-style="pixel"] .react-flow__node button.flex-1 svg {
   color: currentColor !important;
   stroke: currentColor !important;
 }
@@ -448,13 +453,16 @@ html[data-theme-style="pixel"] .react-flow__node [class*="bg-red-"] {
 }
 
 /* 主操作按钮强制覆盖颜色背景(优先级高于上面的 bg-* 兜底) */
-html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"] {
+html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"],
+html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"] {
   background-color: var(--px-mint) !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:hover:not(:disabled) {
+html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:hover:not(:disabled),
+html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"]:hover:not(:disabled) {
   background-color: var(--px-mint-deep) !important;
 }
-html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:disabled {
+html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:disabled,
+html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"]:disabled {
   background-color: var(--px-muted) !important;
 }
 
