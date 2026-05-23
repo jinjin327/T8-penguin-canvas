@@ -7,6 +7,7 @@ import {
   type SeedanceSubmitRequest,
 } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
+import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { logBus } from '../../stores/logs';
 
@@ -37,6 +38,7 @@ const DURATION_OPTIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 const SeedanceNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
+  const hasAutoOutput = useHasAutoOutput(id);
   const { getEdges, getNodes } = useReactFlow();
   const [error, setError] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
@@ -467,7 +469,7 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      {videoUrl && (
+      {videoUrl && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2">
           <video
             src={videoUrl}

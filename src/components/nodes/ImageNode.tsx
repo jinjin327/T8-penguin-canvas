@@ -29,6 +29,7 @@ import {
   type MjSpeed,
 } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
+import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { useThemeStore } from '../../stores/theme';
 import { logBus } from '../../stores/logs';
@@ -41,6 +42,7 @@ import { logBus } from '../../stores/logs';
  */
 const ImageNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
+  const hasAutoOutput = useHasAutoOutput(id);
   const { getEdges, getNodes } = useReactFlow();
   const { style } = useThemeStore();
   const isPixel = style === 'pixel';
@@ -1086,8 +1088,8 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      {/* 结果展示 */}
-      {imageUrl && (
+      {/* 结果展示：仅在未外挂 OutputNode 时在节点内预览，避免与下游 OutputNode 重复 */}
+      {imageUrl && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2">
           <img src={imageUrl} alt="生成结果" className="w-full rounded object-cover" />
         </div>

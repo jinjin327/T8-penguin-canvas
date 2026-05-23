@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, Video as VideoIcon, Sparkles, Square } from 'luci
 import { VIDEO_MODELS, isFalVideoModel, VIDEO_FAL_REGISTRY, VEO_FAL_RATIOS, VEO_FAL_DURATIONS, VEO_FAL_RESOLUTIONS, GROK_FAL_RATIOS, GROK_FAL_RESOLUTIONS } from '../../providers/models';
 import { submitVideo, queryVideo, submitVideoFal, queryVideoFal, type VideoSubmitRequest, type VideoFalSubmitRequest } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
+import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { logBus } from '../../stores/logs';
 
@@ -17,6 +18,7 @@ import { logBus } from '../../stores/logs';
  */
 const VideoNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
+  const hasAutoOutput = useHasAutoOutput(id);
   const { getEdges, getNodes } = useReactFlow();
   const [error, setError] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
@@ -568,7 +570,7 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      {videoUrl && (
+      {videoUrl && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2">
           <video
             src={videoUrl}

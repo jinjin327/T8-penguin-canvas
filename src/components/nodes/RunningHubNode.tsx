@@ -3,6 +3,7 @@ import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { AlertCircle, Loader2, Workflow, Sparkles, Square, Search } from 'lucide-react';
 import { submitRh, queryRh, fetchRhAppInfo } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
+import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 
 /**
@@ -12,6 +13,7 @@ import { useRunTrigger } from '../../hooks/useRunTrigger';
  */
 const RunningHubNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
+  const hasAutoOutput = useHasAutoOutput(id);
   const { getEdges, getNodes } = useReactFlow();
   const [error, setError] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
@@ -224,7 +226,7 @@ const RunningHubNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      {urls.length > 0 && (
+      {urls.length > 0 && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2 space-y-1">
           {urls.map((u, i) => {
             if (/\.(mp4|webm|mov)$/i.test(u)) {

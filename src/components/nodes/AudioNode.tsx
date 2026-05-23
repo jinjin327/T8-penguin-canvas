@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, Music, Sparkles, Square, Upload, X } from 'lucide
 import { submitAudio, queryAudio, uploadAudioForSuno, type AudioMode } from '../../services/generation';
 import { SUNO_VERSIONS, DEFAULT_SUNO_VERSION } from '../../providers/models';
 import { useUpdateNodeData } from './useUpdateNodeData';
+import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { logBus } from '../../stores/logs';
 import { PORT_COLOR } from '../../config/portTypes';
@@ -22,6 +23,7 @@ const MODES: Array<{ id: AudioMode; label: string }> = [
 
 const AudioNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
+  const hasAutoOutput = useHasAutoOutput(id);
   const { getEdges, getNodes } = useReactFlow();
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -403,7 +405,7 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      {tracks.length > 0 && (
+      {tracks.length > 0 && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2 space-y-2">
           {tracks.map((t, i) => (
             <div key={t.id || i} className="space-y-1">
