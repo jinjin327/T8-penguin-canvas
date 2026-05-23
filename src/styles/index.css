@@ -180,6 +180,13 @@ body.cut-mode * {
   stroke-dasharray: 6 4 !important;
   opacity: 0.9 !important;
 }
+/* cut-mode 全局加宽未选中 edge 的 stroke 及命中区, 避免黑色细线快速划动跳过 */
+body.cut-mode .react-flow__edge .react-flow__edge-path {
+  stroke-width: 3.5 !important;
+}
+body.cut-mode .react-flow__edge .react-flow__edge-interaction {
+  stroke-width: 36 !important;
+}
 /* 轨迹 SVG overlay (鼠标划过的轨迹, 红色虚线) */
 .cut-overlay-svg .cut-overlay-path {
   stroke: rgba(239, 68, 68, 0.85);

@@ -1413,22 +1413,35 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
 
     const onCutMove = (mv: MouseEvent) => {
       if (!cutting) return;
+      // 上一个鼠标点 → 当前点 之间插值采样，避免快速拖动时跳过细 stroke 线(像素主题黑色 edge 仅 2.5px,
+      // 鼠标快速拖动时 mousemove 間距可达 ≥20px,只看当前点会完全跳过该 edge)。
+      const lastPt = cutPoints.length > 0 ? cutPoints[cutPoints.length - 1] : [mv.clientX, mv.clientY];
       cutPoints.push([mv.clientX, mv.clientY]);
       // 最多保留近 200 个点, 避免 polyline 过长
       if (cutPoints.length > 200) cutPoints = cutPoints.slice(-200);
       if (cutPath) {
         cutPath.setAttribute('points', cutPoints.map((p) => p.join(',')).join(' '));
       }
-      // 命中检测: 当前鼠标下所有元素
-      const els = document.elementsFromPoint(mv.clientX, mv.clientY);
-      for (const el of els) {
-        const edgeEl = (el as Element).closest?.('.react-flow__edge') as Element | null;
-        if (!edgeEl) continue;
-        const id = edgeEl.getAttribute('data-id') || '';
-        if (!id) continue;
-        if (!cutSet.has(id)) {
-          cutSet.add(id);
-          edgeEl.classList.add('cut-marked');
+      // 插值采样: 每 4px 一个采样点, 上限 60 点 避免单次 mousemove 量过大
+      const dx = mv.clientX - lastPt[0];
+      const dy = mv.clientY - lastPt[1];
+      const dist = Math.hypot(dx, dy);
+      const steps = Math.min(60, Math.max(1, Math.ceil(dist / 4)));
+      for (let s = 0; s <= steps; s++) {
+        const t = steps === 0 ? 1 : s / steps;
+        const px = lastPt[0] + dx * t;
+        const py = lastPt[1] + dy * t;
+        // 命中检测: 采样点下所有元素
+        const els = document.elementsFromPoint(px, py);
+        for (const el of els) {
+          const edgeEl = (el as Element).closest?.('.react-flow__edge') as Element | null;
+          if (!edgeEl) continue;
+          const id = edgeEl.getAttribute('data-id') || '';
+          if (!id) continue;
+          if (!cutSet.has(id)) {
+            cutSet.add(id);
+            edgeEl.classList.add('cut-marked');
+          }
         }
       }
     };

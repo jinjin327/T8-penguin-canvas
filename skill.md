@@ -1,8 +1,9 @@
 # T8-penguin-canvas · skill.md
 
 > 项目能力 / 接口 / 文件用途速查手册。
-> 版本：v1.5.5 ｜ 仓库：<https://github.com/T8mars/T8-penguin-canvas>
+> 版本：v1.5.6 ｜ 仓库：<https://github.com/T8mars/T8-penguin-canvas>
 >
+> v1.5.6 增量：Shift+拖拽剪刀模式 黑色未选中 edge 命中丢失修复（插值采样避免鼠标跳点 + cut-mode 加宽 stroke）（39）
 > v1.5.5 增量：图像轮询超时上限 120s → 3600s（GPT2 / nano-banana / nano-banana-pro 标准异步路径），避免复杂任务被提前中断（38）
 > v1.5.4 增量：LLM 多模态 image_url 预处理 · 修复上游 /files/* 本地路径透传被上游误读为 base64 导致 convert_request_failed（37）
 >
@@ -3381,6 +3382,110 @@ const payload = { model, messages: normalizedMessages, /* ... */ };
 
 - [src/components/nodes/ImageNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/ImageNode.tsx#L466-L470)——`maxPoll` 60 → 1800
 - [backend/src/routes/proxy.js](file:///e:/PenguinPravite/T8-penguin-canvas/backend/src/routes/proxy.js)——`pollImageTask` 默认 `maxRetries` 60 → 1800
+
+---
+
+## 39. Shift+拖拽剪刀模式黑色 edge 命中丢失修复（v1.5.6）
+
+### 39.1 用户报告
+
+> 按住 shift 时候图标变成剪刀，但是无法剪短这种黑色的线，粉色的线可以，可能是默认没激活的线无法剪断？
+
+### 39.2 根因
+
+edge 在像素主题下默认 stroke-width 仅 **2.5 px**（`theme-pixel.css` `.react-flow__edge-path`），选中/hover 后变 粉色 但宽度不变；剩刀模式原实现为：
+
+```ts
+const onCutMove = (mv: MouseEvent) => {
+  cutPoints.push([mv.clientX, mv.clientY]);
+  // 只看当前鼠标点!
+  const els = document.elementsFromPoint(mv.clientX, mv.clientY);
+  ...
+};
+```
+
+鼠标快速拖动时：mousemove 事件并不连续触发，单次事件间隔可达 **≥20 px**。而 edge 可视 stroke 仅 2.5 px，于是：
+
+```
+上一个 mousemove 点 ·---·---·---· 下一个 mousemove 点
+                         |
+                  edge细线（3 px宽）××××  ··········  鼠标拖拽轨迹
+```
+
+鼠标轨迹从 edge 另一侧跳过去，没有任何一次 mousemove 事件的 `(clientX, clientY)` 落在 edge stroke 上，**命中零**。
+
+选中/hover 后“能剪”是错觉：DeletableEdge 的 `EdgeLabelRenderer` 中央剩刀按钮 26×26 px，其附近区域反而易被采样点命中。
+
+### 39.3 修复
+
+#### 修复 1 插值采样命中（[Canvas.tsx onCutMove](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx#L1414-L1450)）
+
+```ts
+const lastPt = cutPoints.length > 0
+  ? cutPoints[cutPoints.length - 1]
+  : [mv.clientX, mv.clientY];
+cutPoints.push([mv.clientX, mv.clientY]);
+
+const dx = mv.clientX - lastPt[0];
+const dy = mv.clientY - lastPt[1];
+const dist = Math.hypot(dx, dy);
+const steps = Math.min(60, Math.max(1, Math.ceil(dist / 4)));
+for (let s = 0; s <= steps; s++) {
+  const t = steps === 0 ? 1 : s / steps;
+  const px = lastPt[0] + dx * t;
+  const py = lastPt[1] + dy * t;
+  const els = document.elementsFromPoint(px, py);
+  for (const el of els) {
+    const edgeEl = (el as Element).closest?.('.react-flow__edge');
+    if (!edgeEl) continue;
+    const id = edgeEl.getAttribute('data-id') || '';
+    if (!id) continue;
+    if (!cutSet.has(id)) {
+      cutSet.add(id);
+      edgeEl.classList.add('cut-marked');
+    }
+  }
+}
+```
+
+- 每 4 px 一个采样点，上限 60 点避免单次 mousemove 量过大
+- 同一条 edge 仅按 id 去重计算一次，性能无压力
+
+#### 修复 2 视觉 + 命中双保险（[styles/index.css](file:///e:/PenguinPravite/T8-penguin-canvas/src/styles/index.css)）
+
+```css
+body.cut-mode .react-flow__edge .react-flow__edge-path {
+  stroke-width: 3.5 !important;          /* 2.5 → 3.5 可视提示 */
+}
+body.cut-mode .react-flow__edge .react-flow__edge-interaction {
+  stroke-width: 36 !important;           /* 24 → 36 隐形命中区 */
+}
+```
+
+### 39.4 适用范围
+
+- 仅在 `body.cut-mode` （Shift+拖拽 剪刀模式进行中）生效
+- 退出剪刀模式后所有 edge 恢复原始 stroke 宽度
+- 不影响 `DeletableEdge` 本身的 hover 点击剪刀按钮路径
+
+### 39.5 零破坏保证
+
+- 正常状态 edge 视觉一点不变
+- 剩刀高亮（`.cut-marked`）表现不变
+- 轨迹 SVG overlay 不变
+- selected 粉色/hover 粉色 不变
+- 性能：每次 mousemove 的采样点上限 60，与原单点检测相比颗粒度增加极小
+
+### 39.6 验证清单
+
+- [x] `npx tsc --noEmit` 无报错
+- [x] `npx vite build` 成功（5.45s）
+- [ ] Shift+快速拖动鼠标划过黑色未选中 edge 能被剪断（待用户验证）
+
+### 39.7 关键文件
+
+- [src/components/Canvas.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx#L1414-L1450)——`onCutMove` 插值采样
+- [src/styles/index.css](file:///e:/PenguinPravite/T8-penguin-canvas/src/styles/index.css)——`body.cut-mode` 下 edge 加宽规则
 
 ---
 
