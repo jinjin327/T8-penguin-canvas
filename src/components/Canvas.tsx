@@ -1766,6 +1766,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     const fromIns = !isFromSource ? getNodeInputs(fromNode) : [];
 
     return NODE_REGISTRY.flatMap((meta) => {
+      // 隐藏节点不作为候选项出现(仅从主动添加入口中移除,不影响已存在节点连边)
+      if (meta.hidden) return [];
       // 不推荐带动态输出的 upload 作为候选 source⚡但允许它作为 target(upload 本身不受输入,实际最后会被过滤)
       const ports = NODE_PORTS[meta.type];
       if (!ports) return [];

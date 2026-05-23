@@ -61,6 +61,12 @@ export interface NodeMeta {
   description: string;
   icon: string; // lucide-react 图标名
   color: string; // tailwind 色阶
+  /**
+   * 是否在 UI 入口暂时隐藏(Sidebar 节点列表 + 端口拖出候选选择器)。
+   * 节点本身仍然在 NODE_REGISTRY 中注册到 nodeTypes,以保证已存在画布数据加载与渲染兼容,
+   * 仅从用户主动添加入口中移除。设为 true 即等价于「暂时不展示」。
+   */
+  hidden?: boolean;
 }
 
 // 画布节点数据(xyflow Node.data)
