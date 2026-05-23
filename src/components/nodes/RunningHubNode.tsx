@@ -174,7 +174,15 @@ const RunningHubNode = ({ id, data, selected }: NodeProps) => {
       if (vt === 'image' || vt === 'video' || vt === 'audio') {
         const v = String(fieldValue || '').trim();
         if (!v) continue; // 未提供资源 → 跳过该条目
-        if (/^https?:\/\//i.test(v) || v.startsWith('/files/output/') || v.startsWith('/output/')) {
+        // 判定为本地/远程 url 的样式 → 走 /upload-asset 转 fileName
+        // 包含：https:// / /files/output/ / /output/ / /files/input/ / /input/
+        const isUrlLike =
+          /^https?:\/\//i.test(v) ||
+          v.startsWith('/files/output/') ||
+          v.startsWith('/output/') ||
+          v.startsWith('/files/input/') ||
+          v.startsWith('/input/');
+        if (isUrlLike) {
           const r = await uploadRhAsset(v);
           fieldValue = r.fileName;
         } else {
@@ -206,12 +214,22 @@ const RunningHubNode = ({ id, data, selected }: NodeProps) => {
         const r = await queryRh(tid);
         if (r.status === 'SUCCESS') {
           stopPoll();
-          update({
-            status: 'success',
-            urls: r.urls,
-            // 把第一张图作为 imageUrl 输出给下游
-            imageUrl: r.urls[0],
-          });
+          // 按后缀分流到 imageUrl/videoUrl/audioUrl，避免视频 url 被填到 imageUrl 导致
+          // OutputNode 当图片渲染而空白。
+          const list: string[] = Array.isArray(r.urls) ? r.urls : [];
+          const isImg = (u: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(u);
+          const isVid = (u: string) => /\.(mp4|webm|mov|m4v|mkv)$/i.test(u);
+          const isAud = (u: string) => /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(u);
+          const firstImg = list.find(isImg);
+          const firstVid = list.find(isVid);
+          const firstAud = list.find(isAud);
+          const patch: any = { status: 'success', urls: list };
+          if (firstImg) patch.imageUrl = firstImg;
+          if (firstVid) patch.videoUrl = firstVid;
+          if (firstAud) patch.audioUrl = firstAud;
+          // 都不匹配时退回原逻辑（首个当 imageUrl）以保证向后兼容
+          if (!firstImg && !firstVid && !firstAud && list[0]) patch.imageUrl = list[0];
+          update(patch);
         } else if (r.status === 'FAILED') {
           stopPoll();
           // failReason 可能是 ComfyUI 报错对象(含 traceback/exception_type 等)，

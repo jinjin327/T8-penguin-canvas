@@ -2012,9 +2012,16 @@ router.post('/runninghub/upload-asset', express.json({ limit: '20mb' }), async (
     let mime = 'application/octet-stream';
     let baseName = 'asset';
     if (url.startsWith('/files/output/') || url.startsWith('/output/')) {
-      // 本地静态资源
+      // 本地静态资源 - 输出目录
       const rel = url.replace(/^\/files\/output\//, '').replace(/^\/output\//, '');
       const full = path.join(config.OUTPUT_DIR, rel);
+      if (!fs.existsSync(full)) return res.status(404).json({ success: false, error: '本地文件不存在: ' + url });
+      buf = fs.readFileSync(full);
+      baseName = path.basename(full);
+    } else if (url.startsWith('/files/input/') || url.startsWith('/input/')) {
+      // 本地静态资源 - 上传目录（视频/音频/参考图上传节点的产物）
+      const rel = url.replace(/^\/files\/input\//, '').replace(/^\/input\//, '');
+      const full = path.join(config.INPUT_DIR, rel);
       if (!fs.existsSync(full)) return res.status(404).json({ success: false, error: '本地文件不存在: ' + url });
       buf = fs.readFileSync(full);
       baseName = path.basename(full);
