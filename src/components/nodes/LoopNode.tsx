@@ -191,15 +191,14 @@ const LoopNode = (p: NodeProps) => {
     const order = topologicalSort(subNodes, subEdges, EXEC_TYPES);
     if (order.length === 0) { setError('下游链路上没有可执行节点'); update({ status: 'error', error: '无可执行节点' }); return; }
 
-    // v1.2.8.3: 子图末端 OutputNode 集合（跨轮累积呈现多轮产物，避免中间节点 imageUrl 被下一轮覆盖后丢失历史输出）
-    const outputNodeIds = new Set(subNodes.filter((n) => n.type === 'output').map((n) => n.id));
+    // v1.2.8.7: 清掉12.8.5/12.8.6 残留的原 OutputNode direct*Urls (避免上次跨轮累积污染本轮)
+    //         原 OutputNode 本轮只负责「动态显示当前轮」, 上一轮的快照会被克隆为独立节点保留
+    const outputNodeIds = new Set<string>(subNodes.filter((n) => n.type === 'output').map((n) => n.id));
     if (outputNodeIds.size > 0) {
-      // 开始新一轮串联前，清空这些 OutputNode 的 direct*Urls 以免混入上一次循环遗留
       rf.setNodes((prev) => prev.map((nd) => {
         if (!outputNodeIds.has(nd.id)) return nd;
         const od: any = nd.data || {};
         const next: any = { ...od };
-        // v1.2.8.5: 不论当前 kind 是什么, 都一次性清掉 direct* 多产物累积池, 避免不同轮次 kind 切换遗留
         next.directImageUrls = [];
         next.directVideoUrls = [];
         next.directAudioUrls = [];
@@ -211,8 +210,58 @@ const LoopNode = (p: NodeProps) => {
     const collected: Array<string | null> = [];
     let okCount = 0; let failCount = 0;
 
+    // v1.2.8.7: 保存上一轮源头快照, 用于下一轮开始时克隆为独立 OutputNode
+    const pendingSnapshot: Map<string, string[]> = new Map();
+    const CLONE_Y_GAP = 60;
+    const CLONE_HEIGHT_EST = 580;
+
     for (let i = 0; i < items.length; i++) {
       if (cancelRef.current) break;
+
+      // === v1.2.8.7: 第 i 轮 (i>=1) 开始前, 先把上一轮的源头快照克隆为独立 OutputNode 节点 ===
+      if (i >= 1 && pendingSnapshot.size > 0 && outputNodeIds.size > 0) {
+        rf.setNodes((prev) => {
+          const additions: Node[] = [];
+          for (const outId of Array.from(outputNodeIds)) {
+            const orig = prev.find((n) => n.id === outId);
+            if (!orig) continue;
+            const snap = pendingSnapshot.get(outId) || [];
+            if (snap.length === 0) continue;
+            const cloneData: any = { ...((orig.data as any) || {}) };
+            const baseLabel = (orig.data as any)?.label || '输出素材';
+            cloneData.label = `${baseLabel} · 轮次 ${i}`;
+            // 清掉所有 direct* / 透传字段, 仅写本克隆轮对应 kind 快照
+            cloneData.directImageUrl = '';
+            cloneData.directImageUrls = [];
+            cloneData.directVideoUrl = '';
+            cloneData.directVideoUrls = [];
+            cloneData.directAudioUrl = '';
+            cloneData.directAudioUrls = [];
+            cloneData.directOutputText = '';
+            cloneData.imageUrl = '';
+            cloneData.imageUrls = [];
+            cloneData.videoUrl = '';
+            cloneData.videoUrls = [];
+            cloneData.audioUrl = '';
+            cloneData.audioUrls = [];
+            cloneData.outputText = '';
+            if (kind === 'image') cloneData.directImageUrls = snap.slice();
+            else if (kind === 'video') cloneData.directVideoUrls = snap.slice();
+            else if (kind === 'audio') cloneData.directAudioUrls = snap.slice();
+            else cloneData.directOutputText = snap.join('\n\n');
+            additions.push({
+              ...orig,
+              id: `${outId}__loop_${id}_r${i}`,
+              position: { x: orig.position.x, y: orig.position.y + (CLONE_HEIGHT_EST + CLONE_Y_GAP) * i },
+              selected: false,
+              data: cloneData,
+            } as Node);
+          }
+          return additions.length > 0 ? [...prev, ...additions] : prev;
+        });
+        pendingSnapshot.clear();
+      }
+
       // 1. 注入第 i 个素材到本节点 (同时 reset 下游上一轮产出, 避免老状态脱裤子)
       update({ ...buildResetPatch(kind), ...buildItemPatch(kind, items[i].url) });
       // 重要: rAF 一帧不够 xyflow store 落盘 + 下游 useNodesData 重渲染, 需 setTimeout(80)
@@ -237,15 +286,13 @@ const LoopNode = (p: NodeProps) => {
       if (result) okCount++; else failCount++;
       update({ outputs: [...collected], progress: { done: i + 1, total: items.length, ok: okCount, fail: failCount } });
 
-      // v1.2.8.6: 本轮收尾——直接读每个 OutputNode 的上游源头节点 data（按 sourceHandle 过滤）
-      //           以避免依赖 OutputNode 透传 useEffect 的异步时序 —— 上轮的 awaitNode 返回后,
-      //           生成节点 (如 FramePair) 的 firstFrameUrl/lastFrameUrl 已落盘, 源头字段就是本轮产物。
-      //           这样无论 OutputNode 透传是否到位, LoopNode 都能拿到本轮真实快照。
+      // === v1.2.8.7: 本轮收尾——读每个 OutputNode 上游源头 (按 sourceHandle 过滤) 存入 pendingSnapshot
+      //           下一轮开始时以此快照克隆为独立 OutputNode 节点 (保留本轮成果)
+      //           原 OutputNode 透过透传机制自然显示本轮值, 不需手动写入
       if (outputNodeIds.size > 0) {
-        // 小额等待 (40ms) 让上游节点 update() 后的 setNodes 提交到 xyflow store, rf.getNode 能读到新值
         await new Promise<void>((r) => setTimeout(() => r(), 40));
-        const liveByOutput = new Map<string, string[]>();
-        for (const outId of outputNodeIds) {
+        pendingSnapshot.clear();
+        for (const outId of Array.from(outputNodeIds)) {
           const inbound = rf.getEdges().filter((e) => e.target === outId);
           const live: string[] = [];
           const pushUniq = (arr: string[], v: any) => {
@@ -259,7 +306,6 @@ const LoopNode = (p: NodeProps) => {
             if (!upNode) continue;
             const ud: any = upNode.data || {};
             const sh: string | null = (e as any).sourceHandle ?? null;
-            // FramePair: 按 sourceHandle 过滤
             const isFramePair =
               Object.prototype.hasOwnProperty.call(ud, 'firstFrameUrl') &&
               Object.prototype.hasOwnProperty.call(ud, 'lastFrameUrl');
@@ -269,7 +315,6 @@ const LoopNode = (p: NodeProps) => {
               else { pushUniq(live, ud.firstFrameUrl); pushUniq(live, ud.lastFrameUrl); }
               continue;
             }
-            // 通用节点: 按 kind 读对应字段
             if (kind === 'image') {
               pushUniq(live, ud.imageUrl);
               if (Array.isArray(ud.imageUrls)) ud.imageUrls.forEach((u: any) => pushUniq(live, u));
@@ -282,37 +327,14 @@ const LoopNode = (p: NodeProps) => {
               pushUniq(live, ud.audioUrl);
               pushUniq(live, ud.audioUrl_1);
               if (Array.isArray(ud.audioUrls)) ud.audioUrls.forEach((u: any) => pushUniq(live, u));
+            } else {
+              if (typeof ud.outputText === 'string' && ud.outputText) pushUniq(live, ud.outputText);
+              if (typeof ud.reply === 'string' && ud.reply) pushUniq(live, ud.reply);
+              if (typeof ud.text === 'string' && ud.text) pushUniq(live, ud.text);
             }
           }
-          liveByOutput.set(outId, live);
+          if (live.length > 0) pendingSnapshot.set(outId, live);
         }
-        rf.setNodes((prev) => prev.map((nd) => {
-          if (!outputNodeIds.has(nd.id)) return nd;
-          const live = liveByOutput.get(nd.id) || [];
-          if (live.length === 0) return nd;
-          const od: any = nd.data || {};
-          const next: any = { ...od };
-          if (kind === 'image') {
-            const cur = Array.isArray(od.directImageUrls) ? od.directImageUrls.slice() : [];
-            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
-            next.directImageUrls = cur;
-          } else if (kind === 'video') {
-            const cur = Array.isArray(od.directVideoUrls) ? od.directVideoUrls.slice() : [];
-            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
-            next.directVideoUrls = cur;
-          } else if (kind === 'audio') {
-            const cur = Array.isArray(od.directAudioUrls) ? od.directAudioUrls.slice() : [];
-            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
-            next.directAudioUrls = cur;
-          } else {
-            // text 入 directOutputText (拼接)
-            const liveText = live.join('\n\n');
-            const sep = '\n\n\u2500\u2500\u2500\u2500\u2500\u2500\n\n';
-            const prev2: string = typeof od.directOutputText === 'string' ? od.directOutputText : '';
-            next.directOutputText = prev2 ? prev2 + sep + liveText : liveText;
-          }
-          return { ...nd, data: next };
-        }));
       }
     }
 
