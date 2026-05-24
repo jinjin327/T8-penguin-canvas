@@ -4839,7 +4839,211 @@ fix(electron+backend): 修复打包后启动报 express 不存在 + 后端打包
   - electron/main.cjs : v1.1.0 → v1.2.0 三处版本号同步
   - backend/src/config.js : 识别 T8PC_PACKAGED/T8PC_USER_DATA/T8PC_FRONTEND_DIST
   - backend/src/server.js : 打包模式 express.static + SPA 兑底
-docs(skill+features): §47 / phase27 沉淀打包链路 3 处根因 + SOP + checklist
+ocs(skill+features): §47 / phase27 沉淀打包链路 3 处根因 + SOP + checklist
 ```
+
+---
+
+## 48. SHIFT 多线平移到目标节点失效修复（phantom pointerEvents:none + elementsFromPoint 兜底）
+
+### 48.1 用户报告
+
+> 多条连线按住 SHIFT 平移到其他节点失效了，连不上去。从一个 Seedance2.0（包含图像/音频/视频多种连线）平移到另一个 Seedance2.0，没有反应。
+
+### 48.2 机制回顾
+
+SHIFT 多线批量重连（bulkReconnect）的工作流：
+
+1. SHIFT + mousedown 在某 handle 上 → 收集该 handle 上所有同方向的边（stashed）
+2. 创建一个 `BULK_PHANTOM_ID = '__bulk_phantom__'` 的 phantom 节点（`type: 'bulkPhantom'`），`zIndex: 9999`
+3. 把 stashed 的所有边的 `source/target` 重定向到 phantom，让边实时跟随鼠标
+4. mousemove → 更新 phantom 位置
+5. mouseup → `event.target.closest('.react-flow__handle')` 拿到落点 handle → 重连
+
+### 48.3 根因
+
+**phantom wrapper DOM 在 mouseup 瞬间盖在目标 handle 之上**，因为：
+
+- phantom 节点 `zIndex: 9999`（最高层）
+- xyflow 把 phantom 渲染为 `.react-flow__node` wrapper div，跟随鼠标
+- mouseup 时，`event.target` = phantom wrapper（不是目标 handle）
+- `target.closest('.react-flow__handle')` = `null`
+- 直接走 `restoreOriginal()`，平移失效
+
+### 48.4 修复
+
+**A. phantom 节点添加 `pointerEvents: 'none'`**
+
+```ts
+setNodes((ns) => [...ns, {
+  id: BULK_PHANTOM_ID,
+  type: 'bulkPhantom',
+  position: initFlowPos,
+  data: {},
+  draggable: false, selectable: false, deletable: false,
+  zIndex: 9999,
+  // ⚠️ 关键：phantom wrapper 必须 pointerEvents:none
+  style: { pointerEvents: 'none' },
+} as Node]);
+```
+
+**B. 新增 `findHandleAt(cx, cy)` 工具函数（elementsFromPoint 复数遍历，跳过 phantom）**
+
+```ts
+const findHandleAt = (cx: number, cy: number): HTMLElement | null => {
+  const els = document.elementsFromPoint(cx, cy);
+  for (const el of els) {
+    const h = (el as Element).closest?.('.react-flow__handle') as HTMLElement | null;
+    if (!h) continue;
+    const wrap = h.closest('.react-flow__node') as HTMLElement | null;
+    const nid = h.getAttribute('data-nodeid') || wrap?.getAttribute('data-id') || '';
+    if (nid === BULK_PHANTOM_ID) continue;
+    return h;
+  }
+  return null;
+};
+```
+
+**C. 重写 onMouseUp 双层路径（event.target 快路径 + findHandleAt 兜底）**
+
+```ts
+const onMouseUp = (upEv: MouseEvent) => {
+  const upTargetEl = upEv.target as HTMLElement | null;
+  let upHandleEl = upTargetEl?.closest('.react-flow__handle') as HTMLElement | null;
+  if (upHandleEl) {
+    const wrap = upHandleEl.closest('.react-flow__node') as HTMLElement | null;
+    const nid = upHandleEl.getAttribute('data-nodeid') || wrap?.getAttribute('data-id') || '';
+    if (nid === BULK_PHANTOM_ID) upHandleEl = null;
+  }
+  if (!upHandleEl) upHandleEl = findHandleAt(upEv.clientX, upEv.clientY);
+  cleanup();
+  // ...后续与原逻辑一致
+};
+```
+
+**D. onMouseMove 同步使用 findHandleAt** 让 hover 高亮也跳过 phantom 自身。
+
+### 48.5 关键设计要点
+
+- `pointerEvents:none` 让 phantom DOM 不响应任何鼠标事件，鼠标事件完整穿透到下层
+- 即使 `pointerEvents:none` 失效（某些 React 重渲染时序问题），`elementsFromPoint`（**复数**）依然能遍历坐标下所有命中元素，主动跳过 phantom
+- 双重保险：A 是首选，B 是兜底；任何一个生效即可
+
+### 48.6 兼容性
+
+- 不影响：单线重连、SHIFT 拉新连线、SHIFT 剪刀、Alt 拖克隆、ESC 取消
+- 不影响：phantom 节点自身的边渲染（边是渲染在 SVG 层，不受 wrapper pointerEvents 影响）
+
+### 48.7 验收清单
+
+- [x] SHIFT + 多边起点 mousedown → phantom 出现、边跟随鼠标 ✅
+- [x] mousemove 经过其他节点同方向 handle → 高亮 ✅
+- [x] mouseup 落在目标节点 handle 上 → 边批量重连成功 ✅
+- [x] mouseup 落在空白 → 还原原始连接 ✅
+- [x] ESC 取消 → 还原原始连接 ✅
+
+### 48.8 关键文件
+
+- `src/components/Canvas.tsx` ~1570 行：BulkPhantomNode 注册
+- `src/components/Canvas.tsx` ~1577 行：phantom 节点 `style: { pointerEvents: 'none' }`
+- `src/components/Canvas.tsx` ~1657 行：`findHandleAt` 工具函数
+- `src/components/Canvas.tsx` ~1701 行：`onMouseUp` 双层路径
+
+---
+
+## 49. 终端日志「暂无日志」反复失效修复（防再丢失规范）
+
+### 49.1 问题历史
+
+| 时间 | commit | 现象 | 根因 |
+|---|---|---|---|
+| 早期 | 4ae4570 | 终端面板「暂无日志」 | RH 节点只有 console.log，未调用 logBus |
+| 2026-05-24 | d5430c2（灾难 rebase） | 终端面板「暂无日志」+ 多个良好 commit 内容被回退 | rebase 冲突解决错误，把 14833fa~295c700 累积良好内容全部回滚到旧版（含 logBus 接入也被一并回退） |
+| 2026-05-24 修复 | 295c700 reset + 重做 | 恢复 4ae4570 的 logBus 接入 + 增加 §49 防再丢失规范 | 不再依赖单点修复，固化流程 |
+
+### 49.2 架构图
+
+```
+业务节点（AudioNode/SeedanceNode/ImageNode/RunningHubNode/...）
+   │
+   │ logBus.info/success/warn/error/debug(message, source?)
+   ▼
+useLogStore.entries（zustand 单例）
+   │
+   │ TerminalPanel useLogStore((s) => s.entries) 订阅
+   ▼
+TerminalPanel UI（顶部计数 + 内容列表）
+```
+
+**关键点**：useLogStore / TerminalPanel / logBus 三件套始终正常；问题只会出在「业务节点是否调用 logBus.xxx()」这一环。
+
+### 49.3 防再丢失三道防线
+
+**A. 顶部 import 警告注释**
+
+业务节点（特别是 RunningHubNode）顶部 import 必须保留警告：
+
+```ts
+// ⚠️ 重要：必须 import logBus。RunningHubNode 不能只用 console.log 输出调试信息，
+// 否则终端面板（TerminalPanel）会显示「暂无日志」。console 与 logBus 必须同步调用。
+// 重构该节点请保留该导入与所有调用点。参考 skill.md §49。
+import { logBus } from '../../stores/logs';
+```
+
+**B. RunningHubNode 9 个必设调用点表**
+
+| 场景 | level | 调用示例 |
+|---|---|---|
+| 字段从上游覆写 | debug | `logBus.debug(\`字段 ${name} 从上游覆写 → ${url}\`, src)` |
+| 提交任务 | info | `logBus.info(\`提交任务 · webappId=${id} · ${cnt} 个字段\`, src)` |
+| 拿到 taskId | success | `logBus.success(\`异步任务已提交 taskId=${id} 进入轮询…\`, src)` |
+| submit 抛错 | error | `logBus.error(\`submit 失败：${msg}\`, src)` |
+| 轮询进度（30s 一次） | debug | `logBus.debug(\`[${s}s] status=${st} code=${c} urls=${u}\`, src)` |
+| 轮询完成 | success | `logBus.success(\`任务完成 · ${n} 个输出 → ${first}\`, src)` |
+| 任务 FAILED | error | `logBus.error(\`生成失败: ${reason}\`, src)` |
+| 轮询 catch | warn | `logBus.warn(\`轮询异常: ${err}\`, src)` |
+| 用户主动停止 | warn | `logBus.warn('用户主动停止', src)` |
+
+**C. src 命名空间约定**
+
+函数体顶端必须定义：
+
+```ts
+// ⚠️ src 是终端日志面板的「来源 tag」，不要删除
+const src = `rh:${id}`;          // RunningHubNode
+// 其他节点对应：`audio:${id}` / `image:${id}` / `seedance:${id}` / `llm:${id}`
+```
+
+### 49.4 反重构检查表（每次修改业务节点必跑）
+
+- [ ] 顶部 `import { logBus } from '../../stores/logs'` 是否保留？
+- [ ] 函数体顶端 `const src = '<ns>:${id}'` 是否保留？
+- [ ] 9 个调用点（B 表）是否齐全？
+- [ ] 每个 console.log 是否有同行 logBus.xxx 同步调用？
+- [ ] `npx tsc --noEmit` 是否 0 错误？
+- [ ] 启动应用 → 触发节点运行 → TerminalPanel 顶部计数是否从 0 立即递增？
+
+### 49.5 其他节点接入现状
+
+| 节点 | logBus 调用次数 | 状态 |
+|---|---|---|
+| RunningHubNode.tsx | 9+ | ✅ |
+| AudioNode.tsx | 13 | ✅ |
+| SeedanceNode.tsx | 10 | ✅ |
+| ImageNode.tsx | 多处 | ✅ |
+| LlmNode / SunoNode / ... | 各自具备 | ✅ |
+
+### 49.6 关键文件
+
+- `src/stores/logs.ts`：useLogStore + logBus 双接口（**正常，不需改**）
+- `src/components/TerminalPanel.tsx`：UI 订阅（**正常，不需改**）
+- `src/components/nodes/RunningHubNode.tsx`：⚠️ **高重构频繁区域，每次改完必跑 49.4 检查表**
+
+### 49.7 经验教训
+
+1. **永远不要随意 git pull --rebase 解决冲突**——上游远端的"开源公开重构"如果对工作目录的累积良好内容有侵入性 diff，rebase 会把累积内容判为"被远端删除"而回退。
+2. **有冲突时优先用 `git pull --no-rebase` (merge) 或新建分支再合并**，避免 rebase 把本地已有提交的内容反向回退。
+3. **大量功能丢失时立刻 `git reflog` 找最近的健康 HEAD**，用 `git reset --hard <hash>` 抢救，绝不要在损坏的状态上继续叠加 commit。
+4. **每次 push 前都用 `git diff --stat <upstream> HEAD`** 检查 diff 规模——如果 deletions 远多于 insertions，必须警觉。
 
 ---

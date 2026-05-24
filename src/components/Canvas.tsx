@@ -1582,6 +1582,10 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             selectable: false,
             deletable: false,
             zIndex: 9999,
+            // ⚠️ 关键：phantom wrapper 必须 pointerEvents:none，否则它会盖在目标 handle 之上拦截 mouseup.target，
+            //         导致 SHIFT 多线平移到目标节点时 target.closest('.react-flow__handle') = null，平移直接失效。
+            //         详见 skill.md §43。
+            style: { pointerEvents: 'none' },
           } as Node,
         ];
       });
@@ -1650,6 +1654,21 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         }
       };
 
+      // ⚠️ 双层兜底：跳过 phantom 节点自身，从坐标下命中所有元素中找出真正的 handle
+      //         详见 skill.md §43
+      const findHandleAt = (cx: number, cy: number): HTMLElement | null => {
+        const els = document.elementsFromPoint(cx, cy);
+        for (const el of els) {
+          const h = (el as Element).closest?.('.react-flow__handle') as HTMLElement | null;
+          if (!h) continue;
+          const wrap = h.closest('.react-flow__node') as HTMLElement | null;
+          const nid = h.getAttribute('data-nodeid') || wrap?.getAttribute('data-id') || '';
+          if (nid === BULK_PHANTOM_ID) continue;
+          return h;
+        }
+        return null;
+      };
+
       const onMouseMove = (mv: MouseEvent) => {
         // 更新 phantom 节点位置 → 边跟随鼠标移动
         const fp = screenToFlowPosition({ x: mv.clientX, y: mv.clientY });
@@ -1658,9 +1677,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             n.id === BULK_PHANTOM_ID ? { ...n, position: fp } : n
           )
         );
-        // 高亮 hover 到的同类型 handle
-        const elUnder = document.elementFromPoint(mv.clientX, mv.clientY) as HTMLElement | null;
-        const hoverHandle = elUnder?.closest('.react-flow__handle') as HTMLElement | null;
+        // 高亮 hover 到的同类型 handle（用 elementsFromPoint 复数遍历，跳过 phantom 自身）
+        const hoverHandle = findHandleAt(mv.clientX, mv.clientY);
         if (hoverHandle) {
           // 排除自身起点节点的 handle 以及 phantom 自身
           const hoverNodeEl = hoverHandle.closest('.react-flow__node') as HTMLElement | null;
@@ -1683,8 +1701,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       };
 
       const onMouseUp = (upEv: MouseEvent) => {
+        // 双层路径：先尝试 event.target 快路径，命中 phantom 时用 elementsFromPoint 兜底（详见 skill.md §43）
         const upTargetEl = upEv.target as HTMLElement | null;
-        const upHandleEl = upTargetEl?.closest('.react-flow__handle') as HTMLElement | null;
+        let upHandleEl = upTargetEl?.closest('.react-flow__handle') as HTMLElement | null;
+        if (upHandleEl) {
+          const wrap = upHandleEl.closest('.react-flow__node') as HTMLElement | null;
+          const nid =
+            upHandleEl.getAttribute('data-nodeid') ||
+            wrap?.getAttribute('data-id') ||
+            '';
+          if (nid === BULK_PHANTOM_ID) upHandleEl = null;
+        }
+        if (!upHandleEl) upHandleEl = findHandleAt(upEv.clientX, upEv.clientY);
         cleanup();
 
         if (!upHandleEl) {
