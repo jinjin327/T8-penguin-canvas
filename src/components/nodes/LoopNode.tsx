@@ -60,6 +60,11 @@ function buildResetPatch(kind: MaterialKind) {
 }
 
 // ===== helper: 从某个节点 data 提取对应 kind 的产物 url/text =====
+// v1.2.9.11: kind 不匹配兜底 —— 用户场景: 上游图像 (kind=image) → 循环器 → 视频节点 → OutputNode
+//   原版 extractFromNode(kind='image') 在视频节点上读不到 imageUrl/firstFrameUrl → 返回 null → failCount++,
+//   循环器显示「2/2 失败 2」即使下游视频节点本轮成功生成了 videoUrl。
+//   修复: 优先匹配 kind 字段, 找不到时遍历所有产物字段 (imageUrl / videoUrl / audioUrl / outputText 等)
+//        只要任一非空就视为本轮成功。这样允许「输入图、输出视频」「输入视频、输出音频」等混合产物链路在循环里正常累积。
 function extractFromNode(node: Node | undefined, kind: MaterialKind): string | null {
   if (!node) return null;
   const ud: any = node.data || {};
@@ -83,6 +88,15 @@ function extractFromNode(node: Node | undefined, kind: MaterialKind): string | n
     if (typeof ud.text === 'string' && ud.text) return ud.text;
     if (typeof ud.prompt === 'string' && ud.prompt) return ud.prompt;
   }
+  // v1.2.9.11: kind 不匹配兜底 —— 任何非空产物字段都算成功
+  if (typeof ud.videoUrl === 'string' && ud.videoUrl) return ud.videoUrl;
+  if (typeof ud.audioUrl === 'string' && ud.audioUrl) return ud.audioUrl;
+  if (typeof ud.imageUrl === 'string' && ud.imageUrl) return ud.imageUrl;
+  if (Array.isArray(ud.imageUrls) && ud.imageUrls[0]) return ud.imageUrls[0];
+  if (typeof ud.firstFrameUrl === 'string' && ud.firstFrameUrl) return ud.firstFrameUrl;
+  if (typeof ud.lastFrameUrl === 'string' && ud.lastFrameUrl) return ud.lastFrameUrl;
+  if (typeof ud.outputText === 'string' && ud.outputText) return ud.outputText;
+  if (typeof ud.reply === 'string' && ud.reply) return ud.reply;
   return null;
 }
 

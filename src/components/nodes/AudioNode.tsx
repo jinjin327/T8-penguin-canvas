@@ -131,41 +131,50 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
   const clearUpload = () => update({ uploadedClipId: '', uploadedFilename: '' });
 
   // 轮询: 3000ms × 60 次 (3 分钟) — 对齐主项目默认 maxPoll/pollInt
-  const startPolling = (clipIds: string[]) => {
+  // v1.2.9.11: 返回 Promise，调用方 await 直到任务成功/失败/超时才 resolve/reject。
+  //   原设计中 startPolling 启动 setInterval 后立即返回 → handleGenerate 提交成功后也立即返回→
+  //   useRunTrigger 认为 runFn 完成 markDone(true)。 但实际任务 audioUrl 还未赋值 → LoopNode awaitNode
+  //   立即继续 → extractFromNode 读不到 audioUrl → result=null → failCount++。
+  //   修复后: 轮询完成才 resolve，handleGenerate await 它，什么时候 markDone 什么时候任务真正结束。
+  const startPolling = (clipIds: string[]): Promise<void> => {
     stopPoll();
-    let elapsed = 0;
-    const POLL_INT = 3000;
-    const MAX = 60;
-    pollTimer.current = window.setInterval(async () => {
-      elapsed += 1;
-      if (elapsed > MAX) {
-        stopPoll();
-        update({ status: 'error', error: '轮询超时 (3min)' });
-        setError('轮询超时 (3min)');
-        logBus.error('轮询超时', src);
-        return;
-      }
-      try {
-        const r = await queryAudio(clipIds, true);
-        if (r.status === 'SUCCESS' && r.tracks.length > 0) {
+    return new Promise<void>((resolve, reject) => {
+      let elapsed = 0;
+      const POLL_INT = 3000;
+      const MAX = 60;
+      pollTimer.current = window.setInterval(async () => {
+        elapsed += 1;
+        if (elapsed > MAX) {
           stopPoll();
-          // 双输出口: audioUrl=轨1, audioUrl_1=轨2
-          update({
-            status: 'success',
-            tracks: r.tracks,
-            audioUrl: r.tracks[0]?.audioUrl || '',
-            audioUrl_1: r.tracks[1]?.audioUrl || '',
-            progress: `${r.completed}/${r.total}`,
-          });
-          logBus.success(`完成 ${r.tracks.length} 轨: ${r.tracks.map((t) => t.audioUrl).join(' | ')}`, src);
-        } else {
-          update({ status: 'polling', progress: `${r.completed}/${r.total} · #${elapsed}` });
-          if (elapsed % 3 === 0) logBus.info(`轮询 #${elapsed} · ${r.completed}/${r.total}`, src);
+          update({ status: 'error', error: '轮询超时 (3min)' });
+          setError('轮询超时 (3min)');
+          logBus.error('轮询超时', src);
+          reject(new Error('轮询超时 (3min)'));
+          return;
         }
-      } catch (e: any) {
-        logBus.warn(`轮询出错: ${e?.message}`, src);
-      }
-    }, POLL_INT);
+        try {
+          const r = await queryAudio(clipIds, true);
+          if (r.status === 'SUCCESS' && r.tracks.length > 0) {
+            stopPoll();
+            // 双输出口: audioUrl=轨1, audioUrl_1=轨2
+            update({
+              status: 'success',
+              tracks: r.tracks,
+              audioUrl: r.tracks[0]?.audioUrl || '',
+              audioUrl_1: r.tracks[1]?.audioUrl || '',
+              progress: `${r.completed}/${r.total}`,
+            });
+            logBus.success(`完成 ${r.tracks.length} 轨: ${r.tracks.map((t) => t.audioUrl).join(' | ')}`, src);
+            resolve();
+          } else {
+            update({ status: 'polling', progress: `${r.completed}/${r.total} · #${elapsed}` });
+            if (elapsed % 3 === 0) logBus.info(`轮询 #${elapsed} · ${r.completed}/${r.total}`, src);
+          }
+        } catch (e: any) {
+          logBus.warn(`轮询出错: ${e?.message}`, src);
+        }
+      }, POLL_INT);
+    });
   };
 
   const handleGenerate = async () => {
@@ -203,7 +212,8 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
       logBus.success(`taskId=${r.taskId} clips=${(r.clipIds || []).join(',') || '?'}`, src);
       update({ status: 'polling', taskId: r.taskId, clipIds: r.clipIds, lastPrompt: finalPrompt, progress: '0/?' });
       const idsToPoll = r.clipIds && r.clipIds.length > 0 ? r.clipIds : [r.taskId];
-      startPolling(idsToPoll);
+      // v1.2.9.11: await 轮询 —— 让 useRunTrigger 等到任务真正完成才 markDone，LoopNode awaitNode 才能拿到 audioUrl
+      await startPolling(idsToPoll);
     } catch (e: any) {
       const msg = e?.message || '提交失败';
       setError(msg);

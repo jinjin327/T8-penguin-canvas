@@ -122,49 +122,56 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
 
   useEffect(() => () => stopPoll(), []);
 
-  const startPolling = (tid: string) => {
+  // v1.2.9.11: 返回 Promise，调用方 await 直到任务真正成功/失败/超时才 resolve/reject。
+  //   在循环器中使用时，不 await 会导致 useRunTrigger 提前 markDone → LoopNode 读不到 videoUrl → result=null → failCount++。
+  const startPolling = (tid: string): Promise<void> => {
     stopPoll();
-    let elapsed = 0;
-    const POLL_MS = Math.max(2, pollInt) * 1000;
-    const MAX = Math.max(10, maxPoll);
-    let lastProgress = '';
-    pollTimer.current = window.setInterval(async () => {
-      elapsed += 1;
-      if (elapsed > MAX) {
-        stopPoll();
-        update({ status: 'error', error: '轮询超时' });
-        setError('轮询超时');
-        logBus.error(`Seedance 轮询超时(${MAX}次)`, src);
-        return;
-      }
-      try {
-        const r = await querySeedance(tid);
-        // 进度条估算 (对齐主项目: 30 + a*65/max)
-        const pct = Math.min(95, Math.round(30 + (elapsed * 65) / MAX));
-        if (r.progress && r.progress !== lastProgress) {
-          lastProgress = r.progress;
-          logBus.debug(`[${elapsed}/${MAX}] status=${r.status} progress=${r.progress}`, src);
-        } else if (elapsed % 3 === 0) {
-          logBus.debug(`[${elapsed}/${MAX}] status=${r.status}`, src);
-        }
-        if (r.status === 'succeeded' && r.videoUrl) {
+    return new Promise<void>((resolve, reject) => {
+      let elapsed = 0;
+      const POLL_MS = Math.max(2, pollInt) * 1000;
+      const MAX = Math.max(10, maxPoll);
+      let lastProgress = '';
+      pollTimer.current = window.setInterval(async () => {
+        elapsed += 1;
+        if (elapsed > MAX) {
           stopPoll();
-          update({ status: 'success', videoUrl: r.videoUrl, progress: '100%' });
-          logBus.success(`任务完成 → ${r.videoUrl}`, src);
-        } else if (r.status === 'failed') {
-          stopPoll();
-          const msg = r.failReason || '生成失败';
-          update({ status: 'error', error: msg });
-          setError(msg);
-          logBus.error(`生成失败: ${msg}`, src);
-        } else {
-          update({ status: 'polling', progress: `${pct}%` });
+          update({ status: 'error', error: '轮询超时' });
+          setError('轮询超时');
+          logBus.error(`Seedance 轮询超时(${MAX}次)`, src);
+          reject(new Error('轮询超时'));
+          return;
         }
-      } catch (e: any) {
-        // 偶发失败不停止
-        console.warn('Seedance 轮询出错', e?.message);
-      }
-    }, POLL_MS);
+        try {
+          const r = await querySeedance(tid);
+          // 进度条估算 (对齐主项目: 30 + a*65/max)
+          const pct = Math.min(95, Math.round(30 + (elapsed * 65) / MAX));
+          if (r.progress && r.progress !== lastProgress) {
+            lastProgress = r.progress;
+            logBus.debug(`[${elapsed}/${MAX}] status=${r.status} progress=${r.progress}`, src);
+          } else if (elapsed % 3 === 0) {
+            logBus.debug(`[${elapsed}/${MAX}] status=${r.status}`, src);
+          }
+          if (r.status === 'succeeded' && r.videoUrl) {
+            stopPoll();
+            update({ status: 'success', videoUrl: r.videoUrl, progress: '100%' });
+            logBus.success(`任务完成 → ${r.videoUrl}`, src);
+            resolve();
+          } else if (r.status === 'failed') {
+            stopPoll();
+            const msg = r.failReason || '生成失败';
+            update({ status: 'error', error: msg });
+            setError(msg);
+            logBus.error(`生成失败: ${msg}`, src);
+            reject(new Error(msg));
+          } else {
+            update({ status: 'polling', progress: `${pct}%` });
+          }
+        } catch (e: any) {
+          // 偶发失败不停止
+          console.warn('Seedance 轮询出错', e?.message);
+        }
+      }, POLL_MS);
+    });
   };
 
   const handleGenerate = async () => {
@@ -230,7 +237,8 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
       const r = await submitSeedance(payload);
       update({ status: 'polling', taskId: r.taskId, lastPrompt: finalPrompt, progress: '15%' });
       logBus.info(`异步任务已提交 taskId=${r.taskId}, 进入轮询…`, src);
-      startPolling(r.taskId);
+      // v1.2.9.11: await 让 useRunTrigger 等到任务真正完成才 markDone，循环器才能拿到 videoUrl
+      await startPolling(r.taskId);
     } catch (e: any) {
       const msg = e?.message || '提交失败';
       setError(msg);
