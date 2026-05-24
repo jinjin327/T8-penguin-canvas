@@ -59,6 +59,17 @@ app.use('/api/proxy', proxyRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/image', imageOpsRouter);
 
+// ========== 前端静态资源托管 (Electron 生产模式) ==========
+const FRONTEND_DIST = process.env.T8PC_FRONTEND_DIST;
+if (FRONTEND_DIST && fs.existsSync(FRONTEND_DIST)) {
+  console.log(`[frontend] serving static from: ${FRONTEND_DIST}`);
+  app.use(express.static(FRONTEND_DIST));
+  // SPA fallback: 除 /api /files /output /input 外的路径都返回 index.html
+  app.get(/^\/(?!api|files|output|input|thumbnails).*/, (_req, res) => {
+    res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
+  });
+}
+
 // ========== 启动 ==========
 const PORT = config.PORT;
 const HOST = config.HOST;

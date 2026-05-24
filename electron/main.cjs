@@ -89,31 +89,29 @@ async function startBackend() {
   backendPort = await findFreePort(18766);
   dbgLog(`[backend] picked port=${backendPort}`);
 
-  // 把环境变量传给后端
+  const userData = getUserDataDir();
+  // 预创建 userData 子目录(避免 backend 启动时 mkdir 错误)
+  for (const sub of ['data', 'input', 'output', 'thumbnails']) {
+    const p = path.join(userData, sub);
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+  }
+
+  // 环境变量传递给后端
   process.env.PORT = String(backendPort);
   process.env.HOST = '127.0.0.1';
-  process.env.T8PC_USER_DATA = getUserDataDir();
+  process.env.T8PC_BASE_DIR = userData;          // 后端所有数据目录落到 userData
   process.env.T8PC_PACKAGED = isPackaged() ? '1' : '0';
-  process.env.T8PC_RES = isPackaged() ? process.resourcesPath : path.resolve(__dirname, '..');
-  // 生产模式让 Express 同时托管前端 dist/
   process.env.T8PC_FRONTEND_DIST = isPackaged()
     ? path.join(process.resourcesPath, 'frontend')
     : path.resolve(__dirname, '..', 'dist');
 
-  // 同进程内加载后端,先注册 T8ENC1 + bytenode loader
+  // 同进程加载明文后端(不再走字节码加密那套)
   try {
-    require('./loader.cjs');
-    if (isPackaged()) {
-      // 打包后:加载加密的字节码入口
-      const entry = path.join(process.resourcesPath, 'backend-enc', 'server.t8c');
-      dbgLog(`[backend] loading encrypted entry: ${entry}`);
-      require(entry);
-    } else {
-      // 开发模式:直接 require 源码
-      const entry = path.resolve(__dirname, '..', 'backend', 'src', 'server.js');
-      dbgLog(`[backend] loading dev entry: ${entry}`);
-      require(entry);
-    }
+    const entry = isPackaged()
+      ? path.join(process.resourcesPath, 'app.asar', 'backend', 'src', 'server.js')
+      : path.resolve(__dirname, '..', 'backend', 'src', 'server.js');
+    dbgLog(`[backend] loading entry: ${entry}`);
+    require(entry);
     dbgLog(`[backend] started in-process on http://127.0.0.1:${backendPort}`);
   } catch (e) {
     dbgLog(`[backend] FAILED to start: ${e && e.stack ? e.stack : e}`);
@@ -172,7 +170,7 @@ function createLogWindow() {
 #log{padding:12px 18px;white-space:pre-wrap;line-height:1.5;font-size:12px;}
 </style></head><body>
 <div class="h">🐧 <b>贞贞的无限画布</b>（企鹅共创版）<span style="float:right;color:#666;">v1.2.6</span></div>
-<div id="log">[启动] 正在初始化加密内核 + Express 后端...\n</div>
+<div id="log">[启动] 正在启动 Express 后端 + 前端静态服务...\n</div>
 </body></html>`;
   fs.writeFileSync(logHtmlPath, html, 'utf-8');
 

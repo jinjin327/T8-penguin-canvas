@@ -1,7 +1,8 @@
 const path = require('path');
 
 // T8-penguin-canvas 后端配置
-const PROJECT_DIR = path.resolve(__dirname, '..', '..');
+// 可通过 T8PC_BASE_DIR 环境变量覆盖项目根路径(打包后指向 userData)
+const PROJECT_DIR = process.env.T8PC_BASE_DIR || path.resolve(__dirname, '..', '..');
 
 const config = {
   // 服务器
