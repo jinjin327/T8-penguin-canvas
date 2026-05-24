@@ -89,6 +89,8 @@ const SPECIFIC_NODES: Record<string, any> = {
   audio: AudioNode,
   llm: LLMNode,
   runninghub: RunningHubNode,
+  // RH 钱包应用：复用 RunningHubNode，但节点内部会根据 type 识别并使用独立 APIKEY（rhWalletApiKey）
+  'runninghub-wallet': RunningHubNode,
   'rh-config': RhConfigNode,
   // Special (5)
   'multi-angle-3d': PresetImageNode,
@@ -162,7 +164,7 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
 const EXECUTABLE_NODE_TYPES = new Set<string>([
   'image', 'edit',
   'multi-angle-3d', 'panorama-720', 'penguin-portrait',
-  'video', 'seedance', 'audio', 'llm', 'runninghub',
+  'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
   'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine',
   'frame-extractor',
   'upload',
@@ -1566,9 +1568,6 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       const initFlowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
 
       // 1) 创建 phantom 节点
-      // 关键: pointerEvents:'none' 让 phantom wrapper 不拦截鼠标事件,
-      // 避免 phantom 跟随鼠标移动时,在 mouseup 瞬间盖住目标节点的 handle,
-      // 导致 event.target 落在 phantom 上而无法识别落点 handle => 平移失效。
       setNodes((ns) => {
         // 避免重复创建
         if (ns.some((n) => n.id === BULK_PHANTOM_ID)) return ns;
@@ -1583,6 +1582,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             selectable: false,
             deletable: false,
             zIndex: 9999,
+            // ⚠️ 关键：phantom wrapper 必须 pointerEvents:none，否则它会盖在目标 handle 之上拦截 mouseup.target，
+            //         导致 SHIFT 多线平移到目标节点时 target.closest('.react-flow__handle') = null，平移直接失效。
+            //         详见 skill.md §43。
             style: { pointerEvents: 'none' },
           } as Node,
         ];
@@ -1652,14 +1654,13 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         }
       };
 
-      // 在指定屏幕坐标下查找 handle 元素, 跳过 phantom 节点自身。
-      // 使用 elementsFromPoint 遍历所有命中元素, 兜底 phantom 节点 wrapper 仍误拦的极端情况。
+      // ⚠️ 双层兜底：跳过 phantom 节点自身，从坐标下命中所有元素中找出真正的 handle
+      //         详见 skill.md §43
       const findHandleAt = (cx: number, cy: number): HTMLElement | null => {
         const els = document.elementsFromPoint(cx, cy);
         for (const el of els) {
           const h = (el as Element).closest?.('.react-flow__handle') as HTMLElement | null;
           if (!h) continue;
-          // 排除 phantom 节点自身的隐形 handle
           const wrap = h.closest('.react-flow__node') as HTMLElement | null;
           const nid = h.getAttribute('data-nodeid') || wrap?.getAttribute('data-id') || '';
           if (nid === BULK_PHANTOM_ID) continue;
@@ -1676,10 +1677,10 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             n.id === BULK_PHANTOM_ID ? { ...n, position: fp } : n
           )
         );
-        // 高亮 hover 到的同类型 handle (穿透 phantom 节点)
+        // 高亮 hover 到的同类型 handle（用 elementsFromPoint 复数遍历，跳过 phantom 自身）
         const hoverHandle = findHandleAt(mv.clientX, mv.clientY);
         if (hoverHandle) {
-          // 排除自身起点节点的 handle
+          // 排除自身起点节点的 handle 以及 phantom 自身
           const hoverNodeEl = hoverHandle.closest('.react-flow__node') as HTMLElement | null;
           const hoverNodeId =
             hoverHandle.getAttribute('data-nodeid') ||
@@ -1689,6 +1690,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           if (
             hoverNodeId &&
             hoverNodeId !== startNodeId &&
+            hoverNodeId !== BULK_PHANTOM_ID &&
             hoverType === startHandleType
           ) {
             setHoverHL(hoverHandle);
@@ -1699,20 +1701,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       };
 
       const onMouseUp = (upEv: MouseEvent) => {
-        // 兼容 phantom 节点拦截 event.target 的情况:
-        // 1. 优先用 event.target 直接 closest (常规快路径)
-        // 2. 失败则用 elementsFromPoint 在屏幕坐标下穿透寻找,跳过 phantom 自身
+        // 双层路径：先尝试 event.target 快路径，命中 phantom 时用 elementsFromPoint 兜底（详见 skill.md §43）
         const upTargetEl = upEv.target as HTMLElement | null;
         let upHandleEl = upTargetEl?.closest('.react-flow__handle') as HTMLElement | null;
         if (upHandleEl) {
-          // event.target 命中了 phantom 节点的隐形 handle? 视为未命中,走兜底
           const wrap = upHandleEl.closest('.react-flow__node') as HTMLElement | null;
-          const nid = upHandleEl.getAttribute('data-nodeid') || wrap?.getAttribute('data-id') || '';
+          const nid =
+            upHandleEl.getAttribute('data-nodeid') ||
+            wrap?.getAttribute('data-id') ||
+            '';
           if (nid === BULK_PHANTOM_ID) upHandleEl = null;
         }
-        if (!upHandleEl) {
-          upHandleEl = findHandleAt(upEv.clientX, upEv.clientY);
-        }
+        if (!upHandleEl) upHandleEl = findHandleAt(upEv.clientX, upEv.clientY);
         cleanup();
 
         if (!upHandleEl) {
@@ -1935,6 +1935,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       if (Array.isArray(d.generatedImages)) d.generatedImages.forEach(pushImg);
       pushVid(d.videoUrl);
       pushAud(d.audioUrl);
+      // Suno / AudioNode 双轨输出口: audioUrl=轨1, audioUrl_1=轨2
+      // 不取 audioUrl_1 会导致 autoOutput 只创建 1 个 OutputNode
+      pushAud(d.audioUrl_1);
       // 合成 items: 靠 kindIndex 让下游 OutputNode 能准确拾取对应索引的那一项
       const items: Array<{ kind: 'image' | 'video' | 'audio'; url: string; kindIndex: number }> = [
         ...imgs.map((url, i) => ({ kind: 'image' as const, url, kindIndex: i })),
@@ -2242,7 +2245,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         style={{ background: bgColor, color: isDark ? '#71717a' : '#52525b' }}
       >
         <div className="text-center">
-          <div className="text-4xl mb-2">🐧</div>
+          <div className="text-2xl mb-2 font-bold tracking-wide">🐧 贞贞的无限画布（企鹅共创版）</div>
           <p>请先在左侧创建或选择一个画布</p>
         </div>
       </div>
