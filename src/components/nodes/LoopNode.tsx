@@ -67,6 +67,9 @@ function extractFromNode(node: Node | undefined, kind: MaterialKind): string | n
     if (typeof ud.imageUrl === 'string' && ud.imageUrl) return ud.imageUrl;
     if (Array.isArray(ud.imageUrls) && ud.imageUrls[0]) return ud.imageUrls[0];
     if (Array.isArray(ud.urls) && ud.urls[0]) return ud.urls[0];
+    // v1.2.8.5: FramePair 节点兼容 (firstFrameUrl/lastFrameUrl 两个字段中任一表明本轮有产物)
+    if (typeof ud.firstFrameUrl === 'string' && ud.firstFrameUrl) return ud.firstFrameUrl;
+    if (typeof ud.lastFrameUrl === 'string' && ud.lastFrameUrl) return ud.lastFrameUrl;
   } else if (kind === 'video') {
     if (typeof ud.videoUrl === 'string' && ud.videoUrl) return ud.videoUrl;
   } else if (kind === 'audio') {
@@ -196,10 +199,11 @@ const LoopNode = (p: NodeProps) => {
         if (!outputNodeIds.has(nd.id)) return nd;
         const od: any = nd.data || {};
         const next: any = { ...od };
-        if (kind === 'image') next.directImageUrls = [];
-        else if (kind === 'video') next.directVideoUrls = [];
-        else if (kind === 'audio') next.directAudioUrls = [];
-        else next.outputText = '';
+        // v1.2.8.5: 不论当前 kind 是什么, 都一次性清掉 direct* 多产物累积池, 避免不同轮次 kind 切换遗留
+        next.directImageUrls = [];
+        next.directVideoUrls = [];
+        next.directAudioUrls = [];
+        next.directOutputText = '';
         return { ...nd, data: next };
       }));
     }
@@ -233,16 +237,56 @@ const LoopNode = (p: NodeProps) => {
       if (result) okCount++; else failCount++;
       update({ outputs: [...collected], progress: { done: i + 1, total: items.length, ok: okCount, fail: failCount } });
 
-      // v1.2.8.3: 本轮产物累积到子图末端 OutputNode 的 direct*Urls (该字段在 OutputNode 内走 pushUnique 去重)
-      if (result && outputNodeIds.size > 0) {
+      // v1.2.8.5: 本轮收尾——不再仅拿 directs[0] 的 result 单值, 而是读每个子图末端 OutputNode
+      //           本轮实际显示的 imageUrl + imageUrls / videoUrl + videoUrls / audioUrl + audioUrls / outputText
+      //           增量合并到自身 direct*Urls (去重) 。 这样无论上游是单字段节点还是 FramePair 这种
+      //           一轮产 N 张的多端口节点, 都能正确累积 (OutputNode 自己已按 sourceHandle 过滤到应该显示的子集)
+      if (outputNodeIds.size > 0) {
+        // 等 awaitNode 完成后上游节点 data 已落盘, 再等 100ms 让 OutputNode useEffect 透传从 collected 写到自身 data
+        await new Promise<void>((r) => setTimeout(() => r(), 100));
         rf.setNodes((prev) => prev.map((nd) => {
           if (!outputNodeIds.has(nd.id)) return nd;
           const od: any = nd.data || {};
           const next: any = { ...od };
-          if (kind === 'image') next.directImageUrls = [...(Array.isArray(od.directImageUrls) ? od.directImageUrls : []), result];
-          else if (kind === 'video') next.directVideoUrls = [...(Array.isArray(od.directVideoUrls) ? od.directVideoUrls : []), result];
-          else if (kind === 'audio') next.directAudioUrls = [...(Array.isArray(od.directAudioUrls) ? od.directAudioUrls : []), result];
-          else next.outputText = (typeof od.outputText === 'string' && od.outputText ? od.outputText + '\n\n\u2500\u2500\u2500\u2500\u2500\u2500\n\n' : '') + result;
+          const collectLive = (single: any, multi: any): string[] => {
+            const out: string[] = [];
+            if (typeof single === 'string' && single) out.push(single);
+            if (Array.isArray(multi)) {
+              for (const u of multi) {
+                if (typeof u === 'string' && u && out.indexOf(u) === -1) out.push(u);
+              }
+            }
+            return out;
+          };
+          if (kind === 'image') {
+            const live = collectLive(od.imageUrl, od.imageUrls);
+            const cur = Array.isArray(od.directImageUrls) ? od.directImageUrls.slice() : [];
+            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
+            next.directImageUrls = cur;
+          } else if (kind === 'video') {
+            const live = collectLive(od.videoUrl, od.videoUrls);
+            const cur = Array.isArray(od.directVideoUrls) ? od.directVideoUrls.slice() : [];
+            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
+            next.directVideoUrls = cur;
+          } else if (kind === 'audio') {
+            const live = collectLive(od.audioUrl, od.audioUrls);
+            // audioUrl_1 也归入 (Suno 双轨副轨)
+            if (typeof od.audioUrl_1 === 'string' && od.audioUrl_1 && live.indexOf(od.audioUrl_1) === -1) live.push(od.audioUrl_1);
+            const cur = Array.isArray(od.directAudioUrls) ? od.directAudioUrls.slice() : [];
+            for (const u of live) if (cur.indexOf(u) === -1) cur.push(u);
+            next.directAudioUrls = cur;
+          } else {
+            const liveText = (typeof od.outputText === 'string' && od.outputText)
+              ? od.outputText
+              : (typeof od.reply === 'string' && od.reply ? od.reply : (typeof od.text === 'string' ? od.text : ''));
+            if (liveText) {
+              const sep = '\n\n\u2500\u2500\u2500\u2500\u2500\u2500\n\n';
+              // outputText 是 OutputNode 的「用户覆盖」字段, 不再写它 (避免跳实时透传路径)
+              // 改写到 directOutputText 字段——OutputNode 下一轮接受 (如果存在)
+              const prev2: string = typeof next.directOutputText === 'string' ? next.directOutputText : '';
+              next.directOutputText = prev2 ? prev2 + sep + liveText : liveText;
+            }
+          }
           return { ...nd, data: next };
         }));
       }

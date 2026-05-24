@@ -223,6 +223,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     if (Array.isArray(d.directAudioUrls)) {
       d.directAudioUrls.forEach((u: any) => pushUnique(out.audios, u));
     }
+    // v1.2.8.5: 循环器跨轮累积的文本联接作为独立一项加入 (已含 —— 分隔符)
+    if (typeof d.directOutputText === 'string' && d.directOutputText) {
+      pushUniqueText(out.texts, d.directOutputText);
+    }
 
     // 兜底: 一些节点把视频/音频塞在 imageUrl, 通过扩展名识别再纠正
     out.images = out.images.filter((u) => {
@@ -264,7 +268,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     }
 
     return out;
-  }, [upstreamNodes, upstreamSig, handleMap, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls, d.directVideoUrl, d.directVideoUrls, d.directAudioUrl, d.directAudioUrls]);
+  }, [upstreamNodes, upstreamSig, handleMap, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls, d.directVideoUrl, d.directVideoUrls, d.directAudioUrl, d.directAudioUrls, d.directOutputText]);
 
   // 文本编辑
   const overrideText: string = typeof d.outputText === 'string' ? d.outputText : '';
