@@ -386,74 +386,85 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
     return out;
   };
 
-  const startPolling = (tid: string) => {
+  // v1.2.9.12: 返回 Promise，调用方 await 直到任务真正成功/失败/超时才 resolve/reject。
+  //   原设计中 startPolling 启动 setInterval 后立即返回 → handleRun 提交后也立即返回 →
+  //   useRunTrigger 认为 runFn 完成 markDone(true)。但实际任务 urls/imageUrl/videoUrl 还未赋值 →
+  //   LoopNode awaitNode 立即继续 → extractFromNode 读不到产物 → result=null → failCount++。
+  //   修复: 轮询完成才 resolve，handleRun await 它，markDone 时机=任务真正结束。
+  //   同样适用于 RH 钱包应用节点 (runninghubWallet)，同一个组件复用。
+  const startPolling = (tid: string): Promise<void> => {
     stopPoll();
-    let elapsed = 0;
-    const POLL_INT = 5000;
-    const MAX = 480;
-    pollTimer.current = window.setInterval(async () => {
-      elapsed += 1;
-      if (elapsed > MAX) {
-        stopPoll();
-        update({ status: 'error', error: '轮询超时' });
-        setError('轮询超时');
-        return;
-      }
-      try {
-        const r = await queryRh(tid, useWallet);
-        console.log('[RH/poll] taskId=', tid, 'status=', r.status, 'code=', r.code, 'urls=', r.urls?.length || 0);
-        // 轮询进度写入面板：每 30s 一条 debug，避免刷屏
-        if (elapsed % 6 === 0) {
-          logBus.debug(`[${elapsed * 5}s] status=${r.status} code=${r.code} urls=${r.urls?.length || 0}`, src);
+    return new Promise<void>((resolve, reject) => {
+      let elapsed = 0;
+      const POLL_INT = 5000;
+      const MAX = 480;
+      pollTimer.current = window.setInterval(async () => {
+        elapsed += 1;
+        if (elapsed > MAX) {
+          stopPoll();
+          update({ status: 'error', error: '轮询超时' });
+          setError('轮询超时');
+          reject(new Error('轮询超时'));
+          return;
         }
-        if (r.status === 'SUCCESS') {
-          stopPoll();
-          // 按后缀分流到 imageUrl/videoUrl/audioUrl，避免视频 url 被填到 imageUrl 导致
-          // OutputNode 当图片渲染而空白。
-          const list: string[] = Array.isArray(r.urls) ? r.urls : [];
-          const isImg = (u: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(u);
-          const isVid = (u: string) => /\.(mp4|webm|mov|m4v|mkv)$/i.test(u);
-          const isAud = (u: string) => /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(u);
-          const firstImg = list.find(isImg);
-          const firstVid = list.find(isVid);
-          const firstAud = list.find(isAud);
-          const patch: any = { status: 'success', urls: list };
-          if (firstImg) patch.imageUrl = firstImg;
-          if (firstVid) patch.videoUrl = firstVid;
-          if (firstAud) patch.audioUrl = firstAud;
-          // 都不匹配时退回原逻辑（首个当 imageUrl）以保证向后兼容
-          if (!firstImg && !firstVid && !firstAud && list[0]) patch.imageUrl = list[0];
-          console.log('[RH/done] taskId=', tid, 'urls=', list);
-          logBus.success(`任务完成 · ${list.length} 个输出 → ${list[0] || ''}`, src);
-          update(patch);
-        } else if (r.status === 'FAILED') {
-          stopPoll();
-          // failReason 可能是 ComfyUI 报错对象(含 traceback/exception_type 等)，
-          // 需序列化为字符串避免 React JSX 直接渲染 object 崩溃
-          let reason: string;
-          if (r.failReason == null) {
-            reason = `RH 失败 code=${r.code}`;
-          } else if (typeof r.failReason === 'string') {
-            reason = r.failReason;
-          } else {
-            try {
-              const o: any = r.failReason;
-              reason = o?.exception_message || o?.message || JSON.stringify(o);
-            } catch {
-              reason = `RH 失败 code=${r.code}`;
-            }
+        try {
+          const r = await queryRh(tid, useWallet);
+          console.log('[RH/poll] taskId=', tid, 'status=', r.status, 'code=', r.code, 'urls=', r.urls?.length || 0);
+          // 轮询进度写入面板：每 30s 一条 debug，避免刷屏
+          if (elapsed % 6 === 0) {
+            logBus.debug(`[${elapsed * 5}s] status=${r.status} code=${r.code} urls=${r.urls?.length || 0}`, src);
           }
-          update({ status: 'error', error: reason });
-          setError(reason);
-          logBus.error(`生成失败: ${reason}`, src);
-        } else {
-          update({ status: 'polling', rhCode: r.code });
+          if (r.status === 'SUCCESS') {
+            stopPoll();
+            // 按后缀分流到 imageUrl/videoUrl/audioUrl，避免视频 url 被填到 imageUrl 导致
+            // OutputNode 当图片渲染而空白。
+            const list: string[] = Array.isArray(r.urls) ? r.urls : [];
+            const isImg = (u: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(u);
+            const isVid = (u: string) => /\.(mp4|webm|mov|m4v|mkv)$/i.test(u);
+            const isAud = (u: string) => /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(u);
+            const firstImg = list.find(isImg);
+            const firstVid = list.find(isVid);
+            const firstAud = list.find(isAud);
+            const patch: any = { status: 'success', urls: list };
+            if (firstImg) patch.imageUrl = firstImg;
+            if (firstVid) patch.videoUrl = firstVid;
+            if (firstAud) patch.audioUrl = firstAud;
+            // 都不匹配时退回原逻辑（首个当 imageUrl）以保证向后兼容
+            if (!firstImg && !firstVid && !firstAud && list[0]) patch.imageUrl = list[0];
+            console.log('[RH/done] taskId=', tid, 'urls=', list);
+            logBus.success(`任务完成 · ${list.length} 个输出 → ${list[0] || ''}`, src);
+            update(patch);
+            resolve();
+          } else if (r.status === 'FAILED') {
+            stopPoll();
+            // failReason 可能是 ComfyUI 报错对象(含 traceback/exception_type 等)，
+            // 需序列化为字符串避免 React JSX 直接渲染 object 崩溃
+            let reason: string;
+            if (r.failReason == null) {
+              reason = `RH 失败 code=${r.code}`;
+            } else if (typeof r.failReason === 'string') {
+              reason = r.failReason;
+            } else {
+              try {
+                const o: any = r.failReason;
+                reason = o?.exception_message || o?.message || JSON.stringify(o);
+              } catch {
+                reason = `RH 失败 code=${r.code}`;
+              }
+            }
+            update({ status: 'error', error: reason });
+            setError(reason);
+            logBus.error(`生成失败: ${reason}`, src);
+            reject(new Error(reason));
+          } else {
+            update({ status: 'polling', rhCode: r.code });
+          }
+        } catch (e: any) {
+          console.warn('RH 轮询出错', e?.message);
+          logBus.warn(`轮询出错: ${e?.message || e}`, src);
         }
-      } catch (e: any) {
-        console.warn('RH 轮询出错', e?.message);
-        logBus.warn(`轮询出错: ${e?.message || e}`, src);
-      }
-    }, POLL_INT);
+      }, POLL_INT);
+    });
   };
 
   // 返回本次拉取与计算后的可用 list + paramValues，供 handleRun 同步路径直接使用
@@ -562,7 +573,8 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
       console.log('[RH/submit] taskId=', r.taskId);
       logBus.success(`异步任务已提交 taskId=${r.taskId} 进入轮询…`, src);
       update({ status: 'polling', taskId: r.taskId });
-      startPolling(r.taskId);
+      // v1.2.9.12: await 让 useRunTrigger 等到任务真正完成才 markDone，循环器才能拿到 urls
+      await startPolling(r.taskId);
     } catch (e: any) {
       console.error('[RH/submit] error:', e);
       logBus.error(`提交失败: ${e?.message || e}`, src);
