@@ -72,6 +72,13 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
   // 订阅上游节点的 data, 任何上游 data 变化都会触发重渲染
   const upstreamNodes = useNodesData(upstreamIds);
 
+  // v1.2.9.5: 检测上游是否含 LoopNode —— 用于「直接接 LoopNode 的 OutputNode」空状态下显示友好提示,
+  //         代替误导性的「连入上游...」占位 (循环器不产出素材 → OutputNode 本身也不应表现得像「坏掉」)。
+  const upstreamHasLoop = useMemo(() => {
+    const list = Array.isArray(upstreamNodes) ? upstreamNodes : [];
+    return list.some((n: any) => n?.type === 'loop');
+  }, [upstreamNodes]);
+
   // v1.2.8.4: 收集每个上游 source 上被连接的 sourceHandle 集合,
   //           供 FramePair 等多端口节点按 handle 区分输出 (与 useUpstreamMaterials 对齐)
   const handleMap = useMemo(() => {
@@ -646,11 +653,13 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       <div className="p-2.5 space-y-3" onMouseDown={(e) => e.stopPropagation()}>
         {total === 0 && (
           <div
-            className={`rounded flex items-center justify-center text-[11px] py-3 px-2 ${
+            className={`rounded flex items-center justify-center text-[11px] py-3 px-2 text-center ${
               isDark ? 'text-white/40' : 'text-zinc-400'
             }`}
           >
-            连入上游 文本 / 图像 / 视频 / 音频 节点
+            {upstreamHasLoop
+              ? '循环器不输出素材 · 请在「循环器 → EXEC 节点 → OutputNode」链路中查看累积结果'
+              : '连入上游 文本 / 图像 / 视频 / 音频 节点'}
           </div>
         )}
 

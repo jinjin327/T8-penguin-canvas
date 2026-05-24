@@ -185,7 +185,30 @@ const LoopNode = (p: NodeProps) => {
 
     const allNodes = rf.getNodes();
     const allEdges = rf.getEdges();
-    const directs = allEdges.filter((e) => e.source === id).map((e) => e.target);
+
+    // v1.2.9.6: 自动清理「循环器 → 输出素材」的连线与孤儿 OutputNode 节点
+    //          —— 循环器不产出最终结果, 这种连接产生的空白 OutputNode 体验很差,
+    //          运行时主动断开 + 孤立则删除节点 (不孤立则仅删边保留节点)。
+    const removeEdgeIds = new Set<string>();
+    const orphanOutputIds = new Set<string>();
+    for (const e of allEdges) {
+      if (e.source !== id) continue;
+      const t = allNodes.find((n) => n.id === e.target);
+      if (t?.type !== 'output') continue;
+      removeEdgeIds.add(e.id);
+      const otherInbound = allEdges.some((x) => x.id !== e.id && x.target === e.target);
+      if (!otherInbound) orphanOutputIds.add(e.target);
+    }
+    if (removeEdgeIds.size > 0) {
+      rf.setEdges((eds) => eds.filter((x) => !removeEdgeIds.has(x.id)));
+      if (orphanOutputIds.size > 0) {
+        rf.setNodes((nds) => nds.filter((n) => !orphanOutputIds.has(n.id)));
+      }
+    }
+
+    const directs = allEdges
+      .filter((e) => e.source === id && !removeEdgeIds.has(e.id))
+      .map((e) => e.target);
     if (directs.length === 0) { setError('请先把循环器输出端连到下游执行节点'); update({ status: 'error', error: '未连接下游' }); return; }
 
     const reachable = bfsForward(allEdges, directs);
@@ -199,15 +222,15 @@ const LoopNode = (p: NodeProps) => {
     //      OutputNode 检测到上游含 __loopAccumulate 时跳过 fresh 收集 (让 direct*Urls 累积值独占显示)。
     //      LoopNode 每轮收尾读上游 fresh 产物 → 追加到 OutputNode 的 direct*Urls / directOutputText。
     //      跑 N 轮 = OutputNode 内累积 N 张图 (不增加节点污染画布), 生成节点本身始终只显示最新一轮。
-    // v1.2.9.4: 给 LoopNode 自身也注入 __loopAccumulate → 「直接接 LoopNode 的 OutputNode」也能进入累积模式,
-    //          每轮采集 LoopNode 自身 fresh (循环输入素材) → 累积到 direct*Urls → 避免 0 项空白。
+    // v1.2.9.5: 回滚 v1.2.9.4 的「给 LoopNode 自身注入 __loopAccumulate」——循环器不输出任何结果到下游,
+    //          也不让「直接接 LoopNode 的 OutputNode」变成「累积循环输入素材」 (与下游 EXEC→OutputNode 累积重复)。
+    //          直接接的 OutputNode 渲染侧会显示「循环器无输出」提示代替 0 项空白。
     const outputNodeIds = new Set<string>(subNodes.filter((n) => n.type === 'output').map((n) => n.id));
     const execSubIds = new Set<string>(subNodes.filter((n) => EXEC_TYPES.has(n.type as string)).map((n) => n.id));
-    // 进入循环前: 标记下游 EXEC 节点 + LoopNode 自身 (让直接下游 OutputNode 也能累积 LoopNode fresh)
-    //          + 清空 OutputNode 的累积字段。
-    //          不给 OutputNode 本身注入 __loopAccumulate ——避免下游二级 OutputNode 跳过一级 OutputNode 的 fresh 导致空显示。
+    // 进入循环前: 仅标记下游 EXEC 节点 (让 OutputNode 跳过 fresh) + 清空 OutputNode 的累积字段。
+    //         不给 OutputNode / LoopNode 本身注入 __loopAccumulate。
     rf.setNodes((prev) => prev.map((nd) => {
-      const isExec = execSubIds.has(nd.id) || nd.id === id; // v1.2.9.4: LoopNode 自身也走注入分支
+      const isExec = execSubIds.has(nd.id);
       const isOut = outputNodeIds.has(nd.id);
       if (!isExec && !isOut) return nd;
       const od: any = nd.data || {};
@@ -269,10 +292,10 @@ const LoopNode = (p: NodeProps) => {
       }
     }
     } finally {
-    // === v1.2.9.0: 循环结束——清除所有下游 EXEC 节点 + LoopNode 自身的 __loopAccumulate 标记 ===
+    // === v1.2.9.0: 循环结束——清除所有下游 EXEC 节点的 __loopAccumulate 标记 ===
     //         OutputNode 恢复正常 collected 透传 (fresh + direct*Urls 累积都参与)
     rf.setNodes((prev) => prev.map((nd) => {
-      if (!execSubIds.has(nd.id) && nd.id !== id) return nd; // v1.2.9.4: 包含 LoopNode 自身
+      if (!execSubIds.has(nd.id)) return nd; // v1.2.9.5: 不再包含 LoopNode 自身
       const od: any = nd.data || {};
       if (!od.__loopAccumulate) return nd;
       const next: any = { ...od };
@@ -311,7 +334,28 @@ const LoopNode = (p: NodeProps) => {
 
     const allNodes = rf.getNodes();
     const allEdges = rf.getEdges();
-    const directs = allEdges.filter((e) => e.source === id).map((e) => e.target);
+
+    // v1.2.9.6: 同 runSerial —— 自动清理「循环器 → 输出素材」连线与孤儿 OutputNode
+    const removeEdgeIds = new Set<string>();
+    const orphanOutputIds = new Set<string>();
+    for (const e of allEdges) {
+      if (e.source !== id) continue;
+      const t = allNodes.find((n) => n.id === e.target);
+      if (t?.type !== 'output') continue;
+      removeEdgeIds.add(e.id);
+      const otherInbound = allEdges.some((x) => x.id !== e.id && x.target === e.target);
+      if (!otherInbound) orphanOutputIds.add(e.target);
+    }
+    if (removeEdgeIds.size > 0) {
+      rf.setEdges((eds) => eds.filter((x) => !removeEdgeIds.has(x.id)));
+      if (orphanOutputIds.size > 0) {
+        rf.setNodes((nds) => nds.filter((n) => !orphanOutputIds.has(n.id)));
+      }
+    }
+
+    const directs = allEdges
+      .filter((e) => e.source === id && !removeEdgeIds.has(e.id))
+      .map((e) => e.target);
     if (directs.length === 0) { setError('请先把循环器输出端连到下游执行节点'); update({ status: 'error', error: '未连接下游' }); return; }
 
     const reachable = bfsForward(allEdges, directs);

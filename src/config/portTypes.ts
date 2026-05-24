@@ -171,6 +171,10 @@ export function isConnectionValid(
 ): boolean {
   if (!source || !target) return false;
   if (source.id === target.id) return false; // 不允许自连
+  // v1.2.9.6: 禁止「循环器 → 输出素材」连接 —— 循环器自身不产出最终结果,
+  //          这种连接会变成无内容的空白 OutputNode, 影响体验; 真正的展示应走
+  //          「循环器 → EXEC 节点 → OutputNode」累积链路。
+  if ((source as any).type === 'loop' && (target as any).type === 'output') return false;
   const sOut = getNodeOutputs(source);
   const tIn = getNodeInputs(target);
   return arePortsCompatible(sOut, tIn);
