@@ -212,8 +212,10 @@ const LoopNode = (p: NodeProps) => {
 
     // v1.2.8.7: 保存上一轮源头快照, 用于下一轮开始时克隆为独立 OutputNode
     const pendingSnapshot: Map<string, string[]> = new Map();
-    const CLONE_Y_GAP = 60;
-    const CLONE_HEIGHT_EST = 580;
+    // v1.2.8.9: 克隆位置改为 X 方向横向偏移 (避免与同列垂直排列的其他 OutputNode 重叠)
+    //         FramePair 场景: first/last 两个 OutputNode 垂直排列, Y 偏移会让 first 克隆与 last 原节点重叠
+    const CLONE_X_GAP = 40;
+    const CLONE_WIDTH_EST = 360;
 
     for (let i = 0; i < items.length; i++) {
       if (cancelRef.current) break;
@@ -252,7 +254,7 @@ const LoopNode = (p: NodeProps) => {
             additions.push({
               ...orig,
               id: `${outId}__loop_${id}_r${i}`,
-              position: { x: orig.position.x, y: orig.position.y + (CLONE_HEIGHT_EST + CLONE_Y_GAP) * i },
+              position: { x: orig.position.x + (CLONE_WIDTH_EST + CLONE_X_GAP) * i, y: orig.position.y },
               selected: false,
               data: cloneData,
             } as Node);
@@ -336,6 +338,24 @@ const LoopNode = (p: NodeProps) => {
           if (live.length > 0) pendingSnapshot.set(outId, live);
         }
       }
+    }
+
+    // v1.2.8.9: 跳出循环后额外保险——把「最后一轮」的源头快照强制写入原 OutputNode 的 direct*Urls
+    //         (避免依赖透传 useEffect 时序 —— 原节点独立显示最后一轮快照)
+    //         这样 N 轮 = (N-1) 个克隆 (保留前 N-1 轮) + 1 个原节点 (最后一轮) = N 个独立节点
+    if (outputNodeIds.size > 0 && pendingSnapshot.size > 0 && !cancelRef.current) {
+      rf.setNodes((prev) => prev.map((nd) => {
+        if (!outputNodeIds.has(nd.id)) return nd;
+        const snap = pendingSnapshot.get(nd.id) || [];
+        if (snap.length === 0) return nd;
+        const od: any = nd.data || {};
+        const next: any = { ...od };
+        if (kind === 'image') next.directImageUrls = snap.slice();
+        else if (kind === 'video') next.directVideoUrls = snap.slice();
+        else if (kind === 'audio') next.directAudioUrls = snap.slice();
+        else next.directOutputText = snap.join('\n\n');
+        return { ...nd, data: next };
+      }));
     }
 
     // 4. 最终聚合到 imageUrls / urls / videoUrl... (取成功结果)
