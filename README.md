@@ -10,13 +10,26 @@ https://www.runninghub.cn/?inviteCode=rh-v1121
 My favorite girl Go YounJung
 # 🐧 贞贞的无限画布（企鹅共创版） · T8-penguin-canvas
 
-> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.2.2
+> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.2.6
 >
 > GitHub：<https://github.com/T8mars/T8-penguin-canvas>
 
 一个面向 AI 创作的 **节点式画布**：拖拽节点、连线编排、生成图像 / 视频 / 音频、调用 LLM、串接 RunningHub 工作流，叠加批量执行、智能对齐、打组、双主题与终端日志。Web 浏览器即可使用，亦可一键打包为 Windows 桌面端（NSIS 安装包）。
 
-![status](https://img.shields.io/badge/version-v1.2.2-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![status](https://img.shields.io/badge/version-v1.2.6-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+
+---
+
+## 📺 基础功能教程
+
+从 0 到 1 上手，推荐初次使用者先过一遍视频教程了解整体节点拖拽、连线、API Key 配置、批量运行、组合与终端日志等核心能力：
+
+| 平台 | 链接 |
+|---|---|
+| 🅱️ B 站教程 | <https://www.bilibili.com/video/BV18sG76AE9Y/> |
+| ▶️ Youtube 教程 | <https://www.youtube.com/watch?v=V8oCBhemmCQ> |
+
+> 如果你是首次上手，建议先跳转视频看一遍再动手，可避免在 API Key / 节点连线语义 / 模型选择上走弯路。
 
 ---
 
@@ -25,7 +38,9 @@ My favorite girl Go YounJung
 - 🎨 **27 个业务节点**，覆盖文本 / 图像 / 视频 / 音频 / LLM / RunningHub / 工具 / 辅助 / 工具箱 / 输出预览 / 上传素材
 - 🧩 **xyflow 12** 画布引擎：缩放、平移、连线、迷你地图、控制条、SPA 兜底
 - 🔑 **四套独立 API Key 隔离**：贞贞工坊 / RunningHub / RH 钱包应用 / LLM —— 全部经后端代理脱敏，前端永远拿不到明文
-- 🚀 **一键批量运行**：Kahn 拓扑排序串行触发可执行节点，进度可视化，支持中断
+- 📈 **一键批量运行**：Kahn 拓扑排序串行触发可执行节点，进度可视化，支持中断
+- 🖼️ **图像编辑模态·五模式**（v1.2.5）：裁剪 / 蒙版 / 笔刷 / 网格 / 组合 —— **组合模式** 支持多图层拖拽 / 4 角同比缩放 + Shift 自由比例 + Alt 中心缩放 + 旋转 15° 吸附 + 50 深独立撤销栈
+- 🔑 **分类独立 API Key 可选 · 默认折叠**（v1.2.6）：gpt-image / nano-banana / mj / veo / grok / seedance / suno 七个分类 Key 未填自动 fallback 贞贞通用 Key，新手默认折叠不被干扰
 - 🧲 **智能对齐辅助线 + snap-to-grid**：拖动时检测同列 / 同行 / 居中对齐并弱吸附
 - 📦 **GroupBox 打组**：框选 ≥2 节点一键套色框容器，可拖拽联动、整体执行、12 色调色板
 - 🖱️ **右键画布快速添加节点**：菜单列出 7 个高频节点（upload / text / image / video / seedance / audio / llm）

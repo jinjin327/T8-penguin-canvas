@@ -15,7 +15,7 @@ const GridCropNode = (p: NodeProps) => {
       id={p.id}
       data={p.data}
       selected={p.selected}
-      title="九宫格"
+      title="宫格剪裁"
       subtitle={`${rows}×${cols}`}
       icon={<Grid3x3 size={13} />}
       colorHex="#fb923c"

@@ -56,3 +56,32 @@ export const opCombine = (imageUrls: string[], direction: 'horizontal' | 'vertic
 
 export const opRemoveBg = (imageUrl: string) =>
   postOp<{ imageUrl: string; warning?: string }>('remove-bg', { imageUrl });
+
+/**
+ * 将 dataURL (base64) 上传到后端 → 返回本地 url (/files/output/xxx)
+ * 用于：图像编辑器 mask / brush 模式产物落地
+ */
+export async function uploadDataUrl(dataUrl: string, prefix: string = 'edit'): Promise<string> {
+  const r = await fetch('/api/files/upload-base64', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl, prefix }),
+  });
+  const json = await r.json();
+  if (!r.ok || !json.success) throw new Error(json?.error || `HTTP ${r.status}`);
+  return json.data.url as string;
+}
+
+/**
+ * 将 File / Blob 上传 (multipart) → 返回本地 url
+ * 用于：图像编辑器 compose 模式 拖入文件 / Ctrl+V 粘贴文件 作为新图层
+ */
+export async function uploadFileBlob(file: File | Blob, filename?: string): Promise<string> {
+  const fd = new FormData();
+  const fname = filename || (file instanceof File ? file.name : `compose-${Date.now()}.png`);
+  fd.append('file', file, fname);
+  const r = await fetch('/api/files/upload', { method: 'POST', body: fd });
+  const json = await r.json();
+  if (!r.ok || !json.success) throw new Error(json?.error || `HTTP ${r.status}`);
+  return json.data.url as string;
+}

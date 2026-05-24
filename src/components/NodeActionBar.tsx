@@ -24,7 +24,7 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'multi-angle-3d', 'panorama-720', 'penguin-portrait',
   'video', 'seedance', 'audio', 'llm', 'runninghub',
   'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine',
-  'frame-extractor',
+  'frame-extractor', 'frame-pair',
   'upload',
 ]);
 

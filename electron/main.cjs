@@ -100,14 +100,6 @@ async function startBackend() {
     ? path.join(process.resourcesPath, 'frontend')
     : path.resolve(__dirname, '..', 'dist');
 
-  // 让后端 node_modules 可被 require 解析 (字节码从临时目录加载,需要补全搜索路径)
-  const backendNM = isPackaged()
-    ? path.join(process.resourcesPath, 'backend-node_modules')
-    : path.resolve(__dirname, '..', 'backend', 'node_modules');
-  if (!require('module').globalPaths.includes(backendNM)) {
-    require('module').globalPaths.unshift(backendNM);
-  }
-
   // 同进程内加载后端,先注册 T8ENC1 + bytenode loader
   try {
     require('./loader.cjs');
@@ -138,9 +130,9 @@ function createMainWindow() {
     minHeight: 640,
     show: false,
     backgroundColor: '#0b0b0d',
-    title: '贞贞的无限画布（企鹅共创版） v1.1.0',
+    title: '贞贞的无限画布（企鹅共创版） v1.2.6',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -179,7 +171,7 @@ function createLogWindow() {
 .h b{color:#ffd76b;}
 #log{padding:12px 18px;white-space:pre-wrap;line-height:1.5;font-size:12px;}
 </style></head><body>
-<div class="h">🐧 <b>贞贞的无限画布</b>（企鹅共创版）<span style="float:right;color:#666;">v1.1.0</span></div>
+<div class="h">🐧 <b>贞贞的无限画布</b>（企鹅共创版）<span style="float:right;color:#666;">v1.2.6</span></div>
 <div id="log">[启动] 正在初始化加密内核 + Express 后端...\n</div>
 </body></html>`;
   fs.writeFileSync(logHtmlPath, html, 'utf-8');
@@ -205,7 +197,7 @@ ipcMain.handle('t8pc:get-info', () => ({
   packaged: isPackaged(),
   backendPort,
   userData: getUserDataDir(),
-  version: '1.1.0',
+  version: '1.2.6',
 }));
 
 // ---------- 生命周期 ----------

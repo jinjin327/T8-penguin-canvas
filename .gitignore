@@ -16,6 +16,21 @@ dist
 dist-ssr
 *.local
 
+# Electron 打包产物与中间产物 (不上传仓库)
+dist_electron/
+build/
+*.tsbuildinfo
+
+# Electron 历史残留 .js 空文件 (已改用 .cjs)
+electron/*.js
+
+# 临时备份文件
+_temp_*
+# AI agent / shell 临时脚本与日志
+_*.ps1
+_*.txt
+_*.log
+
 # Dependencies
 node_modules
 .pnp

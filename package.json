@@ -1,10 +1,30 @@
 {
   "name": "t8-penguin-canvas",
-  "private": true,
-  "version": "1.2.2",
+  "private": false,
+  "version": "1.2.6",
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "T8-penguin-canvas — AI 节点画布",
+  "description": "T8-penguin-canvas — AI 节点画布工作流工具（Web + Electron 桌面端）",
+  "author": "T8mars",
+  "license": "MIT",
+  "homepage": "https://github.com/T8mars/T8-penguin-canvas",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/T8mars/T8-penguin-canvas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/T8mars/T8-penguin-canvas/issues"
+  },
+  "keywords": [
+    "ai",
+    "canvas",
+    "node-editor",
+    "workflow",
+    "runninghub",
+    "electron",
+    "react",
+    "xyflow"
+  ],
   "scripts": {
     "dev": "concurrently \"cd backend && npm start\" \"vite\"",
     "dev:vite": "vite",
@@ -13,66 +33,26 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "type-check": "tsc --noEmit",
-    "encrypt": "npx electron electron/encrypt.cjs",
+    "electron:dev": "cross-env T8PC_PACKAGED=0 electron electron/main.cjs",
+    "encrypt": "cross-env ELECTRON_RUN_AS_NODE=1 electron electron/encrypt.cjs",
     "prepack:enc": "npm run build && npm run encrypt",
-    "dist:dir": "npm run prepack:enc && npx electron-builder --mac --arm64 --dir",
-    "dist": "npm run prepack:enc && npx electron-builder --mac --arm64"
-  },
-  "build": {
-    "appId": "com.t8star.penguin-canvas",
-    "productName": "T8-PenguinCanvas",
-    "directories": {
-      "output": "dist_electron"
-    },
-    "files": [
-      "electron/**/*",
-      "!electron/encrypt.cjs",
-      "!electron/_post_build.cjs",
-      "node_modules/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "build/backend-enc",
-        "to": "backend-enc"
-      },
-      {
-        "from": "dist",
-        "to": "frontend"
-      },
-      {
-        "from": "backend/node_modules",
-        "to": "backend-node_modules"
-      }
-    ],
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ],
-      "category": "public.app-category.developer-tools",
-      "identity": null
-    },
-    "dmg": {
-      "title": "T8-PenguinCanvas"
-    },
-    "asar": true,
-    "asarUnpack": [
-      "node_modules/sharp/**",
-      "node_modules/@img/**"
-    ]
+    "dist:dir": "npm run prepack:enc && electron-builder --win --x64 --dir && node electron/_post_build.cjs",
+    "dist": "npm run prepack:enc && electron-builder --win --x64 && node electron/_post_build.cjs",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@xyflow/react": "^12.10.0",
+    "bytenode": "^1.5.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
     "lucide-react": "^0.468.0",
+    "multer": "^2.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "^0.34.5",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
@@ -80,13 +60,79 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
-    "bytenode": "^1.5.7",
     "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "cn.t8star.penguin-canvas",
+    "productName": "T8-PenguinCanvas",
+    "directories": {
+      "output": "dist_electron",
+      "buildResources": "electron/build-resources"
+    },
+    "compression": "store",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "files": [
+      "electron/main.cjs",
+      "electron/preload.cjs",
+      "electron/loader.cjs",
+      "package.json",
+      "node_modules/**/*",
+      "!node_modules/electron/**/*",
+      "!node_modules/electron-builder/**/*",
+      "!node_modules/**/*.{md,markdown,ts,map,d.ts}",
+      "!node_modules/**/{test,tests,__tests__,docs,examples,example,sample,benchmark}/**",
+      "!**/*.{ipynb,log}",
+      "!**/.DS_Store",
+      "!backend/**/*",
+      "!src/**/*",
+      "!data/**/*",
+      "!input/**/*",
+      "!output/**/*",
+      "!thumbnails/**/*",
+      "!dist_electron/**/*",
+      "!build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend-enc",
+        "to": "backend-enc",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "dist",
+        "to": "frontend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "贞贞的无限画布",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

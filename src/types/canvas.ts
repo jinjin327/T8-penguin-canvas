@@ -25,6 +25,7 @@ export type NodeType =
   | 'browser'
   | 'image-compare'
   | 'frame-extractor'
+  | 'frame-pair'
   | 'resize'
   | 'combine'
   | 'remove-bg'

@@ -70,6 +70,8 @@ export const NODE_PORTS: Record<string, NodePorts> = {
   browser: { inputs: [], outputs: ['text', 'image'] },
   'image-compare': { inputs: ['image'], outputs: [] },
   'frame-extractor': { inputs: ['video'], outputs: ['image'] },
+  // 首尾帧获取: 视频抽首/尾两帧 → 双 source handle (id=first/last) 输出 image
+  'frame-pair': { inputs: ['video'], outputs: ['image'] },
   resize: { inputs: ['image'], outputs: ['image'] },
   combine: { inputs: ['image'], outputs: ['image'] },
   'remove-bg': { inputs: ['image'], outputs: ['image'] },

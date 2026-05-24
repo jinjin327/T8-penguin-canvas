@@ -62,6 +62,7 @@ import PresetImageNode from './nodes/PresetImageNode';
 import DrawingBoardNode from './nodes/DrawingBoardNode';
 import BrowserNode from './nodes/BrowserNode';
 import FrameExtractorNode from './nodes/FrameExtractorNode';
+import FramePairNode from './nodes/FramePairNode';
 import UploadNode from './nodes/UploadNode';
 import OutputNode from './nodes/OutputNode';
 import GroupBoxNode from './nodes/GroupBoxNode';
@@ -103,6 +104,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   browser: BrowserNode,
   'image-compare': ImageCompareNode,
   'frame-extractor': FrameExtractorNode,
+  'frame-pair': FramePairNode,
   resize: ResizeNode,
   combine: CombineNode,
   'remove-bg': RemoveBgNode,
@@ -166,7 +168,7 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'multi-angle-3d', 'panorama-720', 'penguin-portrait',
   'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
   'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine',
-  'frame-extractor',
+  'frame-extractor', 'frame-pair',
   'upload',
 ]);
 
