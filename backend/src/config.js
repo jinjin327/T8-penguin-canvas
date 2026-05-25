@@ -1,26 +1,48 @@
 const path = require('path');
+const fs = require('fs');
 
 // T8-penguin-canvas 后端配置
-// 可通过 T8PC_BASE_DIR 环境变量覆盖项目根路径(打包后指向 userData)
-const PROJECT_DIR = process.env.T8PC_BASE_DIR || path.resolve(__dirname, '..', '..');
+// 运行模式:
+//   - 开发: backend/src/config.js 底下的 PROJECT_DIR 即项目根
+//   - 打包: 主进程 electron/main.cjs 会注入 T8PC_PACKAGED=1 与 T8PC_USER_DATA=<userData>
+//             数据/输入/输出/缩略图都位于该 userData 下,近可读写;
+//             前端静态产物位于 T8PC_FRONTEND_DIST(默认 resources/frontend)。
+const IS_PACKAGED = process.env.T8PC_PACKAGED === '1';
+const PROJECT_DIR = path.resolve(__dirname, '..', '..');
+const USER_DATA = process.env.T8PC_USER_DATA && process.env.T8PC_USER_DATA.trim().length > 0
+  ? process.env.T8PC_USER_DATA
+  : PROJECT_DIR;
+const DATA_ROOT = IS_PACKAGED ? USER_DATA : PROJECT_DIR;
 
 const config = {
   // 服务器
   HOST: process.env.HOST || '127.0.0.1',
   PORT: process.env.PORT || 18766, // 注意:与主项目 18765 错开
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV: process.env.NODE_ENV || (IS_PACKAGED ? 'production' : 'development'),
+  IS_PACKAGED,
 
-  // 数据 / 资源目录(全部位于 T8-penguin-canvas/data 下)
-  BASE_DIR: PROJECT_DIR,
-  DATA_DIR: path.join(PROJECT_DIR, 'data'),
-  INPUT_DIR: path.join(PROJECT_DIR, 'input'),
-  OUTPUT_DIR: path.join(PROJECT_DIR, 'output'),
-  THUMBNAILS_DIR: path.join(PROJECT_DIR, 'thumbnails'),
+  // 数据 / 资源目录
+  // 开发模式: 项目根下 data/input/output/thumbnails
+  // 打包模式: %APPDATA%/T8-PenguinCanvas/data ...走 userData
+  BASE_DIR: DATA_ROOT,
+  DATA_DIR: path.join(DATA_ROOT, 'data'),
+  INPUT_DIR: path.join(DATA_ROOT, 'input'),
+  OUTPUT_DIR: path.join(DATA_ROOT, 'output'),
+  THUMBNAILS_DIR: path.join(DATA_ROOT, 'thumbnails'),
 
   // 数据文件
-  CANVAS_FILE: path.join(PROJECT_DIR, 'data', 'canvas_list.json'),
-  SETTINGS_FILE: path.join(PROJECT_DIR, 'data', 'settings.json'),
-  RH_APPS_FILE: path.join(PROJECT_DIR, 'data', 'rh_apps.json'),
+  CANVAS_FILE: path.join(DATA_ROOT, 'data', 'canvas_list.json'),
+  SETTINGS_FILE: path.join(DATA_ROOT, 'data', 'settings.json'),
+  RH_APPS_FILE: path.join(DATA_ROOT, 'data', 'rh_apps.json'),
+  // v1.2.10+ RH 工具节点专用数据（与 rh_apps.json 完全分开）
+  RH_TOOL_CATEGORIES_FILE: path.join(DATA_ROOT, 'data', 'rh_tool_categories.json'),
+  RH_TOOL_APPS_FILE: path.join(DATA_ROOT, 'data', 'rh_tool_apps.json'),
+  RECHARGE_FILE: path.join(DATA_ROOT, 'data', 'recharge.json'),
+  RECHARGE_DEVICE_FILE: path.join(DATA_ROOT, 'data', '.recharge_device_id'),
+  RECHARGE_PRIVATE_FILE: path.join(DATA_ROOT, 'data', 'recharge.private.json'),
+
+  // 前端静态产物目录(打包后由 Express 同进程托管)
+  FRONTEND_DIST: process.env.T8PC_FRONTEND_DIST || (IS_PACKAGED ? '' : path.join(PROJECT_DIR, 'dist')),
 
   // 缩略图配置
   THUMBNAIL_SIZE: 160,
@@ -33,6 +55,18 @@ const config = {
   // 贞贞工坊 / LLM 独立 Key 强制走 https://ai.t8star.org
   ZHENZHEN_BASE_URL: 'https://ai.t8star.org',
   RH_BASE_URL: 'https://www.runninghub.cn',
+
+  // v1.2.10.2: 全局生成素材自动保存到本地的默认路径
+  //   用户可在「API 设置 → 文件自动保存路径」覆盖。
+  //   不存在时启动会自动创建; 写入失败仅 console.warn, 不阻断业务。
+  DEFAULT_LOCAL_SAVE_DIR: 'D:\\zhenzhen',
 };
+
+// 提前创建打包后的数据目录(避免首次启动报错)
+if (IS_PACKAGED) {
+  for (const dir of [config.DATA_DIR, config.INPUT_DIR, config.OUTPUT_DIR, config.THUMBNAILS_DIR]) {
+    try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  }
+}
 
 module.exports = config;

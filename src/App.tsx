@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cpu, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key } from 'lucide-react';
+import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cpu, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Gem } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { useApiKeysStore } from './stores/apiKeys';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
 import ApiSettingsModal from './components/ApiSettings';
+import RechargeModal from './components/RechargeModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import { RHToolsProvider } from './providers/RHToolsProvider';
 import * as api from './services/api';
 import type { NodeType } from './types/canvas';
 
@@ -21,6 +23,7 @@ function App() {
   const { load: loadSettings } = useApiKeysStore();
   const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rechargeOpen, setRechargeOpen] = useState(false);
   // 「在线画布」推广浮层开关 + 容器 ref(用于点击外部关闭)
   const [cloudOpen, setCloudOpen] = useState(false);
   const [wxCopied, setWxCopied] = useState(false);
@@ -193,6 +196,7 @@ function App() {
   };
 
   return (
+    <RHToolsProvider>
     <div
       className={`h-screen flex flex-col overflow-hidden ${
         isPixel
@@ -829,6 +833,22 @@ function App() {
             <span className="text-[11px]">{isPixel ? '科技风' : '像素风'}</span>
           </button>
           <button
+            onClick={() => setRechargeOpen(true)}
+            className={
+              isPixel
+                ? 'px-btn px-btn--sm px-btn--yellow'
+                : `flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                    isDark
+                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                      : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                  }`
+            }
+            title="算力充值"
+          >
+            <Gem size={14} />
+            <span className="text-[11px]">充值</span>
+          </button>
+          <button
             onClick={() => setSettingsOpen(true)}
             className={
               isPixel
@@ -863,7 +883,9 @@ function App() {
 
       {/* API 设置弹窗 */}
       <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <RechargeModal open={rechargeOpen} onClose={() => setRechargeOpen(false)} />
     </div>
+    </RHToolsProvider>
   );
 }
 

@@ -15,6 +15,7 @@ export type NodeType =
   | 'runninghub'
   | 'runninghub-wallet'
   | 'rh-config'
+  | 'rh-tools'
   // Special (5)
   | 'multi-angle-3d'
   | 'panorama-720'
@@ -120,6 +121,8 @@ export interface ApiSettings {
   grokApiKey?: string;
   seedanceApiKey?: string;
   sunoApiKey?: string;
+  // v1.2.10.2: 全局生成素材自动保存到本地的路径(可用户自定义)
+  fileSavePath?: string;
   preferences?: {
     theme?: 'dark' | 'light';
     language?: string;

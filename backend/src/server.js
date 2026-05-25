@@ -7,7 +7,12 @@ const config = require('./config');
 const app = express();
 
 // ========== 中间件 ==========
-app.use(cors());
+const LOCAL_ORIGIN_RE = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/;
+app.use(cors({
+  origin(origin, cb) {
+    cb(null, !origin || LOCAL_ORIGIN_RE.test(origin));
+  },
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -52,12 +57,15 @@ const settingsRouter = require('./routes/settings');
 const proxyRouter = require('./routes/proxy');
 const filesRouter = require('./routes/files');
 const imageOpsRouter = require('./routes/imageOps');
+const rechargeRouter = require('./routes/recharge');
 
 app.use('/api/canvas', canvasRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/image', imageOpsRouter);
+app.use('/api/recharge', rechargeRouter.apiRouter);
+app.use('/pay', rechargeRouter.payRouter);
 
 // ========== 前端静态资源托管 (Electron 生产模式) ==========
 const FRONTEND_DIST = process.env.T8PC_FRONTEND_DIST;

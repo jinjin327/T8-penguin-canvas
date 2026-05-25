@@ -16,6 +16,9 @@ import ImageEditModal, { type ImageEditProduceMeta } from './ImageEditModal';
 import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
 import ResizableCorners from './ResizableCorners';
+import { saveAssetToDisk } from '../../services/api';
+// v1.2.10.5: 节点落点防重叠 —— 双击编辑产出 N 节点 3 列宫格整组避让
+import { placeBatchNodes, defaultSizeOf, type Rect as PlacementRect } from '../../utils/nodePlacement';
 
 /**
  * OutputNode - 通用输出素材节点 (中继展示型)
@@ -360,6 +363,14 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     const COL_W = 350;
     const ROW_H = Math.max(360, myH); // 以本节点高度为下限避免重叠
     const ts = Date.now();
+    // v1.2.10.5: 整组防重叠 —— 先算期望 3 列宫格, 再求公共偏移
+    const _sz = defaultSizeOf('output');
+    const _desired: PlacementRect[] = urls.map((_, i) => ({
+      x: baseX + (i % COLS) * COL_W,
+      y: baseY + Math.floor(i / COLS) * ROW_H,
+      w: _sz.w, h: _sz.h,
+    }));
+    const _off = placeBatchNodes(_desired, rf.getNodes(), { source: `placement:produce:${id}` });
     const newNodes: Node[] = urls.map((u, i) => {
       const newId = `output-auto-edit-${id}-${ts}-${i}-${Math.random()
         .toString(36)
@@ -368,8 +379,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         id: newId,
         type: 'output',
         position: {
-          x: baseX + (i % COLS) * COL_W,
-          y: baseY + Math.floor(i / COLS) * ROW_H,
+          x: baseX + (i % COLS) * COL_W + _off.dx,
+          y: baseY + Math.floor(i / COLS) * ROW_H + _off.dy,
         },
         data: {
           directImageUrl: u,
@@ -470,6 +481,29 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     if (changed) update(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayText, collected]);
+
+  // === v1.2.10.2: 自动保存到本地路径 ===
+  // 设计要点:
+  //   1. OutputNode 是所有可执行节点输出的统一收口 → 在这里调一次保存实现全局能力
+  //   2. 防重复保存: ref Set 记录本节点生命周期内已请求过的 url(纯前端去重, 后端还会再一道同名跳过防护)
+  //   3. 静默失败: saveAssetToDisk 不抛错, 避免干扰主生成链路
+  //   4. 远端 http(s) URL 也照位部 —— 后端会 fetch 拉取后保存, 不依赖前端报三方
+  const savedUrlsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const all: string[] = [
+      ...collected.images,
+      ...collected.videos,
+      ...collected.audios,
+    ].filter(Boolean);
+    if (all.length === 0) return;
+    const fresh = all.filter((u) => !savedUrlsRef.current.has(u));
+    if (fresh.length === 0) return;
+    fresh.forEach((u) => savedUrlsRef.current.add(u));
+    // 不 await: 并发发送, 静默失败
+    fresh.forEach((u) => {
+      saveAssetToDisk(u).catch(() => {/* 静默 */});
+    });
+  }, [collected]);
 
   // === 选中节点上方浮动「Edit」按钮 ===
   // 仅当节点被选中且至少存在一张图像时出现，等价于双击图像触发

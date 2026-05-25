@@ -29,6 +29,14 @@ import { useRunBusStore } from '../stores/runBus';
 import { useGroupBusStore, GROUP_COLORS, DEFAULT_GROUP_NAME } from '../stores/groupBus';
 import { topologicalSort } from '../utils/topologicalSort';
 import { installGlobalWheelBlockObserver } from '../utils/wheelBlock';
+// v1.2.10.5: 节点落点防重叠解析器 (单节点/整组双模式 + 兜底+toast+飞镜)
+import {
+  placeSingleNode,
+  placeBatchNodes,
+  defaultSizeOf,
+  rectOf,
+  type Rect as PlacementRect,
+} from '../utils/nodePlacement';
 import * as api from '../services/api';
 import CanvasToolbar from './CanvasToolbar';
 import TerminalPanel from './TerminalPanel';
@@ -45,6 +53,7 @@ import SeedanceNode from './nodes/SeedanceNode';
 import AudioNode from './nodes/AudioNode';
 import RunningHubNode from './nodes/RunningHubNode';
 import RhConfigNode from './nodes/RhConfigNode';
+import RHToolsNode from './nodes/RHToolsNode';
 import ResizeNode from './nodes/ResizeNode';
 import UpscaleNode from './nodes/UpscaleNode';
 import GridCropNode from './nodes/GridCropNode';
@@ -95,6 +104,8 @@ const SPECIFIC_NODES: Record<string, any> = {
   // RH 钱包应用：复用 RunningHubNode。v1.2.9.16 起与普通 RunningHub 节点统一使用 settings.rhApiKey
   'runninghub-wallet': RunningHubNode,
   'rh-config': RhConfigNode,
+  // RH 工具节点：内置启动器 + 应用运行面板（v1.2.10+）
+  'rh-tools': RHToolsNode,
   // Special (5)
   'multi-angle-3d': PresetImageNode,
   'panorama-720': PresetImageNode,
@@ -163,6 +174,27 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
     history: [],
   },
   upload: { uploadType: null },
+  // RH 工具节点（v1.2.10.1+）：启动器状态字段 + 运行状态字段（与 RunningHubNode 对齐）
+  // 启动器：rhToolsActiveCategoryId / rhToolsActiveAppId / rhToolsSearchQuery
+  // 运行态：appInfo / paramValues / instanceType / status / taskId / urls / error / rhCode / materialOrder
+  // 输出字段：imageUrl / videoUrl / audioUrl（按扩展名分流给下游 OutputNode）
+  'rh-tools': {
+    rhToolsActiveCategoryId: 'all',
+    rhToolsActiveAppId: '',
+    rhToolsSearchQuery: '',
+    appInfo: null,
+    paramValues: {},
+    materialOrder: [],
+    instanceType: '',
+    status: 'idle',
+    taskId: '',
+    urls: [],
+    error: '',
+    rhCode: 0,
+    imageUrl: '',
+    videoUrl: '',
+    audioUrl: '',
+  },
   // 循环器: 默认串联 + image kind
   loop: { mode: 'serial', kind: 'image', outputs: [], progress: { done: 0, total: 0, ok: 0, fail: 0 } },
   // 从合集获取: 默认 image + 第 1 个
@@ -175,6 +207,8 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'image', 'edit',
   'multi-angle-3d', 'panorama-720', 'penguin-portrait',
   'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
+  // v1.2.10.1: rh-tools 与 RunningHub 同质，同样可被批量运行调起
+  'rh-tools',
   'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine',
   'frame-extractor', 'frame-pair',
   'upload',
@@ -381,6 +415,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
 
   // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   // 可选 atScreen 传入屏幕坐标，节点会落在该点(用于右键画布空白区添加)
+  // v1.2.10.5: 接入 placeSingleNode 防重叠解析器 ——
+  //   期望落点冲突时按螺线 (右→下→左→上 step=80 maxTries=64) 自动避让,
+  //   兜底走最右侧 + 写日志 + setCenter 飞镜。
   const addNode = useCallback(
     (type: NodeType, atScreen?: { x: number; y: number }) => {
       const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -398,27 +435,27 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
       }
       const center = screenToFlowPosition({ x: cx, y: cy });
-      // 仅默认插入(无 atScreen)时加随机拖动，右键插入需精准在点击位置
-      const jitter = atScreen ? 0 : (Math.random() - 0.5) * 80;
+      // 期望落点: 右键 = 左上角对准鼠标; Sidebar = 节点视觉中心对准视口中心
+      const sz = defaultSizeOf(type);
+      const desiredX = atScreen ? center.x : center.x - sz.w / 2;
+      const desiredY = atScreen ? center.y : center.y - sz.h / 2;
+      // 防重叠: 用现有节点矩形求螺线无重叠位置
+      const finalPos = placeSingleNode(desiredX, desiredY, type, nodes, {
+        source: 'placement:add',
+        onFallback: (p) => {
+          const { zoom } = getViewport();
+          setCenter(p.x, p.y, { zoom, duration: 400 });
+        },
+      });
       const newNode: Node = {
         id,
         type,
-        position: atScreen
-          ? {
-              // 右键添加：节点左上角对准鼠标点击位置，使鼠标落在节点 header 上
-              x: center.x,
-              y: center.y,
-            }
-          : {
-              // Sidebar 添加：节点视觉中心对准视口中心 + 小范围抖动避免重叠
-              x: center.x - 160 + jitter,
-              y: center.y - 100 + (Math.random() - 0.5) * 80,
-            },
+        position: { x: finalPos.x, y: finalPos.y },
         data: { ...(INITIAL_DATA[type] || {}) },
       };
       setNodes((prev) => [...prev, newNode]);
     },
-    [screenToFlowPosition]
+    [screenToFlowPosition, nodes, getViewport, setCenter]
   );
 
   // ===== 复制 / 粘贴 / 删除 =====
@@ -1175,14 +1212,15 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         const targetHasConn = curEdges.some((e) => e.target === tgt!.id);
         if (targetHasConn) {
           const newId = `output-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          // 新 output 节点放在原节点右侧(360宽 + 40床)
+          // v1.2.10.5-hotfix3: 使用 placeSingleNode 防重叠（之前硬编码 +360 会重叠）
+          const _tgtW = (tgt as any).measured?.width || 320;
+          const _desX = (tgt.position?.x ?? 0) + _tgtW + 40;
+          const _desY = tgt.position?.y ?? 0;
+          const _finalPos = placeSingleNode(_desX, _desY, 'output', curNodes, { source: 'placement:onConnect-dup-output' });
           const newNode: Node = {
             id: newId,
             type: 'output',
-            position: {
-              x: (tgt.position?.x ?? 0) + 360,
-              y: tgt.position?.y ?? 0,
-            },
+            position: { x: _finalPos.x, y: _finalPos.y },
             data: { ...(INITIAL_DATA['output'] || {}) },
           };
           setNodes((prev) => [...prev, newNode]);
@@ -1907,6 +1945,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     const toAddNodes: Node[] = [];
     const toAddEdges: Edge[] = [];
     const newSigPatches: Array<[string, string]> = [];
+    // v1.2.10.5-hotfix: 同一次 effect 内多个源节点补建的 OutputNode 之间互不可见 (nodes 快照不包含本轮刚 push 的节点),
+    // 会导致多源场景下新 OutputNode 之间重叠。累积到 pendingPlacedNodes, 每次避让合并进 existing。
+    const pendingPlacedNodes: Node[] = [];
 
     for (const n of nodes) {
       const t = n.type as string;
@@ -1917,6 +1958,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       //          OutputNode 侧的 v1.2.9.10 修复 (hasAnyDirectAccumulated 跳过 pickKind) 是主双保险,
       //          本处跳过是避免不必要的 store write 和数据污染。
       if (d.__loopAccumulate) continue;
+      // v1.2.10.5-hotfix2: 跟過源节点尚未被 DOM 测量时跳过，下一轮 nodes 更新（带上 measured）会重新触发 effect。
+      // 避免用不准确的字典尺寸计算 baseX 导致 desired position 落在源节点可视范围内。
+      if (!(n as any).measured?.width) continue;
       // v1.2.8.2: 循环器仅在完成后才让 autoOutput 处理, 避免运行中注入 items[i] 时被误认为
       // “已生产产物” 并创建个空的 OutputNode。在 status='success' 时 d.imageUrls/videoUrls/audioUrls
       // 数组才是最终聚合产物, 交给 autoOutput 判并拆为 N 个 OutputNode (每行 3 个网格)。
@@ -1938,23 +1982,35 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           usedHandles.add((e as any).sourceHandle ?? null);
         }
         // null/默认 handle 也能充当任意一边（兼容旧连接）——只要这边有一个 OutputNode 进来, 就不重复补
-        const baseX = (n.position?.x ?? 0) + (((n as any).width || (n as any).measured?.width || 280)) + 80;
-        const baseY = n.position?.y ?? 0;
+        const _srcRectFP = rectOf(n);
+        const baseX = (n.position?.x ?? 0) + _srcRectFP.w + 80;
         const need: Array<'first' | 'last'> = [];
         if (!usedHandles.has('first') && !usedHandles.has(null)) need.push('first');
         if (!usedHandles.has('last')) need.push('last');
         // 若 null 已占位, 仅备份 'last' 偶尔多补一个 (使用者手动拖一根默认就应默认 first)
         newSigPatches.push([n.id, sig]);
+        if (need.length === 0) continue; // v1.2.10.5-hotfix3: 无需创建则跳过，避免无用的 placeBatchNodes 调用 + 诊断噪音
+        // v1.2.10.5: 整组防重叠 —— 先算期望单列矩形, 再求公共偏移
+        const _szFP = defaultSizeOf('output');
+        // v1.2.10.7: baseY 对齐源节点垂直中心（handle 位置），避免输出偏上
+        const _groupHFP = (need.length - 1) * 360 + _szFP.h;
+        const baseY = (n.position?.y ?? 0) + _srcRectFP.h / 2 - _groupHFP / 2;
+        const _desiredFP: PlacementRect[] = need.map((_, i) => ({
+          x: baseX, y: baseY + i * 360, w: _szFP.w, h: _szFP.h,
+        }));
+        const _offFP = placeBatchNodes(_desiredFP, [...nodes, ...pendingPlacedNodes], { source: 'placement:auto-frame-pair', gap: 0 });
         for (let i = 0; i < need.length; i++) {
           const h = need[i];
           const newId = `output-auto-${n.id}-${Date.now()}-${h}-${Math.random().toString(36).slice(2, 6)}`;
-          toAddNodes.push({
+          const _newNode: Node = {
             id: newId,
             type: 'output',
-            position: { x: baseX, y: baseY + i * 360 },
+            position: { x: baseX + _offFP.dx, y: baseY + i * 360 + _offFP.dy },
             data: {}, // 不带 pickKind/pickIndex, 让 useUpstreamMaterials 按 sourceHandle 过滤
             selected: false,
-          } as Node);
+          } as Node;
+          toAddNodes.push(_newNode);
+          pendingPlacedNodes.push(_newNode);
           toAddEdges.push({
             id: `e-auto-${newId}`,
             source: n.id,
@@ -1981,24 +2037,35 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           if (e.source !== n.id) continue;
           usedHandles.add((e as any).sourceHandle ?? null);
         }
-        const baseX = (n.position?.x ?? 0) + (((n as any).width || (n as any).measured?.width || 280)) + 80;
-        const baseY = n.position?.y ?? 0;
+        const _srcRectSU = rectOf(n);
+        const baseX = (n.position?.x ?? 0) + _srcRectSU.w + 80;
         const need: Array<'audio-0' | 'audio-1'> = [];
         // null 默认占位则 audio-0 不重复创建（老连接兼容）
         if (a0 && !usedHandles.has('audio-0') && !usedHandles.has(null)) need.push('audio-0');
         if (a1 && !usedHandles.has('audio-1')) need.push('audio-1');
         if (need.length === 0) { newSigPatches.push([n.id, sig]); continue; }
         newSigPatches.push([n.id, sig]);
+        // v1.2.10.5: 整组防重叠
+        const _szSU = defaultSizeOf('output');
+        // v1.2.10.7: baseY 对齐源节点垂直中心（handle 位置），避免输出偏上
+        const _groupHSU = (need.length - 1) * 360 + _szSU.h;
+        const baseY = (n.position?.y ?? 0) + _srcRectSU.h / 2 - _groupHSU / 2;
+        const _desiredSU: PlacementRect[] = need.map((_, i) => ({
+          x: baseX, y: baseY + i * 360, w: _szSU.w, h: _szSU.h,
+        }));
+        const _offSU = placeBatchNodes(_desiredSU, [...nodes, ...pendingPlacedNodes], { source: 'placement:auto-suno', gap: 0 });
         for (let i = 0; i < need.length; i++) {
           const h = need[i];
           const newId = `output-auto-${n.id}-${Date.now()}-${h}-${Math.random().toString(36).slice(2, 6)}`;
-          toAddNodes.push({
+          const _newNode: Node = {
             id: newId,
             type: 'output',
-            position: { x: baseX, y: baseY + i * 360 },
+            position: { x: baseX + _offSU.dx, y: baseY + i * 360 + _offSU.dy },
             data: {}, // 不带 pickKind/pickIndex。由 useUpstreamMaterials/OutputNode collected 按 sourceHandle 滤
             selected: false,
-          } as Node);
+          } as Node;
+          toAddNodes.push(_newNode);
+          pendingPlacedNodes.push(_newNode);
           toAddEdges.push({
             id: `e-auto-${newId}`,
             source: n.id,
@@ -2125,9 +2192,24 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       }
       if (needCount <= 0) continue;
 
-      const srcW = (n as any).width || (n as any).measured?.width || 320;
-      const baseX = (n.position?.x ?? 0) + srcW + 80;
-      const baseY = n.position?.y ?? 0;
+      const _srcRectGen = rectOf(n);
+      const baseX = (n.position?.x ?? 0) + _srcRectGen.w + 80;
+
+      // v1.2.10.5: 整组防重叠 —— 先算期望网格矩形, 再求公共偏移
+      const _szGen = defaultSizeOf('output');
+      // v1.2.10.7: baseY 让输出组垂直中心对齐源节点中心（handle 位置），避免输出偏上
+      const _gridRows = Math.ceil(needCount / 3);
+      const _groupHGen = (_gridRows - 1) * 360 + _szGen.h;
+      const baseY = (n.position?.y ?? 0) + _srcRectGen.h / 2 - _groupHGen / 2;
+      const _desiredGen: PlacementRect[] = remainingItems.slice(0, needCount).map((item) => {
+        const idx = items.findIndex((it) => it.kind === item.kind && it.kindIndex === item.kindIndex);
+        return {
+          x: baseX + (idx % 3) * 350,
+          y: baseY + Math.floor(idx / 3) * 360,
+          w: _szGen.w, h: _szGen.h,
+        };
+      });
+      const _offGen = placeBatchNodes(_desiredGen, [...nodes, ...pendingPlacedNodes], { source: 'placement:auto-output', gap: 0 });
 
       for (let i = 0; i < needCount; i++) {
         const item = remainingItems[i];
@@ -2137,20 +2219,25 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         const newId = `output-auto-${n.id}-${Date.now()}-${offsetIndex}-${Math.random()
           .toString(36)
           .slice(2, 6)}`;
-        toAddNodes.push({
+        const _newNodeGen: Node = {
           id: newId,
           type: 'output',
           // 网格排列: 每行 3 个, 超过换行。
           // OutputNode 宽 320 + 横间距 30 = 列宽 350; 行高 360 (包含图像预览).
+          // v1.2.10.5: 掠上 _offGen 避让现有节点。
           position: {
-            x: baseX + (offsetIndex % 3) * 350,
-            y: baseY + Math.floor(offsetIndex / 3) * 360,
+            x: baseX + (offsetIndex % 3) * 350 + _offGen.dx,
+            y: baseY + Math.floor(offsetIndex / 3) * 360 + _offGen.dy,
           },
           // pickKind/pickIndex: 下游 OutputNode 只拾上游对应 kind 的第 kindIndex 项,
           // 避免多图场景下所有 OutputNode 都重复显示全部输出
           data: { pickKind: item.kind, pickIndex: item.kindIndex },
           selected: false,
-        } as Node);
+        } as Node;
+        toAddNodes.push(_newNodeGen);
+        // v1.2.10.5-hotfix3: 通用路径也必须累积到 pendingPlacedNodes，
+        // 否则同一 effect 周期内后续源节点看不到本轮已创建的 OutputNode → 重叠
+        pendingPlacedNodes.push(_newNodeGen);
         toAddEdges.push({
           id: `e-auto-${newId}`,
           source: n.id,
@@ -2163,6 +2250,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     // 先写 ref 避免下次 useEffect 重进入重复创建
     for (const [id, sig] of newSigPatches) autoOutputProcessedRef.current.set(id, sig);
     if (toAddNodes.length > 0) {
+      console.warn('[autoOutput] 创建', toAddNodes.length, '个节点, pending累积:', pendingPlacedNodes.length,
+        '\n  positions:', toAddNodes.map(n => `${n.id.slice(0,20)}.. (${Math.round(n.position.x)},${Math.round(n.position.y)})`));
       setNodes((prev) => [...prev, ...toAddNodes]);
       setEdges((prev) => [...prev, ...toAddEdges]);
     }
@@ -2229,8 +2318,17 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         rowY[r] = rowY[r - 1] + rowMaxH[r - 1] + REORDER_GAP;
       }
       const srcW = (src as any).measured?.width || (src as any).width || 320;
-      const baseX = (src.position?.x ?? 0) + srcW + 80;
-      const baseY = src.position?.y ?? 0;
+      const srcH = (src as any).measured?.height || (src as any).height || 360;
+      // v1.2.10.5-hotfix4: reorder 只负责内部网格对齐，不做碰撞避让（避让是 autoOutput 的职责）。
+      // 用第一个节点的当前位置作为锚点，保留 autoOutput 算好的偏移，避免无限循环。
+      const naturalBaseX = (src.position?.x ?? 0) + srcW + 80;
+      // v1.2.10.7: naturalBaseY 对齐源节点垂直中心
+      const _totalGridH = rowY[rowsCount - 1] + rowMaxH[rowsCount - 1];
+      const naturalBaseY = (src.position?.y ?? 0) + srcH / 2 - _totalGridH / 2;
+      const firstNode = list[0];
+      const baseX = firstNode.position?.x ?? naturalBaseX;
+      const baseY = firstNode.position?.y ?? naturalBaseY;
+      // 内部网格布局：直接用 baseX + colX/rowY 对齐，不做外部碰撞检测（避免无限循环）
       list.forEach((n, i) => {
         const c = i % REORDER_COLS;
         const r = Math.floor(i / REORDER_COLS);
