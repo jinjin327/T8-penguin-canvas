@@ -26,6 +26,8 @@ const DEFAULT_SETTINGS = {
   sunoApiKey: '',
   // v1.2.10.2: 全局生成素材自动保存到本地的路径(可用户自定义)
   fileSavePath: config.DEFAULT_LOCAL_SAVE_DIR,
+  // v1.3.1: 画布自动保存导出路径(实际写入 <path>/T8-penguin-canvas/canvases)
+  canvasAutoSavePath: config.DEFAULT_CANVAS_AUTO_SAVE_DIR,
   // 其他偏好
   preferences: {
     theme: 'dark',
@@ -63,21 +65,27 @@ function saveSettings(settings) {
   fs.writeFileSync(config.SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
 }
 
-// v1.2.10.2: 启动时确保「文件自动保存路径」存在(不存在则 mkdir -p)
-function ensureFileSavePath() {
+// v1.2.10.2/v1.3.1: 启动时确保本地保存路径存在(不存在则 mkdir -p)
+function ensureLocalSavePaths() {
   try {
     const s = loadSettings();
-    const p = (s.fileSavePath || config.DEFAULT_LOCAL_SAVE_DIR || '').trim();
-    if (!p) return;
-    if (!fs.existsSync(p)) {
-      fs.mkdirSync(p, { recursive: true });
-      console.log(`[settings] 创建文件自动保存路径: ${p}`);
+    const paths = [
+      { label: '文件自动保存路径', value: s.fileSavePath || config.DEFAULT_LOCAL_SAVE_DIR || '' },
+      { label: '画布自动保存路径', value: s.canvasAutoSavePath || config.DEFAULT_CANVAS_AUTO_SAVE_DIR || '' },
+    ];
+    for (const item of paths) {
+      const p = String(item.value || '').trim();
+      if (!p) continue;
+      if (!fs.existsSync(p)) {
+        fs.mkdirSync(p, { recursive: true });
+        console.log(`[settings] 创建${item.label}: ${p}`);
+      }
     }
   } catch (e) {
-    console.warn('[settings] 创建 fileSavePath 失败(忽略):', e?.message || e);
+    console.warn('[settings] 创建本地保存路径失败(忽略):', e?.message || e);
   }
 }
-ensureFileSavePath();
+ensureLocalSavePaths();
 
 // GET /api/settings — 获取全部设置(脱敏 Key 仅返回最后4位)
 router.get('/', (_req, res) => {
@@ -111,16 +119,17 @@ router.post('/', (req, res) => {
     llmBaseUrl: config.ZHENZHEN_BASE_URL,
   };
   saveSettings(merged);
-  // v1.2.10.2: 保存后重新确保「文件自动保存路径」存在
-  if (typeof incoming.fileSavePath === 'string' && incoming.fileSavePath.trim()) {
+  // v1.2.10.2/v1.3.1: 保存后重新确保本地保存路径存在
+  for (const field of ['fileSavePath', 'canvasAutoSavePath']) {
+    if (typeof incoming[field] !== 'string' || !incoming[field].trim()) continue;
     try {
-      const p = incoming.fileSavePath.trim();
+      const p = incoming[field].trim();
       if (!fs.existsSync(p)) {
         fs.mkdirSync(p, { recursive: true });
-        console.log(`[settings] 创建文件自动保存路径: ${p}`);
+        console.log(`[settings] 创建${field}: ${p}`);
       }
     } catch (e) {
-      console.warn('[settings] mkdir fileSavePath 失败:', e?.message || e);
+      console.warn(`[settings] mkdir ${field} 失败:`, e?.message || e);
     }
   }
   res.json({ success: true });
@@ -150,6 +159,62 @@ function saveJson(file, data) {
 }
 function genId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+function cleanId(value, prefix) {
+  const raw = String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96);
+  return raw || genId(prefix);
+}
+function normalizeRhToolsBackup(raw) {
+  const payload = raw && typeof raw === 'object' ? raw : {};
+  const rawCategories = Array.isArray(payload.categories) ? payload.categories : [];
+  const rawTools = Array.isArray(payload.tools) ? payload.tools : [];
+
+  const usedCatIds = new Set();
+  const categories = rawCategories
+    .map((c, idx) => {
+      const name = String(c?.name || '').trim();
+      if (!name) return null;
+      let id = cleanId(c?.id, 'rhcat');
+      while (usedCatIds.has(id)) id = genId('rhcat');
+      usedCatIds.add(id);
+      return {
+        id,
+        name: name.slice(0, 80),
+        order: Number.isFinite(Number(c?.order)) ? Number(c.order) : idx,
+        createdAt: Number(c?.createdAt) || Date.now(),
+      };
+    })
+    .filter(Boolean);
+
+  const categoryIds = new Set(categories.map((c) => c.id));
+  const usedToolIds = new Set();
+  const tools = rawTools
+    .map((t, idx) => {
+      const webappId = String(t?.webappId || '').trim();
+      const title = String(t?.title || '').trim();
+      if (!webappId || !title) return null;
+      let id = cleanId(t?.id, 'rhtool');
+      while (usedToolIds.has(id)) id = genId('rhtool');
+      usedToolIds.add(id);
+      const categoryId = String(t?.categoryId || '').trim();
+      return {
+        id,
+        webappId: webappId.slice(0, 120),
+        title: title.slice(0, 120),
+        description: typeof t?.description === 'string' ? t.description.slice(0, 2000) : '',
+        categoryId: categoryIds.has(categoryId) ? categoryId : '',
+        coverUrl: typeof t?.coverUrl === 'string' ? t.coverUrl.slice(0, 2000) : '',
+        order: Number.isFinite(Number(t?.order)) ? Number(t.order) : idx,
+        addedAt: Number(t?.addedAt) || Date.now(),
+      };
+    })
+    .filter(Boolean);
+
+  categories.sort((a, b) => (a.order || 0) - (b.order || 0));
+  tools.sort((a, b) => (a.order || 0) - (b.order || 0));
+  categories.forEach((c, idx) => { c.order = idx; });
+  tools.forEach((t, idx) => { t.order = idx; });
+  return { categories, tools };
 }
 
 // 获取分类列表
@@ -324,6 +389,83 @@ router.post('/rh-tool-apps/reorder', (req, res) => {
   }
   saveJson(config.RH_TOOL_APPS_FILE, reordered);
   res.json({ success: true, data: reordered });
+});
+
+// RH 超市导出: 分类 + 应用一次性备份，便于版本迁移。
+router.get('/rh-tools/export', (_req, res) => {
+  const categories = loadJson(config.RH_TOOL_CATEGORIES_FILE, [])
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const tools = loadJson(config.RH_TOOL_APPS_FILE, [])
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  res.json({
+    success: true,
+    data: {
+      schema: 't8-rh-tools',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      categories,
+      tools,
+    },
+  });
+});
+
+// RH 超市导入: 默认覆盖当前 RH 超市数据，保留备份内 id 以兼容画布节点选中的应用。
+router.post('/rh-tools/import', (req, res) => {
+  try {
+    const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
+    const normalized = normalizeRhToolsBackup(req.body || {});
+
+    let categories = normalized.categories;
+    let tools = normalized.tools;
+
+    if (mode === 'merge') {
+      const existingCategories = loadJson(config.RH_TOOL_CATEGORIES_FILE, []);
+      const existingTools = loadJson(config.RH_TOOL_APPS_FILE, []);
+      const catByName = new Map(existingCategories.map((c) => [String(c.name || '').trim(), c]));
+      const mergedCategories = [...existingCategories];
+      const catIdMap = new Map();
+      for (const c of normalized.categories) {
+        const existing = catByName.get(c.name);
+        if (existing) {
+          catIdMap.set(c.id, existing.id);
+          continue;
+        }
+        c.order = mergedCategories.length;
+        mergedCategories.push(c);
+        catIdMap.set(c.id, c.id);
+      }
+
+      const toolByWebapp = new Map(existingTools.map((t) => [String(t.webappId || '').trim(), t]));
+      const mergedTools = [...existingTools];
+      for (const t of normalized.tools) {
+        const mappedCategory = catIdMap.get(t.categoryId) || t.categoryId || '';
+        const existing = toolByWebapp.get(t.webappId);
+        if (existing) {
+          Object.assign(existing, { ...t, id: existing.id, categoryId: mappedCategory });
+        } else {
+          t.categoryId = mappedCategory;
+          t.order = mergedTools.length;
+          mergedTools.push(t);
+        }
+      }
+      categories = mergedCategories.map((c, idx) => ({ ...c, order: idx }));
+      tools = mergedTools.map((t, idx) => ({ ...t, order: idx }));
+    }
+
+    saveJson(config.RH_TOOL_CATEGORIES_FILE, categories);
+    saveJson(config.RH_TOOL_APPS_FILE, tools);
+    res.json({
+      success: true,
+      data: {
+        categories,
+        tools,
+        categoryCount: categories.length,
+        toolCount: tools.length,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e?.message || String(e) });
+  }
 });
 
 module.exports = router;

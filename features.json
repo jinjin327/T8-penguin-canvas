@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.3.0",
-  "lastUpdated": "2026-05-25-v1.3.0-public-recharge-version-rule",
+  "version": "1.3.2",
+  "lastUpdated": "2026-05-25-v1.3.2-rh-tools-node-backup-buttons",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,14 +16,14 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.3.0",
-    "semverVersion": "1.3.0",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；阶段内 patch 从 1.3.0 → 1.3.9，下一阶段进位 1.4.0；package.json / package-lock.json / __APP_VERSION__ / Electron 标题 / IPC / features / README 全部同号，不再使用 4 段 display + 压缩 semver。",
-    "installer": "dist_electron/T8-PenguinCanvas-Setup-1.3.0.exe (NSIS, 约 87 MB)",
+    "version": "1.3.2",
+    "semverVersion": "1.3.2",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；阶段内 patch 从 1.3.0 → 1.3.9，下一阶段进位 1.4.0；当前 v1.3.2 将 RH 超市导出 / 导入入口同步到节点本体，用户无需进入管理弹窗即可备份迁移。",
+    "installer": "dist_electron/T8-PenguinCanvas-Setup-1.3.2.exe (NSIS, 约 87 MB)",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
-      "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号必须与 package.json 同步",
+      "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号，以及 backend/src/config.js APP_VERSION 必须与 package.json 同步",
       "_post_build.cjs 验证 8 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge}",
       "_post_build.cjs 验证 resources/frontend/index.html + assets/ 必存在",
       "_post_build.cjs 自动清除任何意外混入的 resources/{app,backend}/src 明文目录",
@@ -125,7 +125,9 @@
     "phase40": { "label": "GitHub 推送密钥清理规则 (v1.2.10.11)", "status": "complete", "items": ["RECHARGE_DEFAULT_ENC 默认改为空字符串，公开仓库不再携带 AGENT_HMAC_KEY 或可逆代理配置", "充值代理配置改为仅通过 RECHARGE_AGENT_BASE_URL / RECHARGE_AGENT_HMAC_KEY / RECHARGE_WEBSITE_URL / RECHARGE_DULUPAY_KEY 等环境变量注入", "skill.md 追加 GitHub 推送前安全清单：严禁提交真实 HMAC、支付平台密钥、data 本地数据、build/dist_electron 打包产物与明文配置"] },
     "phase41": { "label": "本地私有充值配置恢复 (v1.2.10.12)", "status": "complete", "items": ["新增 data/recharge.private.json 本地私有配置兜底，文件被 .gitignore 忽略，本地开发可继续使用充值 agent", "配置读取顺序为公开默认空配置 < data/recharge.private.json < RECHARGE_* 环境变量，GitHub 仍不携带真实 HMAC", "config.js 增加 RECHARGE_PRIVATE_FILE，recharge.js 增加私有配置读取与规范化逻辑"] },
     "phase42": { "label": "充值用户包密钥安全闸 (v1.2.10.13)", "status": "complete", "items": ["用户分发 Electron 包不得携带 AGENT_HMAC_KEY / DULUPAY_KEY / RECHARGE_DEFAULT_ENC 可逆密文，充值全局密钥只能留在 VPS 或本地私有开发环境", "_post_build.cjs 新增充值密钥扫描：发现源码非空 RECHARGE_DEFAULT_ENC、resources/data/recharge.private.json、非空 AGENT_HMAC_KEY / DULUPAY_KEY 或遗留 ZZENC1 密文即失败", "skill.md 打包 SOP 追加用户充值包安全边界：当前客户端 HMAC 方案只适合本地私有测试，正式用户版需要 VPS 提供无需客户端 HMAC 的公开下单/查单接口"] },
-    "phase43": { "label": "VPS 公开充值接口 + 三段阶段版本规则 (v1.3.0)", "status": "complete", "items": ["充值系统切换到 VPS /public/recharge/* 公开下单、查单和重试接口，T8 桌面端只保存绑定用户、订单摘要与 order_token，不再携带或使用全局 agent HMAC", "版本规则废弃 4 段 display + 压缩 semver，改为统一三段 x.y.z；从 1.3.0 开始，阶段内 1.3.1 到 1.3.9，下个阶段为 1.4.0", "package.json、package-lock.json、vite.config.ts、vite.config.js、electron/main.cjs、features.json、README.md 已同步到 1.3.0；skill.md 仅本地更新且不得推送 GitHub"] }
+    "phase43": { "label": "VPS 公开充值接口 + 三段阶段版本规则 (v1.3.0)", "status": "complete", "items": ["充值系统切换到 VPS /public/recharge/* 公开下单、查单和重试接口，T8 桌面端只保存绑定用户、订单摘要与 order_token，不再携带或使用全局 agent HMAC", "版本规则废弃 4 段 display + 压缩 semver，改为统一三段 x.y.z；从 1.3.0 开始，阶段内 1.3.1 到 1.3.9，下个阶段为 1.4.0", "package.json、package-lock.json、vite.config.ts、vite.config.js、electron/main.cjs、features.json、README.md 已同步到 1.3.0；skill.md 仅本地更新且不得推送 GitHub"] },
+    "phase44": { "label": "画布自动保存 + RH 超市导入导出 (v1.3.1)", "status": "complete", "items": ["设置页新增 canvasAutoSavePath，默认 D:\\zhenzhen；画布每次内部保存成功后同步导出 JSON 到 <path>/T8-penguin-canvas/canvases，便于更换版本后用现有导入功能恢复", "画布导出 JSON 升级为 schema=t8-penguin-canvas-export/version=2，包含 canvas 元信息与 viewport；导入兼容普通导出与自动保存备份", "RH 超市管理弹窗新增导出 / 导入按钮；导出分类和应用为 t8-rh-tools JSON，导入默认覆盖当前 RH 超市数据并保留备份内 id，方便旧画布继续匹配已选应用", "后端新增 POST /api/canvas/:id/auto-save、GET /api/settings/rh-tools/export、POST /api/settings/rh-tools/import；设置保存时自动 mkdir 本地保存路径"] },
+    "phase45": { "label": "RH 超市节点本体导入导出入口 (v1.3.2)", "status": "complete", "items": ["RHToolsNode 启动器视图在「增加 / 编辑」下方新增「导出 / 导入」按钮，用户在节点本体即可备份或恢复 RH 超市分类和应用", "导入入口复用现有 t8-rh-tools JSON 清洗与 replace 覆盖逻辑，并在覆盖前提示确认，导入结果在节点内以同主题状态条显示", "RHToolEditorModal 顶部导出 / 导入入口继续保留，节点本体和管理弹窗两处入口共享同一套备份格式与后端导入逻辑", "backend/src/config.js 新增 APP_VERSION，/api/status 返回值同步当前发布版本，便于打包冒烟测试确认运行的是最新包"] }
   },
   "categories": {
     "input": {
@@ -330,6 +332,7 @@
         "POST /api/canvas — 创建画布",
         "GET /api/canvas/:id — 读取画布数据",
         "PUT /api/canvas/:id — 保存画布数据(防空覆盖)",
+        "POST /api/canvas/:id/auto-save — 将画布 JSON 镜像自动保存到 canvasAutoSavePath/T8-penguin-canvas/canvases（v1.3.1）",
         "DELETE /api/canvas/:id — 删除画布",
         "PATCH /api/canvas/:id/name — 重命名"
       ],
@@ -340,7 +343,9 @@
         "GET/POST/PUT/DELETE /api/settings/rh-tool-categories[/:id] — RH 超市分类 CRUD（v1.2.10）",
         "POST /api/settings/rh-tool-categories/reorder — RH 超市分类排序（v1.2.10）",
         "GET/POST/PUT/DELETE /api/settings/rh-tool-apps[/:id] — RH 超市应用 CRUD（v1.2.10）",
-        "POST /api/settings/rh-tool-apps/reorder — RH 超市应用排序（v1.2.10）"
+        "POST /api/settings/rh-tool-apps/reorder — RH 超市应用排序（v1.2.10）",
+        "GET /api/settings/rh-tools/export — RH 超市分类+应用 JSON 备份（v1.3.1）",
+        "POST /api/settings/rh-tools/import — RH 超市分类+应用 JSON 导入，默认 replace（v1.3.1）"
       ],
       "files": [
         "POST /api/files/upload — 文件上传",

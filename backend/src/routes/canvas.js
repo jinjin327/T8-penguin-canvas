@@ -24,6 +24,38 @@ function getCanvasFile(id) {
   return path.join(config.DATA_DIR, `canvas_${id}.json`);
 }
 
+function safeFilename(input) {
+  return String(input || 'canvas')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 80) || 'canvas';
+}
+
+function loadSettings() {
+  try {
+    if (!fs.existsSync(config.SETTINGS_FILE)) return {};
+    return JSON.parse(fs.readFileSync(config.SETTINGS_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function getCanvasAutoSaveDir() {
+  const settings = loadSettings();
+  const base = String(settings.canvasAutoSavePath || config.DEFAULT_CANVAS_AUTO_SAVE_DIR || '').trim();
+  if (!base) return '';
+  return path.join(base, 'T8-penguin-canvas', 'canvases');
+}
+
+function atomicWriteJson(file, data) {
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
 // GET /api/canvas — 获取画布列表
 router.get('/', (_req, res) => {
   const list = loadCanvasList();
@@ -93,6 +125,51 @@ router.put('/:id', (req, res) => {
     saveCanvasList(list);
   }
   res.json({ success: true });
+});
+
+// POST /api/canvas/:id/auto-save — 将当前画布镜像保存到用户配置的本地目录
+// 用于跨版本迁移: 用户可在「API 设置 → 画布自动保存路径」配置基础路径。
+// 实际保存位置: <path>/T8-penguin-canvas/canvases/<画布名>-<id>.json
+router.post('/:id/auto-save', (req, res) => {
+  try {
+    const incoming = req.body;
+    if (!incoming || !Array.isArray(incoming.nodes) || !Array.isArray(incoming.edges)) {
+      return res.status(400).json({ success: false, error: '画布数据格式错误' });
+    }
+    const saveDir = getCanvasAutoSaveDir();
+    if (!saveDir) {
+      return res.status(400).json({ success: false, error: '未配置 canvasAutoSavePath' });
+    }
+
+    const list = loadCanvasList();
+    const item = list.find((x) => x.id === req.params.id);
+    const name = item?.name || req.params.id;
+    const shortId = String(req.params.id).replace(/^canvas-/, '').slice(0, 24);
+    const filename = `${safeFilename(name)}-${safeFilename(shortId)}.json`;
+    const target = path.join(saveDir, filename);
+    const now = Date.now();
+    const payload = {
+      schema: 't8-penguin-canvas-autosave',
+      version: 1,
+      autoSavedAt: new Date(now).toISOString(),
+      canvas: {
+        id: req.params.id,
+        name,
+        nodeCount: incoming.nodes.length,
+        edgeCount: incoming.edges.length,
+        createdAt: item?.createdAt || null,
+        updatedAt: item?.updatedAt || now,
+      },
+      nodes: incoming.nodes,
+      edges: incoming.edges,
+      viewport: incoming.viewport || { x: 0, y: 0, zoom: 1 },
+    };
+
+    atomicWriteJson(target, payload);
+    res.json({ success: true, data: { path: target, nodeCount: incoming.nodes.length, edgeCount: incoming.edges.length } });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e?.message || String(e) });
+  }
 });
 
 // DELETE /api/canvas/:id

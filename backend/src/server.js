@@ -45,7 +45,7 @@ app.get('/api/status', (_req, res) => {
   res.json({
     ok: true,
     service: 't8-penguin-canvas-backend',
-    version: '1.0.0',
+    version: config.APP_VERSION,
     port: config.PORT,
     time: new Date().toISOString(),
   });

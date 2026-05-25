@@ -73,6 +73,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [saved, setSaved] = useState(false);
   // v1.2.10.2: 文件自动保存路径输入
   const [fileSavePathInput, setFileSavePathInput] = useState<string>('');
+  // v1.3.1: 画布自动保存路径输入
+  const [canvasAutoSavePathInput, setCanvasAutoSavePathInput] = useState<string>('');
   // 分类独立 Key 区块折叠状态（新手友好：默认折叠，点击展开）
   const [classifiedOpen, setClassifiedOpen] = useState(false);
   // 眼睛预览拉取的明文（仅缓存，不提交）
@@ -92,6 +94,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       setClassifiedOpen(false);
       // 回填文件自动保存路径(明文字段，不脱敏)
       setFileSavePathInput((settings as any)?.fileSavePath || '');
+      setCanvasAutoSavePathInput((settings as any)?.canvasAutoSavePath || '');
     }
   }, [open, settings]);
 
@@ -135,6 +138,11 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     const oldPath = (settings as any)?.fileSavePath || '';
     if (newPath && newPath !== oldPath) {
       (patch as any).fileSavePath = newPath;
+    }
+    const newCanvasPath = (canvasAutoSavePathInput || '').trim();
+    const oldCanvasPath = (settings as any)?.canvasAutoSavePath || '';
+    if (newCanvasPath && newCanvasPath !== oldCanvasPath) {
+      (patch as any).canvasAutoSavePath = newCanvasPath;
     }
     if (Object.keys(patch).length === 0) {
       onClose();
@@ -434,6 +442,31 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
               <span className="flex items-center gap-1.5">
                 <Lock size={11} /> 仅保存在本地机, 不上传上游。同名文件不覆盖。
+              </span>
+            </div>
+          </div>
+
+          {/* v1.3.1: 画布自动保存路径 */}
+          <div className={`pt-3 border-t ${isPixel ? 'border-[var(--px-ink)]/30' : isDark ? 'border-white/10' : 'border-black/10'}`}>
+            <label className={`text-sm font-medium flex items-center gap-2 flex-wrap ${labelCls}`}>
+              <FolderOpen size={14} className={isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-emerald-300' : 'text-emerald-600'} />
+              画布自动保存路径
+              <span className={`text-[11px] font-normal ${hintCls}`}>· 当前画布变更后自动导出 JSON，方便更换版本后导入</span>
+            </label>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={canvasAutoSavePathInput}
+                onChange={(e) => setCanvasAutoSavePathInput(e.target.value)}
+                placeholder="例：D:\\zhenzhen · 实际保存到此路径下的 T8-penguin-canvas\\canvases"
+                className={inputCls}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
+              <span className="flex items-center gap-1.5">
+                <Lock size={11} /> 默认 D:\zhenzhen；保存文件可直接用画布导入功能恢复。
               </span>
             </div>
           </div>

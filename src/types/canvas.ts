@@ -123,6 +123,8 @@ export interface ApiSettings {
   sunoApiKey?: string;
   // v1.2.10.2: 全局生成素材自动保存到本地的路径(可用户自定义)
   fileSavePath?: string;
+  // v1.3.1: 画布自动保存导出路径(实际写入 <path>/T8-penguin-canvas/canvases)
+  canvasAutoSavePath?: string;
   preferences?: {
     theme?: 'dark' | 'light';
     language?: string;

@@ -404,14 +404,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     }
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
+      const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport() };
       try {
-        await api.saveCanvasData(activeId, { nodes: persistNodes, edges: persistEdges, viewport: { x: 0, y: 0, zoom: 1 } });
+        await api.saveCanvasData(activeId, payload);
+        api.autoSaveCanvasData(activeId, payload).catch((e) => {
+          console.warn('画布自动保存到本地路径失败', e);
+        });
         lastSavedRef.current = snapshot;
       } catch (e) {
         console.error('保存画布失败', e);
       }
     }, 800);
-  }, [nodes, edges, activeId, loaded]);
+  }, [nodes, edges, activeId, loaded, getViewport]);
 
   // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   // 可选 atScreen 传入屏幕坐标，节点会落在该点(用于右键画布空白区添加)
@@ -585,10 +589,13 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   // ===== 导入 / 导出 =====
   const handleExport = useCallback(() => {
     const data = {
-      version: 1,
+      schema: 't8-penguin-canvas-export',
+      version: 2,
       exportedAt: new Date().toISOString(),
+      canvas: { id: activeId || 'export' },
       nodes,
       edges,
+      viewport: getViewport(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -599,7 +606,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [nodes, edges, activeId]);
+  }, [nodes, edges, activeId, getViewport]);
 
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -614,8 +621,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         try {
           const txt = String(reader.result || '');
           const json = JSON.parse(txt);
-          const importedNodes = Array.isArray(json.nodes) ? json.nodes : [];
-          const importedEdges = Array.isArray(json.edges) ? json.edges : [];
+          const source = json?.canvasData && typeof json.canvasData === 'object' ? json.canvasData : json;
+          const importedNodes = Array.isArray(source.nodes) ? source.nodes : [];
+          const importedEdges = Array.isArray(source.edges) ? source.edges : [];
           if (!confirm(`导入将替换当前画布(${importedNodes.length} 个节点 / ${importedEdges.length} 条连线),是否继续?`)) {
             return;
           }

@@ -33,6 +33,8 @@ const DEFAULT: ApiSettings = {
   sunoApiKey: '',
   // v1.2.10.2: 全局生成素材自动保存路径默认值
   fileSavePath: 'D:\\zhenzhen',
+  // v1.3.1: 画布自动保存路径默认值
+  canvasAutoSavePath: 'D:\\zhenzhen',
   preferences: { theme: 'dark', language: 'zh-CN' },
 };
 

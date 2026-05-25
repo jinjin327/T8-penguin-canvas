@@ -60,6 +60,20 @@ export async function saveCanvasData(id: string, data: CanvasData): Promise<void
   });
 }
 
+export async function autoSaveCanvasData(
+  id: string,
+  data: CanvasData,
+): Promise<{ path?: string; nodeCount?: number; edgeCount?: number }> {
+  const res = await request<{
+    success: boolean;
+    data: { path?: string; nodeCount?: number; edgeCount?: number };
+  }>(`${BASE}/canvas/${id}/auto-save`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return res.data || {};
+}
+
 export async function deleteCanvas(id: string): Promise<void> {
   await request(`${BASE}/canvas/${id}`, { method: 'DELETE' });
 }
@@ -138,6 +152,14 @@ export interface RHTool {
   coverUrl: string;
   order: number;
   addedAt: number;
+}
+
+export interface RHToolsBackup {
+  schema?: 't8-rh-tools' | string;
+  version?: number;
+  exportedAt?: string;
+  categories: RHToolCategory[];
+  tools: RHTool[];
 }
 
 export interface AddRHToolPayload {
@@ -221,6 +243,18 @@ export function reorderRHTools(ids: string[]) {
     method: 'POST',
     body: JSON.stringify({ ids }),
   });
+}
+export function getRHToolsBackup() {
+  return safeRequest<RHToolsBackup>(`${BASE}/settings/rh-tools/export`);
+}
+export function importRHToolsBackup(payload: RHToolsBackup, mode: 'replace' | 'merge' = 'replace') {
+  return safeRequest<{ categories: RHToolCategory[]; tools: RHTool[]; categoryCount: number; toolCount: number }>(
+    `${BASE}/settings/rh-tools/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, mode }),
+    }
+  );
 }
 
 // ========== 算力充值 ==========

@@ -8,9 +8,10 @@
  * 仅作为浮层渲染，由 RHToolsNode 在用户点击「编辑」时打开。
  * 自动填名：通过 fetchRhAppInfo(webappId) 从 T8 后端 /api/proxy/runninghub/app-info 拉取。
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, Upload } from 'lucide-react';
 import { useRHTools } from '../../providers/RHToolsProvider';
-import type { RHTool, RHToolCategory } from '../../services/api';
+import type { RHTool, RHToolCategory, RHToolsBackup } from '../../services/api';
 import { fetchRhAppInfo } from '../../services/generation';
 
 interface RHToolEditorModalProps {
@@ -21,8 +22,9 @@ interface RHToolEditorModalProps {
 }
 
 const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, isLight, defaultCategoryId }) => {
-  const { categories, tools, addCategory, renameCategory, deleteCategory, addTool, updateTool, deleteTool } = useRHTools();
+  const { categories, tools, addCategory, renameCategory, deleteCategory, addTool, updateTool, deleteTool, importBackup } = useRHTools();
   const [tab, setTab] = useState<'apps' | 'categories'>('apps');
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // 主题色
   const bg = isLight ? '#ffffff' : '#1c1c1e';
@@ -53,6 +55,7 @@ const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, 
   const [newCatName, setNewCatName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [transferMsg, setTransferMsg] = useState('');
 
   // 重置表单
   useEffect(() => {
@@ -63,6 +66,7 @@ const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, 
       setRenamingId(null);
       setRenameValue('');
       setNewCatName('');
+      setTransferMsg('');
     } else {
       setForm(emptyForm);
     }
@@ -170,6 +174,55 @@ const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, 
     await deleteCategory(cat.id);
   };
 
+  const handleExportBackup = () => {
+    const payload: RHToolsBackup = {
+      schema: 't8-rh-tools',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      categories,
+      tools,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `t8-rh-tools-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTransferMsg(`已导出 ${categories.length} 个分类 / ${tools.length} 个应用`);
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const json = JSON.parse(await file.text());
+      const payload: RHToolsBackup = {
+        schema: json?.schema || 't8-rh-tools',
+        version: Number(json?.version || 1),
+        exportedAt: json?.exportedAt,
+        categories: Array.isArray(json?.categories) ? json.categories : [],
+        tools: Array.isArray(json?.tools) ? json.tools : [],
+      };
+      if (payload.categories.length === 0 && payload.tools.length === 0) {
+        setTransferMsg('导入失败：文件里没有 RH 超市数据');
+        return;
+      }
+      const ok = window.confirm(
+        `导入将覆盖当前 RH 超市数据。\n\n文件中包含 ${payload.categories.length} 个分类 / ${payload.tools.length} 个应用，是否继续?`
+      );
+      if (!ok) return;
+      const success = await importBackup(payload, 'replace');
+      setTransferMsg(success ? `导入完成：${payload.categories.length} 个分类 / ${payload.tools.length} 个应用` : '导入失败：后端写入失败');
+    } catch (err) {
+      console.error(err);
+      setTransferMsg('导入失败：JSON 解析错误');
+    }
+  };
+
   const inputStyle: React.CSSProperties = {
     width: '100%',
     background: surface,
@@ -228,6 +281,31 @@ const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, 
               </button>
             </div>
           </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleExportBackup}
+              className="px-2 py-1 rounded text-xs flex items-center gap-1"
+              style={{ background: surface, color: text, border: `1px solid ${border}` }}
+              title="导出 RH 超市 JSON"
+            >
+              <Download size={12} /> 导出
+            </button>
+            <button
+              onClick={() => importInputRef.current?.click()}
+              className="px-2 py-1 rounded text-xs flex items-center gap-1"
+              style={{ background: accent, color: '#fff', border: `1px solid ${accent}` }}
+              title="导入 RH 超市 JSON"
+            >
+              <Upload size={12} /> 导入
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportBackup}
+            />
+          </div>
           <button onClick={onClose} className="text-xl leading-none hover:opacity-70" style={{ color: subText }}>
             ×
           </button>
@@ -235,6 +313,14 @@ const RHToolEditorModal: React.FC<RHToolEditorModalProps> = ({ isOpen, onClose, 
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4">
+          {transferMsg && (
+            <div
+              className="text-xs px-3 py-2 rounded mb-3"
+              style={{ background: surface, color: transferMsg.includes('失败') ? '#ef4444' : accent, border: `1px solid ${border}` }}
+            >
+              {transferMsg}
+            </div>
+          )}
           {tab === 'apps' && (
             <div className="flex flex-col gap-3">
               {/* 表单 */}

@@ -26,8 +26,10 @@ import {
   updateRHTool as apiUpdateTool,
   deleteRHTool as apiDeleteTool,
   reorderRHTools as apiReorderTools,
+  importRHToolsBackup as apiImportBackup,
   type AddRHToolPayload,
   type RHTool,
+  type RHToolsBackup,
   type RHToolCategory,
 } from '../services/api';
 
@@ -48,6 +50,7 @@ interface RHToolsContextType {
   updateTool: (id: string, payload: Partial<AddRHToolPayload>) => Promise<RHTool | null>;
   deleteTool: (id: string) => Promise<boolean>;
   reorderTools: (ids: string[]) => Promise<boolean>;
+  importBackup: (payload: RHToolsBackup, mode?: 'replace' | 'merge') => Promise<boolean>;
 }
 
 const RHToolsContext = createContext<RHToolsContextType | null>(null);
@@ -145,6 +148,16 @@ export const RHToolsProvider: React.FC<{ children: ReactNode }> = ({ children })
     return false;
   }, []);
 
+  const importBackup = useCallback(async (payload: RHToolsBackup, mode: 'replace' | 'merge' = 'replace') => {
+    const r = await apiImportBackup(payload, mode);
+    if (r.success) {
+      setCategories(r.data.categories);
+      setTools(r.data.tools);
+      return true;
+    }
+    return false;
+  }, []);
+
   return (
     <RHToolsContext.Provider
       value={{
@@ -160,6 +173,7 @@ export const RHToolsProvider: React.FC<{ children: ReactNode }> = ({ children })
         updateTool,
         deleteTool,
         reorderTools,
+        importBackup,
       }}
     >
       {children}

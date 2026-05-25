@@ -2,7 +2,7 @@
  * RH 工具节点（启动器 + 运行器双视图）— v1.2.10.1 重构版
  *
  * 设计：
- *   1. 节点初始为「启动器视图」：分类 Tab + 应用按钮网格（2 列）+ 搜索 + 「+ 增加 / ✎ 编辑」
+ *   1. 节点初始为「启动器视图」：分类 Tab + 应用按钮网格（2 列）+ 搜索 + 「+ 增加 / ✎ 编辑 / 导出 / 导入」
  *   2. 用户点击应用 → 切换到「运行器视图」：完全复用 RunningHubNode 的运行链路：
  *      - 上游素材 (text/image/video/audio) 聚合预览（MaterialPreviewSection 拖拽排序）
  *      - 拉取 nodeInfoList → 表单展开（select / number / textarea / 媒体字段「从上游」勾选）
@@ -21,11 +21,11 @@
  * 数据：useRHToolsSafe()（多个节点共享 categories/tools）
  * 主题：useThemeStore（theme=dark/light + style=pixel/tech）
  */
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Handle, Position, useNodeConnections, useNodesData, type NodeProps } from '@xyflow/react';
 import {
   Sparkles, Search, Plus, Pencil, AlertCircle, Loader2,
-  Square, RefreshCw, ArrowLeft,
+  Square, RefreshCw, ArrowLeft, Download, Upload,
 } from 'lucide-react';
 import { submitRh, queryRh, fetchRhAppInfo, uploadRhAsset } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
@@ -40,7 +40,7 @@ import { logBus } from '../../stores/logs';
 import { fuzzyMatch } from '../../utils/pinyinMatch';
 import ResizableCorners from './ResizableCorners';
 import RHToolEditorModal from './RHToolEditorModal';
-import type { RHTool } from '../../services/api';
+import type { RHTool, RHToolsBackup } from '../../services/api';
 
 const ALL = 'all';
 const UNCATEGORIZED = 'uncategorized';
@@ -117,6 +117,7 @@ const RHToolsNode = ({ id, data, selected }: NodeProps) => {
   const ctx = useRHToolsSafe();
   const categories = ctx?.categories ?? [];
   const tools = ctx?.tools ?? [];
+  const importBackup = ctx?.importBackup;
 
   const d = data as any;
   // 启动器
@@ -158,6 +159,8 @@ const RHToolsNode = ({ id, data, selected }: NodeProps) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [searchVisible, setSearchVisible] = useState(!!searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [transferMsg, setTransferMsg] = useState('');
 
   // ===================== 运行器侧 hooks (始终调用以保证 hooks 顺序稳定) =====================
   const hasAutoOutput = useHasAutoOutput(id);
@@ -303,6 +306,59 @@ const RHToolsNode = ({ id, data, selected }: NodeProps) => {
       out.push(it);
     }
     return out;
+  };
+
+  const handleExportBackup = () => {
+    const payload: RHToolsBackup = {
+      schema: 't8-rh-tools',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      categories,
+      tools,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `t8-rh-tools-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTransferMsg(`已导出 ${categories.length} 个分类 / ${tools.length} 个应用`);
+  };
+
+  const handleImportBackup = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!importBackup) {
+      setTransferMsg('导入失败：RH 超市服务未就绪');
+      return;
+    }
+    try {
+      const json = JSON.parse(await file.text());
+      const payload: RHToolsBackup = {
+        schema: json?.schema || 't8-rh-tools',
+        version: Number(json?.version || 1),
+        exportedAt: json?.exportedAt,
+        categories: Array.isArray(json?.categories) ? json.categories : [],
+        tools: Array.isArray(json?.tools) ? json.tools : [],
+      };
+      if (payload.categories.length === 0 && payload.tools.length === 0) {
+        setTransferMsg('导入失败：文件里没有 RH 超市数据');
+        return;
+      }
+      const ok = window.confirm(
+        `导入将覆盖当前 RH 超市数据。\n\n文件中包含 ${payload.categories.length} 个分类 / ${payload.tools.length} 个应用，是否继续?`,
+      );
+      if (!ok) return;
+      const success = await importBackup(payload, 'replace');
+      setTransferMsg(success ? `导入完成：${payload.categories.length} 个分类 / ${payload.tools.length} 个应用` : '导入失败：后端写入失败');
+    } catch (err) {
+      console.error(err);
+      setTransferMsg('导入失败：JSON 解析错误');
+    }
   };
 
   const resolveNodeInfoList = async (raw: any[]): Promise<any[]> => {
@@ -957,7 +1013,7 @@ const RHToolsNode = ({ id, data, selected }: NodeProps) => {
           </div>
         )}
 
-        <div className="flex gap-1.5 px-3 py-2 shrink-0">
+        <div className="grid grid-cols-2 gap-1.5 px-3 pt-2 shrink-0">
           <button
             onClick={() => setShowEditor(true)}
             onMouseDown={(e) => e.stopPropagation()}
@@ -979,6 +1035,52 @@ const RHToolsNode = ({ id, data, selected }: NodeProps) => {
             <Pencil size={11} /> 编辑
           </button>
         </div>
+
+        <div className="grid grid-cols-2 gap-1.5 px-3 py-2 shrink-0">
+          <button
+            onClick={handleExportBackup}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex-1 py-1.5 rounded text-xs nodrag flex items-center justify-center gap-1"
+            style={{ background: surface, color: text, border: `1px solid ${border}` }}
+            title="导出 RH 超市 JSON"
+            onMouseEnter={(e) => (e.currentTarget.style.background = surfaceHover)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = surface)}
+          >
+            <Download size={11} /> 导出
+          </button>
+          <button
+            onClick={() => importInputRef.current?.click()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex-1 py-1.5 rounded text-xs nodrag flex items-center justify-center gap-1"
+            style={{ background: accent, color: '#fff', border: `1px solid ${accent}` }}
+            title="导入 RH 超市 JSON，会先提示确认"
+          >
+            <Upload size={11} /> 导入
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleImportBackup}
+          />
+        </div>
+
+        {transferMsg && (
+          <div className="px-3 pb-2 shrink-0">
+            <div
+              className="text-[10px] px-2 py-1 rounded truncate"
+              title={transferMsg}
+              style={{
+                background: surface,
+                color: transferMsg.includes('失败') ? '#ef4444' : accent,
+                border: `1px solid ${border}`,
+              }}
+            >
+              {transferMsg}
+            </div>
+          </div>
+        )}
 
         <div
           className="flex gap-1 px-3 pb-2 overflow-x-auto shrink-0 nodrag nowheel"

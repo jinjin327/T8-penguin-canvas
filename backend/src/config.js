@@ -18,6 +18,7 @@ const config = {
   // 服务器
   HOST: process.env.HOST || '127.0.0.1',
   PORT: process.env.PORT || 18766, // 注意:与主项目 18765 错开
+  APP_VERSION: '1.3.2',
   NODE_ENV: process.env.NODE_ENV || (IS_PACKAGED ? 'production' : 'development'),
   IS_PACKAGED,
 
@@ -60,6 +61,9 @@ const config = {
   //   用户可在「API 设置 → 文件自动保存路径」覆盖。
   //   不存在时启动会自动创建; 写入失败仅 console.warn, 不阻断业务。
   DEFAULT_LOCAL_SAVE_DIR: 'D:\\zhenzhen',
+  // v1.3.1: 画布自动保存导出路径默认同本地素材保存路径。
+  //   实际文件会写入 <path>/T8-penguin-canvas/canvases/*.json。
+  DEFAULT_CANVAS_AUTO_SAVE_DIR: 'D:\\zhenzhen',
 };
 
 // 提前创建打包后的数据目录(避免首次启动报错)
