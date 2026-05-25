@@ -2309,30 +2309,19 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         rowY[r] = rowY[r - 1] + rowMaxH[r - 1] + REORDER_GAP;
       }
       const srcW = (src as any).measured?.width || (src as any).width || 320;
-      const baseX = (src.position?.x ?? 0) + srcW + 80;
-      const baseY = src.position?.y ?? 0;
-      // v1.2.10.5-hotfix3: 内部网格布局算好后，还要检查整组是否与外部节点碰撞，
-      // 若有碰撞则应用 placeBatchNodes 偏移，避免 reorder 覆盖 autoOutput 的避让。
-      const _groupDesired: PlacementRect[] = list.map((_, i) => {
-        const c = i % REORDER_COLS;
-        const r = Math.floor(i / REORDER_COLS);
-        return { x: baseX + colX[c], y: baseY + rowY[r], w: dims[i].w, h: dims[i].h };
-      });
-      // 排除自身组（源节点 + 组内 output 节点），其余所有节点都参与碰撞
-      const _excludeIds = new Set([srcId, ...list.map(n => n.id)]);
-      const _externalNodes = nodes.filter(n => !_excludeIds.has(n.id));
-      const _reorderOff = placeBatchNodes(_groupDesired, _externalNodes, {
-        source: 'placement:reorder-grid',
-        excludeIds: _excludeIds,
-        gap: 0,        // reorder 只防止直接重叠，不要求严格间距
-        step: 40,      // 小步长，结果更紧凑
-        maxTries: 12,  // 限制搜索半径，最多偏移 ~200px
-      });
+      // v1.2.10.5-hotfix4: reorder 只负责内部网格对齐，不做碰撞避让（避让是 autoOutput 的职责）。
+      // 用第一个节点的当前位置作为锚点，保留 autoOutput 算好的偏移，避免无限循环。
+      const naturalBaseX = (src.position?.x ?? 0) + srcW + 80;
+      const naturalBaseY = src.position?.y ?? 0;
+      const firstNode = list[0];
+      const baseX = firstNode.position?.x ?? naturalBaseX;
+      const baseY = firstNode.position?.y ?? naturalBaseY;
+      // 内部网格布局：直接用 baseX + colX/rowY 对齐，不做外部碰撞检测（避免无限循环）
       list.forEach((n, i) => {
         const c = i % REORDER_COLS;
         const r = Math.floor(i / REORDER_COLS);
-        const newX = baseX + colX[c] + _reorderOff.dx;
-        const newY = baseY + rowY[r] + _reorderOff.dy;
+        const newX = baseX + colX[c];
+        const newY = baseY + rowY[r];
         const cx = n.position?.x ?? 0;
         const cy = n.position?.y ?? 0;
         // 用户手动拖动过的节点 (data.userMoved=true) 跳过, 保留位置
