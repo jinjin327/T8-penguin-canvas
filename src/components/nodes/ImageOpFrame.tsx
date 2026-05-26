@@ -26,13 +26,15 @@ interface ImageOpNodeProps {
   renderSettings: () => ReactNode;
   /** 执行变换,返回单图或多图 */
   runOp: (imageUrl: string) => Promise<{ imageUrl?: string; urls?: string[] }>;
+  /** 可选：由节点自行订阅并传入的上游图像列表，避免预览和运行读取不同来源 */
+  inputImages?: string[];
   /** 是否需要多张输入(combine) */
   needsMulti?: boolean;
   width?: number;
 }
 
 export function ImageOpFrame(props: ImageOpNodeProps) {
-  const { id, data, selected, title, subtitle, icon, colorHex, bgRgba, shadowRgba, textHex, buttonClasses, renderSettings, runOp, needsMulti, width } = props;
+  const { id, data, selected, title, subtitle, icon, colorHex, bgRgba, shadowRgba, textHex, buttonClasses, renderSettings, runOp, inputImages, needsMulti, width } = props;
   const update = useUpdateNodeData(id);
   const { getEdges, getNodes } = useReactFlow();
   const [error, setError] = useState<string | null>(null);
@@ -48,17 +50,25 @@ export function ImageOpFrame(props: ImageOpNodeProps) {
     const nodes = getNodes();
     const upstreamIds = edges.filter((e) => e.target === id).map((e) => e.source);
     const urls: string[] = [];
+    const pushImage = (u: any) => {
+      if (typeof u !== 'string' || !u) return;
+      if (/\.(mp4|webm|mov|m4v|mkv|mp3|wav|ogg|m4a|flac|aac)(\?.*)?$/i.test(u)) return;
+      if (!urls.includes(u)) urls.push(u);
+    };
     for (const uid of upstreamIds) {
       const n = nodes.find((x) => x.id === uid);
-      const u = (n?.data as any)?.imageUrl;
-      if (u && typeof u === 'string') urls.push(u);
+      const d = (n?.data as any) || {};
+      pushImage(d.imageUrl);
+      if (Array.isArray(d.imageUrls)) d.imageUrls.forEach(pushImage);
+      if (Array.isArray(d.urls)) d.urls.forEach(pushImage);
+      if (Array.isArray(d.generatedImages)) d.generatedImages.forEach(pushImage);
     }
     return urls;
   };
 
   const handleRun = async () => {
     setError(null);
-    const imgs = collectUpstreamImages();
+    const imgs = inputImages && inputImages.length > 0 ? inputImages : collectUpstreamImages();
     if (imgs.length === 0) {
       setError('未连接上游图像节点');
       return;

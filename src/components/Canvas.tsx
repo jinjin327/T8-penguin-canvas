@@ -203,6 +203,7 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   // 从合集获取: 默认 image + 第 1 个
   'pick-from-set': { pickKind: 'image', pickIndex: 1 },
   'image-compare': { mode: 'slider', align: 'contain', split: 50, opacity: 50, threshold: 24 },
+  'grid-crop': { rows: 3, cols: 3, gap: 0 },
 };
 
 // 可被“批量运行”调起的节点类型集合
