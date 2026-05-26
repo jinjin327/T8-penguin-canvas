@@ -1,6 +1,8 @@
 /* 像素风主题(可切换) - @import 必须置顶 */
 @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap');
 @import './theme-pixel.css';
+@import './theme-core.css';
+@import './theme-op.css';
 
 @tailwind base;
 @tailwind components;
@@ -83,6 +85,17 @@ body,
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* v1.3.4 资源库卡片: 悬停放大素材预览,不改变卡片布局 */
+.resource-card:hover .resource-media {
+  transform: scale(1.08);
+}
+.resource-card {
+  transform-origin: center;
+}
+.resource-card:hover {
+  transform: translateY(-1px);
 }
 
 /* 极细无感滚动条(科技风) */
@@ -403,4 +416,159 @@ body.cut-mode .react-flow__edge .react-flow__edge-interaction {
 }
 .t8-resize-handle--pixel-dark.t8-resize-handle--bottom-left:hover {
   box-shadow: -3px 3px 0 var(--px-ink, #F5EBD7);
+}
+
+/* OP 模板最终覆盖：放在 Tailwind utilities 之后，兜住节点里带 !border-0 的 Handle。 */
+html[data-theme-visual="op"] .react-flow__handle {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  border: 3px double var(--op-ink) !important;
+  border-radius: 999px !important;
+  background: var(--op-gold) !important;
+  box-shadow:
+    1px 1px 0 var(--op-ink),
+    0 0 0 5px color-mix(in srgb, var(--op-gold) 22%, transparent) !important;
+}
+
+html[data-theme-visual="op"] .react-flow__handle.target {
+  background: var(--op-ocean) !important;
+  box-shadow:
+    1px 1px 0 var(--op-ink),
+    0 0 0 5px color-mix(in srgb, var(--op-ocean) 24%, transparent) !important;
+}
+
+html[data-theme-visual="op"] .react-flow__handle.source {
+  background: var(--op-red) !important;
+  box-shadow:
+    1px 1px 0 var(--op-ink),
+    0 0 0 5px color-mix(in srgb, var(--op-red) 22%, transparent) !important;
+}
+
+html[data-theme-visual="op"] .t8-group-box__handle {
+  position: absolute !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  right: -13px !important;
+  border-radius: 999px !important;
+  background:
+    radial-gradient(circle at 50% 50%, var(--op-paper) 0 34%, transparent 35%),
+    var(--op-red) !important;
+  transform: translateY(-50%) !important;
+  z-index: 2147483000 !important;
+  pointer-events: all !important;
+}
+
+/* 主题模板默认音乐按钮：默认静音，用户点击后才播放。 */
+.t8-theme-music-toggle {
+  position: absolute;
+  left: 13px;
+  bottom: 132px;
+  z-index: 12;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--t8-border, rgba(255, 255, 255, 0.14));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0)),
+    var(--t8-bg-panel, rgba(20, 20, 22, 0.92));
+  color: var(--t8-text-main, #f4f4f5);
+  box-shadow: var(--t8-shadow-button, 0 6px 16px rgba(0, 0, 0, 0.22));
+  cursor: pointer;
+  pointer-events: all;
+  transition:
+    transform 140ms ease,
+    color 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.t8-theme-music-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.t8-theme-music-toggle:hover {
+  transform: translateY(-1px);
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8));
+  color: var(--t8-accent, #38bdf8);
+  box-shadow:
+    var(--t8-shadow-button, 0 8px 22px rgba(0, 0, 0, 0.26)),
+    0 0 0 4px color-mix(in srgb, var(--t8-accent, #38bdf8) 18%, transparent);
+}
+
+.t8-theme-music-toggle.is-playing {
+  background: var(--t8-accent, #38bdf8);
+  color: var(--t8-accent-text, #031522);
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8));
+}
+
+.t8-theme-music-toggle.is-playing svg {
+  animation: t8-theme-music-spin 2.4s linear infinite;
+}
+
+@keyframes t8-theme-music-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+html[data-theme-style="pixel"] .t8-theme-music-toggle {
+  left: 14px;
+  bottom: 136px;
+  width: 34px;
+  height: 34px;
+  border: var(--px-border-w, 2px) solid var(--px-ink, #1A1410);
+  border-radius: 999px;
+  background: var(--px-yellow, #FFE08A);
+  color: var(--px-ink, #1A1410);
+  box-shadow: var(--px-shadow-hard, 3px 3px 0 #1A1410);
+}
+
+html[data-theme-style="pixel"] .t8-theme-music-toggle:hover {
+  transform: translate(-1px, -1px);
+  background: var(--px-candy-mint, #A8E6C9);
+  color: var(--px-ink, #1A1410);
+  box-shadow: 4px 4px 0 var(--px-ink, #1A1410);
+}
+
+html[data-theme-style="pixel"] .t8-theme-music-toggle.is-playing {
+  background: var(--px-candy-pink, #FFB5C5);
+}
+
+html[data-theme-visual="op"] .t8-theme-music-toggle {
+  left: 32px;
+  bottom: 171px;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--op-ink, #2b1b10);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 52%, var(--op-paper, #fff3cf) 0 38%, transparent 39%),
+    var(--op-gold, #f2c94c);
+  color: var(--op-ink, #2b1b10);
+  box-shadow: 3px 3px 0 var(--op-ink, #2b1b10);
+}
+
+html[data-theme-visual="op"] .t8-theme-music-toggle:hover {
+  transform: translate(-1px, -1px);
+  background:
+    radial-gradient(circle at 50% 52%, var(--op-paper, #fff3cf) 0 38%, transparent 39%),
+    var(--op-red, #c82828);
+  color: #fff7dc;
+  box-shadow: 4px 4px 0 var(--op-ink, #2b1b10);
+}
+
+html[data-theme-visual="op"] .t8-theme-music-toggle.is-playing {
+  background:
+    radial-gradient(circle at 50% 52%, var(--op-paper, #fff3cf) 0 38%, transparent 39%),
+    var(--op-ocean, #0f7c8c);
+  color: #fff7dc;
 }

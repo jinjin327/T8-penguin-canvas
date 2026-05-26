@@ -75,6 +75,10 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [fileSavePathInput, setFileSavePathInput] = useState<string>('');
   // v1.3.1: 画布自动保存路径输入
   const [canvasAutoSavePathInput, setCanvasAutoSavePathInput] = useState<string>('');
+  // v1.3.4: 资源库路径输入
+  const [resourceLibraryPathInput, setResourceLibraryPathInput] = useState<string>('');
+  // v1.3.6: 主题模板路径输入
+  const [themeTemplatePathInput, setThemeTemplatePathInput] = useState<string>('');
   // 分类独立 Key 区块折叠状态（新手友好：默认折叠，点击展开）
   const [classifiedOpen, setClassifiedOpen] = useState(false);
   // 眼睛预览拉取的明文（仅缓存，不提交）
@@ -95,6 +99,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       // 回填文件自动保存路径(明文字段，不脱敏)
       setFileSavePathInput((settings as any)?.fileSavePath || '');
       setCanvasAutoSavePathInput((settings as any)?.canvasAutoSavePath || '');
+      setResourceLibraryPathInput((settings as any)?.resourceLibraryPath || '');
+      setThemeTemplatePathInput((settings as any)?.themeTemplatePath || '');
     }
   }, [open, settings]);
 
@@ -143,6 +149,16 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     const oldCanvasPath = (settings as any)?.canvasAutoSavePath || '';
     if (newCanvasPath && newCanvasPath !== oldCanvasPath) {
       (patch as any).canvasAutoSavePath = newCanvasPath;
+    }
+    const newResourcePath = (resourceLibraryPathInput || '').trim();
+    const oldResourcePath = (settings as any)?.resourceLibraryPath || '';
+    if (newResourcePath && newResourcePath !== oldResourcePath) {
+      (patch as any).resourceLibraryPath = newResourcePath;
+    }
+    const newThemeTemplatePath = (themeTemplatePathInput || '').trim();
+    const oldThemeTemplatePath = (settings as any)?.themeTemplatePath || '';
+    if (newThemeTemplatePath && newThemeTemplatePath !== oldThemeTemplatePath) {
+      (patch as any).themeTemplatePath = newThemeTemplatePath;
     }
     if (Object.keys(patch).length === 0) {
       onClose();
@@ -467,6 +483,56 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
               <span className="flex items-center gap-1.5">
                 <Lock size={11} /> 默认 D:\zhenzhen；保存文件可直接用画布导入功能恢复。
+              </span>
+            </div>
+          </div>
+
+          {/* v1.3.4: 资源库路径 */}
+          <div className={`pt-3 border-t ${isPixel ? 'border-[var(--px-ink)]/30' : isDark ? 'border-white/10' : 'border-black/10'}`}>
+            <label className={`text-sm font-medium flex items-center gap-2 flex-wrap ${labelCls}`}>
+              <FolderOpen size={14} className={isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-fuchsia-300' : 'text-fuchsia-600'} />
+              资源库路径
+              <span className={`text-[11px] font-normal ${hintCls}`}>· 资源文件与分类索引都保存在此路径，更换版本后可继续读取</span>
+            </label>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={resourceLibraryPathInput}
+                onChange={(e) => setResourceLibraryPathInput(e.target.value)}
+                placeholder="例：D:\\zhenzhen\\resources · 路径不存在时会自动创建"
+                className={inputCls}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
+              <span className="flex items-center gap-1.5">
+                <Lock size={11} /> 加入资源库会复制一份到此目录，删除资源只删除资源库副本。
+              </span>
+            </div>
+          </div>
+
+          {/* v1.3.6: 主题模板路径 */}
+          <div className={`pt-3 border-t ${isPixel ? 'border-[var(--px-ink)]/30' : isDark ? 'border-white/10' : 'border-black/10'}`}>
+            <label className={`text-sm font-medium flex items-center gap-2 flex-wrap ${labelCls}`}>
+              <FolderOpen size={14} className={isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-sky-300' : 'text-sky-600'} />
+              主题模板路径
+              <span className={`text-[11px] font-normal ${hintCls}`}>· 导入或编辑后的主题 JSON 保存在此路径</span>
+            </label>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={themeTemplatePathInput}
+                onChange={(e) => setThemeTemplatePathInput(e.target.value)}
+                placeholder="例：D:\\zhenzhen\\theme-templates · 路径不存在时会自动创建"
+                className={inputCls}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
+              <span className="flex items-center gap-1.5">
+                <Lock size={11} /> 内置主题不可删除；自定义主题可导入、导出、编辑和删除。
               </span>
             </div>
           </div>

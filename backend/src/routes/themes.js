@@ -1,0 +1,239 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const config = require('../config');
+
+const router = express.Router();
+const SCHEMA = 't8-theme-template';
+const VERSION = 2;
+const VISUAL_STYLES = new Set(['plain', 'tech', 'pixel', 'op']);
+const INTENSITIES = new Set(['subtle', 'medium', 'strong']);
+const ICON_PACKS = new Set(['default', 'op']);
+const CANVAS_PATTERNS = new Set(['none', 'dots', 'map', 'circuit', 'confetti']);
+const NODE_FRAMES = new Set(['plain', 'glass', 'sticker', 'wanted']);
+const MUSIC_PRESETS = new Set(['tech-pulse', 'pixel-pop', 'grand-line-adventure']);
+const MUSIC_SOURCES = new Set(['synth', 'url', 'upload']);
+
+function loadSettings() {
+  try {
+    if (!fs.existsSync(config.SETTINGS_FILE)) return {};
+    return JSON.parse(fs.readFileSync(config.SETTINGS_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function getThemeDir(options = {}) {
+  const settings = loadSettings();
+  const raw = String(settings.themeTemplatePath || config.DEFAULT_THEME_TEMPLATE_DIR || '').trim();
+  const dir = raw || config.DEFAULT_THEME_TEMPLATE_DIR;
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    if (options.required) throw e;
+    console.warn('[themes] 主题模板目录不可写，暂只加载内置模板:', dir, e?.message || e);
+  }
+  return dir;
+}
+
+function safeId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 64);
+}
+
+function templateFile(id) {
+  const clean = safeId(id);
+  if (!clean) throw new Error('模板 ID 不能为空');
+  return path.join(getThemeDir({ required: true }), `${clean}.json`);
+}
+
+function normalizeVisuals(raw, legacyStyle) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const fallbackStyle = legacyStyle === 'tech' ? 'tech' : 'pixel';
+  const style = VISUAL_STYLES.has(source.style) ? source.style : fallbackStyle;
+  return {
+    style,
+    intensity: INTENSITIES.has(source.intensity) ? source.intensity : 'medium',
+    iconPack: ICON_PACKS.has(source.iconPack) ? source.iconPack : 'default',
+    canvasPattern: CANVAS_PATTERNS.has(source.canvasPattern)
+      ? source.canvasPattern
+      : style === 'op'
+        ? 'map'
+        : style === 'tech'
+          ? 'circuit'
+          : 'dots',
+    nodeFrame: NODE_FRAMES.has(source.nodeFrame)
+      ? source.nodeFrame
+      : style === 'op'
+        ? 'wanted'
+        : style === 'tech'
+          ? 'glass'
+          : 'sticker',
+    headerMark: typeof source.headerMark === 'string' ? source.headerMark.slice(0, 40) : '',
+  };
+}
+
+function defaultMusicFor(legacyStyle, visuals) {
+  const style = visuals?.style;
+  if (style === 'op') {
+    return {
+      title: 'Grand Line Adventure Loop',
+      preset: 'grand-line-adventure',
+      source: 'synth',
+      volume: 0.16,
+      bpm: 96,
+      copyrightNote: '原创航海冒险风循环；可替换为已授权音频 URL。',
+    };
+  }
+  if (legacyStyle === 'tech' || style === 'tech') {
+    return {
+      title: 'Neon Circuit Pulse',
+      preset: 'tech-pulse',
+      source: 'synth',
+      volume: 0.16,
+      bpm: 112,
+      copyrightNote: '原创合成循环。',
+    };
+  }
+  return {
+    title: 'Candy Bit Bounce',
+    preset: 'pixel-pop',
+    source: 'synth',
+    volume: 0.15,
+    bpm: 128,
+    copyrightNote: '原创 8-bit 风格循环。',
+  };
+}
+
+function normalizeMusic(raw, legacyStyle, visuals) {
+  const fallback = defaultMusicFor(legacyStyle, visuals);
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const volume = Number(source.volume);
+  const bpm = Number(source.bpm);
+  const rawUrl = typeof source.url === 'string' ? source.url.trim() : '';
+  const safeUrl = rawUrl.startsWith('data:audio/') || /^https?:\/\//i.test(rawUrl) ? rawUrl.slice(0, 45000000) : '';
+  return {
+    title: typeof source.title === 'string' && source.title.trim()
+      ? source.title.trim().slice(0, 80)
+      : fallback.title,
+    preset: MUSIC_PRESETS.has(source.preset) ? source.preset : fallback.preset,
+    source: MUSIC_SOURCES.has(source.source) ? source.source : fallback.source,
+    url: safeUrl,
+    volume: Number.isFinite(volume) ? Math.max(0, Math.min(volume, 0.5)) : fallback.volume,
+    bpm: Number.isFinite(bpm) ? Math.max(40, Math.min(Math.round(bpm), 220)) : fallback.bpm,
+    copyrightNote: typeof source.copyrightNote === 'string'
+      ? source.copyrightNote.trim().slice(0, 200)
+      : fallback.copyrightNote,
+  };
+}
+
+function normalizeTemplate(raw, fallbackId) {
+  if (!raw || typeof raw !== 'object') throw new Error('主题模板必须是 JSON 对象');
+  const id = safeId(raw.id || fallbackId);
+  if (!id) throw new Error('主题模板缺少 id');
+  const name = String(raw.name || '').trim().slice(0, 80);
+  if (!name) throw new Error('主题模板缺少名称');
+  const legacyStyle = raw.legacyStyle === 'tech' ? 'tech' : 'pixel';
+  const modes = raw.modes && typeof raw.modes === 'object' ? raw.modes : {};
+  for (const mode of ['light', 'dark']) {
+    if (!modes[mode] || typeof modes[mode] !== 'object' || !modes[mode].tokens) {
+      throw new Error(`主题模板缺少 ${mode} tokens`);
+    }
+  }
+  const visuals = normalizeVisuals(raw.visuals, legacyStyle);
+  return {
+    schema: SCHEMA,
+    version: VERSION,
+    id,
+    name,
+    description: typeof raw.description === 'string' ? raw.description.slice(0, 300) : '',
+    author: typeof raw.author === 'string' ? raw.author.slice(0, 80) : '',
+    builtIn: false,
+    legacyStyle,
+    visuals,
+    music: normalizeMusic(raw.music, legacyStyle, visuals),
+    modes: {
+      light: { tokens: modes.light.tokens },
+      dark: { tokens: modes.dark.tokens },
+    },
+  };
+}
+
+function readTemplateFile(file) {
+  const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  return normalizeTemplate(raw, path.basename(file, '.json'));
+}
+
+function listTemplates() {
+  const dir = getThemeDir();
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => name.toLowerCase().endsWith('.json'))
+    .map((name) => {
+      try {
+        return readTemplateFile(path.join(dir, name));
+      } catch (e) {
+        console.warn('[themes] 跳过损坏模板:', name, e?.message || e);
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+router.get('/templates', (_req, res) => {
+  try {
+    res.json({ success: true, data: { path: getThemeDir(), templates: listTemplates() } });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+router.post('/templates/import', (req, res) => {
+  try {
+    const template = normalizeTemplate(req.body?.template || req.body);
+    const file = templateFile(template.id);
+    fs.writeFileSync(file, JSON.stringify(template, null, 2), 'utf-8');
+    res.json({ success: true, data: template });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+router.put('/templates/:id', (req, res) => {
+  try {
+    const id = safeId(req.params.id);
+    const template = normalizeTemplate({ ...req.body, id }, id);
+    fs.writeFileSync(templateFile(id), JSON.stringify(template, null, 2), 'utf-8');
+    res.json({ success: true, data: template });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+router.get('/templates/:id/export', (req, res) => {
+  try {
+    const file = templateFile(req.params.id);
+    if (!fs.existsSync(file)) return res.status(404).json({ success: false, error: '模板不存在' });
+    res.json({ success: true, data: readTemplateFile(file) });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+router.delete('/templates/:id', (req, res) => {
+  try {
+    const file = templateFile(req.params.id);
+    if (!fs.existsSync(file)) return res.status(404).json({ success: false, error: '模板不存在' });
+    fs.unlinkSync(file);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+module.exports = router;

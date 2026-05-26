@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cpu, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Gem } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Gem, Library, Palette, Skull, Sailboat } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { useApiKeysStore } from './stores/apiKeys';
 import Sidebar from './components/Sidebar';
-import Canvas from './components/Canvas';
+import Canvas, { type AddNodeFn } from './components/Canvas';
 import ApiSettingsModal from './components/ApiSettings';
 import RechargeModal from './components/RechargeModal';
+import ResourceLibraryDrawer from './components/ResourceLibraryDrawer';
+import MaterialContextMenu from './components/MaterialContextMenu';
+import ThemeTemplateManager from './components/ThemeTemplateManager';
 import ErrorBoundary from './components/ErrorBoundary';
 import { RHToolsProvider } from './providers/RHToolsProvider';
 import * as api from './services/api';
 import type { NodeType } from './types/canvas';
+import type { ResourceItem } from './services/api';
+import { applyThemeTemplate } from './theme/applyTheme';
+import { resolveThemeTemplate } from './theme/defaultTemplates';
 
 // vite.config 注入的编译期常量（与 package.json 同步），勿硬编码 v1.x.x
 declare const __APP_VERSION__: string;
@@ -19,11 +25,17 @@ declare const __APP_VERSION__: string;
  * 布局: [侧边栏(画布管理 + 节点列表)] [画布主体] + 头部状态栏
  */
 function App() {
-  const { theme, style, toggleTheme, toggleStyle } = useThemeStore();
+  const { theme, style, templateId, customTemplates, toggleTheme, loadCustomTemplates } = useThemeStore();
   const { load: loadSettings } = useApiKeysStore();
+  const currentTemplate = useMemo(
+    () => resolveThemeTemplate(templateId, customTemplates),
+    [templateId, customTemplates],
+  );
   const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [resourceOpen, setResourceOpen] = useState(false);
+  const [themeManagerOpen, setThemeManagerOpen] = useState(false);
   // 「在线画布」推广浮层开关 + 容器 ref(用于点击外部关闭)
   const [cloudOpen, setCloudOpen] = useState(false);
   const [wxCopied, setWxCopied] = useState(false);
@@ -37,8 +49,11 @@ function App() {
   // 「最新应用」推广浮层开关
   const [appOpen, setAppOpen] = useState(false);
   const appWrapRef = useRef<HTMLDivElement>(null);
+  // 「AIX产品」推广浮层开关
+  const [aixOpen, setAixOpen] = useState(false);
+  const aixWrapRef = useRef<HTMLDivElement>(null);
   // 画布接收节点添加的 ref(从 Sidebar -> Canvas)
-  const addNodeRef = useRef<((type: NodeType) => void) | null>(null);
+  const addNodeRef = useRef<AddNodeFn | null>(null);
 
   // 「在线画布」浮层: 点击容器外部 / 按 ESC 自动关闭
   useEffect(() => {
@@ -112,6 +127,24 @@ function App() {
     };
   }, [appOpen]);
 
+  // 「AIX产品」浮层: 点击容器外部 / 按 ESC 自动关闭
+  useEffect(() => {
+    if (!aixOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (!aixWrapRef.current) return;
+      if (!aixWrapRef.current.contains(e.target as Node)) setAixOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAixOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [aixOpen]);
+
   const handleCopyWx = async () => {
     try {
       await navigator.clipboard.writeText('Lovexy_0222');
@@ -126,13 +159,12 @@ function App() {
   // 将主题状态注入 <html> 供 CSS 选择器使用
   useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute('data-theme-style', style);
-    root.setAttribute('data-theme-mode', theme);
+    applyThemeTemplate(currentTemplate, theme);
     // 全局禁用拼写检查(节点提示词为中文/@变量语法,不需红色波浪线干扰)
     // spellcheck 属性 HTML 标准上是可继承的 → 根上设一次,所有后代 textarea/input 都生效
     root.setAttribute('spellcheck', 'false');
     document.body.setAttribute('spellcheck', 'false');
-  }, [style, theme]);
+  }, [currentTemplate, theme]);
 
   // 全局 MutationObserver: 为动态挂载的 textarea / input 自动设置 spellcheck=false
   // (Chromium 对 textarea 默认 spellcheck=true,不会从祖先继承 → 需逐个设置)
@@ -186,31 +218,45 @@ function App() {
   // 预加载 settings
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadCustomTemplates();
+  }, [loadSettings, loadCustomTemplates]);
 
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';
+  const isOp = currentTemplate.visuals?.style === 'op';
 
   const handleAddNode = (type: NodeType) => {
     addNodeRef.current?.(type);
   };
 
+  const handleInsertResource = (item: ResourceItem) => {
+    const data: Record<string, any> = {
+      uploadType: item.kind,
+      fileName: item.title || item.originalName || '资源库素材',
+      fileSize: item.size || 0,
+      mime: item.mime || '',
+    };
+    if (item.kind === 'image') {
+      data.imageUrl = item.fileUrl;
+    } else if (item.kind === 'video') {
+      data.videoUrl = item.fileUrl;
+    } else if (item.kind === 'audio') {
+      data.audioUrl = item.fileUrl;
+    }
+    addNodeRef.current?.('upload', { data });
+  };
+
   return (
     <RHToolsProvider>
     <div
-      className={`h-screen flex flex-col overflow-hidden ${
-        isPixel
-          ? isDark
-            ? 'bg-[#1F1A14] text-[#F5EBD7]'
-            : 'bg-[#FAF3E7] text-[#1A1410]'
-          : isDark
-            ? 'bg-zinc-950 text-white'
-            : 'bg-zinc-50 text-zinc-900'
-      }`}
+      className={`t8-app-shell h-screen flex flex-col overflow-hidden ${
+        isPixel ? '' : isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900'
+      } ${isOp ? 't8-app-shell--op' : ''}`}
+      style={{ background: 'var(--t8-bg-app)', color: 'var(--t8-text-main)' }}
     >
       {/* 头部状态栏 */}
       <header
-        className={`flex items-center justify-between px-4 py-2 border-b ${
+        className={`t8-topbar flex items-center justify-between px-4 py-2 border-b ${
           isPixel
             ? 'px-panel'
             : isDark
@@ -219,7 +265,22 @@ function App() {
         }`}
       >
         <div className="flex items-center gap-3">
-          {isPixel ? (
+          {isOp ? (
+            <div className="t8-op-brand flex items-center gap-2">
+              <span className="t8-op-brand__mark">
+                <Skull size={16} />
+              </span>
+              <div className="min-w-0">
+                <h1 className="t8-op-brand__title text-[14px] font-black leading-none">
+                  ONE PIECE · 贞贞的无限画布
+                </h1>
+                <div className="t8-op-brand__sub text-[9px] font-bold tracking-wide leading-none mt-0.5">
+                  GRAND LINE CANVAS
+                </div>
+              </div>
+              <Sailboat className="t8-op-brand__ship" size={15} />
+            </div>
+          ) : isPixel ? (
             <>
               <h1 className="px-title text-[14px] font-bold tracking-wide leading-none">
                 贞贞的无限画布
@@ -412,6 +473,82 @@ function App() {
                     注册，免费领取1000积分！
                   </span>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* 「AIX产品」推广按钮: 同款胶囊, 主调 青蓝色 */}
+          <div ref={aixWrapRef} className="relative">
+            <button
+              onClick={() => setAixOpen((v) => !v)}
+              className={
+                isPixel
+                  ? `px-btn px-btn--sm px-btn--sky`
+                  : `flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all border ${
+                      isDark
+                        ? aixOpen
+                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.35)]'
+                          : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+                        : aixOpen
+                          ? 'bg-cyan-100 border-cyan-400 text-cyan-800'
+                          : 'bg-cyan-50 border-cyan-300 text-cyan-700 hover:bg-cyan-100'
+                    }`
+              }
+              title="AIX产品 · T8公司AIX产品"
+            >
+              <Sparkles size={14} />
+              <span className="text-[11px]">AIX产品</span>
+            </button>
+
+            {/* 推广浮层 */}
+            {aixOpen && (
+              <div
+                className={
+                  isPixel
+                    ? 'absolute right-0 top-full mt-2 z-[60] w-[300px] px-panel rounded-2xl p-3 animate-[fadeIn_.18s_ease-out]'
+                    : `absolute right-0 top-full mt-2 z-[60] w-[300px] rounded-xl p-3 border shadow-2xl backdrop-blur-md animate-[fadeIn_.18s_ease-out] ${
+                        isDark
+                          ? 'bg-zinc-900/95 border-cyan-400/20 shadow-cyan-500/10'
+                          : 'bg-white/95 border-cyan-200 shadow-cyan-500/10'
+                      }`
+                }
+                style={{ zoom: 1.5 }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {/* 标题 */}
+                <div className={`flex items-center gap-2 ${isPixel ? '' : isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
+                  <Sparkles size={16} className={isPixel ? '' : 'shrink-0'} />
+                  <span className={`text-sm font-bold ${isPixel ? 'px-title' : ''}`}>AIX 产品</span>
+                </div>
+
+                {/* 副标 */}
+                <div
+                  className={`mt-2 text-[12px] leading-relaxed ${
+                    isPixel ? '' : isDark ? 'text-white/80' : 'text-zinc-700'
+                  }`}
+                >
+                  T8公司AIX产品，欢迎体验
+                </div>
+
+                {/* 主行动 CTA: 跳转链接(新窗口) */}
+                <a
+                  href="https://aix.studio?partnerCode=10562"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setAixOpen(false)}
+                  className={
+                    isPixel
+                      ? 'mt-3 px-btn px-btn--sky w-full justify-center'
+                      : `mt-3 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-xs font-semibold transition-all border ${
+                          isDark
+                            ? 'bg-gradient-to-r from-cyan-500/20 to-sky-500/20 border-cyan-400/40 text-cyan-200 hover:from-cyan-500/30 hover:to-sky-500/30 hover:border-cyan-400/60 hover:shadow-[0_0_16px_rgba(34,211,238,0.35)]'
+                            : 'bg-gradient-to-r from-cyan-500 to-sky-500 border-cyan-600 text-white hover:from-cyan-600 hover:to-sky-600 hover:shadow-lg'
+                        }`
+                  }
+                >
+                  <ExternalLink size={13} />
+                  <span>跳转体验（新窗口打开）</span>
+                </a>
               </div>
             )}
           </div>
@@ -815,22 +952,22 @@ function App() {
             )}
           </div>
 
-          {/* 风格切换(tech ↔ pixel)——两边都带图标+文字,各自风格化 */}
+          {/* 主题模板 */}
           <button
-            onClick={toggleStyle}
+            onClick={() => setThemeManagerOpen(true)}
             className={
               isPixel
-                ? 'px-btn px-btn--sm px-btn--pink'
+                ? 'px-btn px-btn--sm px-btn--pink max-w-[150px]'
                 : `flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border ${
                     isDark
                       ? 'bg-sky-500/10 border-sky-500/30 text-sky-300 hover:bg-sky-500/20'
                       : 'bg-sky-50 border-sky-300 text-sky-700 hover:bg-sky-100'
                   }`
             }
-            title={isPixel ? '切换到科技风(默认深色)' : '切换到像素风(默认浅色)'}
+            title="主题模板"
           >
-            {isPixel ? <Cpu size={14} /> : <Sparkles size={14} />}
-            <span className="text-[11px]">{isPixel ? '科技风' : '像素风'}</span>
+            <Palette size={14} />
+            <span className="text-[11px] truncate">{currentTemplate.name}</span>
           </button>
           <button
             onClick={() => setRechargeOpen(true)}
@@ -847,6 +984,22 @@ function App() {
           >
             <Gem size={14} />
             <span className="text-[11px]">充值</span>
+          </button>
+          <button
+            onClick={() => setResourceOpen(true)}
+            className={
+              isPixel
+                ? 'px-btn px-btn--sm px-btn--mint'
+                : `flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                    isDark
+                      ? 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-300 hover:bg-fuchsia-500/20'
+                      : 'bg-fuchsia-50 border-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-100'
+                  }`
+            }
+            title="资源库"
+          >
+            <Library size={14} />
+            <span className="text-[11px]">资源库</span>
           </button>
           <button
             onClick={() => setSettingsOpen(true)}
@@ -884,6 +1037,13 @@ function App() {
       {/* API 设置弹窗 */}
       <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <RechargeModal open={rechargeOpen} onClose={() => setRechargeOpen(false)} />
+      <ThemeTemplateManager open={themeManagerOpen} onClose={() => setThemeManagerOpen(false)} />
+      <ResourceLibraryDrawer
+        open={resourceOpen}
+        onClose={() => setResourceOpen(false)}
+        onInsertMaterial={handleInsertResource}
+      />
+      <MaterialContextMenu />
     </div>
     </RHToolsProvider>
   );

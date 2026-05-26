@@ -66,6 +66,14 @@ html[data-theme-style="pixel"] {
   --px-radius-card: 16px;
   --px-radius-chip: 12px;
   --px-radius-sm: 8px;
+  --px-on-candy: #1A1410;
+  --px-candy-mint: #A8E6C9;
+  --px-candy-mint-deep: #4ECDC4;
+  --px-candy-pink: #FFB5C5;
+  --px-candy-yellow: #FFE08A;
+  --px-candy-violet: #C7B8F0;
+  --px-candy-peach: #FFCBA4;
+  --px-candy-sky: #B8DCEC;
   --px-border-w: 2px;
   --px-shadow-hard: 3px 3px 0 var(--px-ink);
   --px-shadow-hard-lg: 5px 5px 0 var(--px-ink);
@@ -148,12 +156,20 @@ html[data-theme-style="pixel"] .px-btn:active {
   box-shadow: var(--px-shadow-press);
 }
 
-html[data-theme-style="pixel"] .px-btn--mint { background: var(--px-mint); }
-html[data-theme-style="pixel"] .px-btn--pink { background: var(--px-pink); }
-html[data-theme-style="pixel"] .px-btn--yellow { background: var(--px-yellow); }
-html[data-theme-style="pixel"] .px-btn--violet { background: var(--px-violet); }
-html[data-theme-style="pixel"] .px-btn--peach { background: var(--px-peach); }
-html[data-theme-style="pixel"] .px-btn--sky { background: var(--px-sky); }
+html[data-theme-style="pixel"] .px-btn--mint,
+html[data-theme-style="pixel"] .px-btn--pink,
+html[data-theme-style="pixel"] .px-btn--yellow,
+html[data-theme-style="pixel"] .px-btn--violet,
+html[data-theme-style="pixel"] .px-btn--peach,
+html[data-theme-style="pixel"] .px-btn--sky {
+  color: var(--px-on-candy) !important;
+}
+html[data-theme-style="pixel"] .px-btn--mint { background: var(--px-candy-mint); }
+html[data-theme-style="pixel"] .px-btn--pink { background: var(--px-candy-pink); }
+html[data-theme-style="pixel"] .px-btn--yellow { background: var(--px-candy-yellow); }
+html[data-theme-style="pixel"] .px-btn--violet { background: var(--px-candy-violet); }
+html[data-theme-style="pixel"] .px-btn--peach { background: var(--px-candy-peach); }
+html[data-theme-style="pixel"] .px-btn--sky { background: var(--px-candy-sky); }
 html[data-theme-style="pixel"] .px-btn--ink {
   background: var(--px-ink);
   color: var(--px-bg);
@@ -164,6 +180,7 @@ html[data-theme-style="pixel"] .px-btn--ghost {
 }
 html[data-theme-style="pixel"] .px-btn--ghost:hover {
   background: var(--px-muted);
+  color: var(--px-ink) !important;
   box-shadow: var(--px-shadow-press);
 }
 
@@ -190,10 +207,16 @@ html[data-theme-style="pixel"] .px-chip {
   background: var(--px-surface);
   color: var(--px-ink);
 }
-html[data-theme-style="pixel"] .px-chip--mint { background: var(--px-mint); }
-html[data-theme-style="pixel"] .px-chip--pink { background: var(--px-pink); }
-html[data-theme-style="pixel"] .px-chip--yellow { background: var(--px-yellow); }
-html[data-theme-style="pixel"] .px-chip--violet { background: var(--px-violet); }
+html[data-theme-style="pixel"] .px-chip--mint,
+html[data-theme-style="pixel"] .px-chip--pink,
+html[data-theme-style="pixel"] .px-chip--yellow,
+html[data-theme-style="pixel"] .px-chip--violet {
+  color: var(--px-on-candy) !important;
+}
+html[data-theme-style="pixel"] .px-chip--mint { background: var(--px-candy-mint); }
+html[data-theme-style="pixel"] .px-chip--pink { background: var(--px-candy-pink); }
+html[data-theme-style="pixel"] .px-chip--yellow { background: var(--px-candy-yellow); }
+html[data-theme-style="pixel"] .px-chip--violet { background: var(--px-candy-violet); }
 html[data-theme-style="pixel"] .px-chip--muted { background: var(--px-muted); }
 html[data-theme-style="pixel"] .px-chip--ink {
   background: var(--px-ink);
@@ -231,9 +254,13 @@ html[data-theme-style="pixel"] .px-row:hover {
   border-color: var(--px-ink) !important;
 }
 html[data-theme-style="pixel"] .px-row.is-active {
-  background: var(--px-mint) !important;
+  background: var(--px-candy-mint) !important;
   border-color: var(--px-ink) !important;
   box-shadow: var(--px-shadow-press) !important;
+  color: var(--px-on-candy) !important;
+}
+html[data-theme-style="pixel"] .px-row.is-active * {
+  color: var(--px-on-candy) !important;
 }
 
 /* 分组标题 */
@@ -259,12 +286,20 @@ html[data-theme-style="pixel"] .px-node-header {
   border-bottom: var(--px-border-w) solid var(--px-ink) !important;
   font-weight: 700;
 }
-html[data-theme-style="pixel"] .px-node-header--image { background: var(--px-pink); }
-html[data-theme-style="pixel"] .px-node-header--video { background: var(--px-sky); }
-html[data-theme-style="pixel"] .px-node-header--audio { background: var(--px-yellow); }
-html[data-theme-style="pixel"] .px-node-header--llm { background: var(--px-mint); }
-html[data-theme-style="pixel"] .px-node-header--rh { background: var(--px-violet); }
-html[data-theme-style="pixel"] .px-node-header--text { background: var(--px-peach); }
+html[data-theme-style="pixel"] .px-node-header--image,
+html[data-theme-style="pixel"] .px-node-header--video,
+html[data-theme-style="pixel"] .px-node-header--audio,
+html[data-theme-style="pixel"] .px-node-header--llm,
+html[data-theme-style="pixel"] .px-node-header--rh,
+html[data-theme-style="pixel"] .px-node-header--text {
+  color: var(--px-on-candy) !important;
+}
+html[data-theme-style="pixel"] .px-node-header--image { background: var(--px-candy-pink); }
+html[data-theme-style="pixel"] .px-node-header--video { background: var(--px-candy-sky); }
+html[data-theme-style="pixel"] .px-node-header--audio { background: var(--px-candy-yellow); }
+html[data-theme-style="pixel"] .px-node-header--llm { background: var(--px-candy-mint); }
+html[data-theme-style="pixel"] .px-node-header--rh { background: var(--px-candy-violet); }
+html[data-theme-style="pixel"] .px-node-header--text { background: var(--px-candy-peach); }
 html[data-theme-style="pixel"] .px-node-header--utility { background: var(--px-muted); }
 
 /* ===========================================
@@ -385,9 +420,9 @@ html[data-theme-style="pixel"] .react-flow__node button {
    修复 bg-orange-500/20 text-orange-200 等浅色按钮在奶油底上对比度过低问题 */
 html[data-theme-style="pixel"] .react-flow__node button.w-full,
 html[data-theme-style="pixel"] .react-flow__node button.flex-1 {
-  background: var(--px-mint) !important;
+  background: var(--px-candy-mint) !important;
   background-image: none !important;
-  color: var(--px-ink) !important;
+  color: var(--px-on-candy) !important;
   border: var(--px-border-w) solid var(--px-ink) !important;
   border-radius: var(--px-radius-pill) !important;
   box-shadow: 2px 2px 0 var(--px-ink) !important;
@@ -397,8 +432,8 @@ html[data-theme-style="pixel"] .react-flow__node button.flex-1 {
 }
 html[data-theme-style="pixel"] .react-flow__node button.w-full:hover:not(:disabled),
 html[data-theme-style="pixel"] .react-flow__node button.flex-1:hover:not(:disabled) {
-  background: var(--px-mint-deep) !important;
-  color: var(--px-ink) !important;
+  background: var(--px-candy-mint-deep) !important;
+  color: var(--px-on-candy) !important;
 }
 html[data-theme-style="pixel"] .react-flow__node button.w-full:active:not(:disabled),
 html[data-theme-style="pixel"] .react-flow__node button.flex-1:active:not(:disabled) {
@@ -415,6 +450,11 @@ html[data-theme-style="pixel"] .react-flow__node button.flex-1:disabled {
 }
 html[data-theme-style="pixel"] .react-flow__node button.w-full svg,
 html[data-theme-style="pixel"] .react-flow__node button.flex-1 svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+html[data-theme-style="pixel"] .react-flow__node button.w-full *,
+html[data-theme-style="pixel"] .react-flow__node button.flex-1 * {
   color: currentColor !important;
   stroke: currentColor !important;
 }
@@ -457,11 +497,11 @@ html[data-theme-style="pixel"] .react-flow__node [class*="bg-red-"] {
 /* 主操作按钮强制覆盖颜色背景(优先级高于上面的 bg-* 兜底) */
 html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"],
 html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"] {
-  background-color: var(--px-mint) !important;
+  background-color: var(--px-candy-mint) !important;
 }
 html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:hover:not(:disabled),
 html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"]:hover:not(:disabled) {
-  background-color: var(--px-mint-deep) !important;
+  background-color: var(--px-candy-mint-deep) !important;
 }
 html[data-theme-style="pixel"] .react-flow__node button.w-full[class*="bg-"]:disabled,
 html[data-theme-style="pixel"] .react-flow__node button.flex-1[class*="bg-"]:disabled {
@@ -498,7 +538,7 @@ html[data-theme-style="pixel"] .react-flow__handle {
   height: 10px !important;
   border-radius: 2px !important;
   border: 2px solid var(--px-ink) !important;
-  background: var(--px-yellow) !important;
+  background: var(--px-candy-yellow) !important;
   /* 像素风专属光标: cell (方格+十字), 比 crosshair 更贴近像素肉眼 */
   cursor: cell !important;
 }
@@ -537,10 +577,10 @@ html[data-theme-style="pixel"] .cut-overlay-svg .cut-overlay-path {
   stroke-linejoin: miter;
 }
 html[data-theme-style="pixel"] .react-flow__handle.target {
-  background: var(--px-mint) !important;
+  background: var(--px-candy-mint) !important;
 }
 html[data-theme-style="pixel"] .react-flow__handle.source {
-  background: var(--px-pink) !important;
+  background: var(--px-candy-pink) !important;
 }
 
 /* 连线 */
@@ -584,7 +624,7 @@ html[data-theme-style="pixel"] .react-flow__controls-button {
   color: var(--px-ink) !important;
 }
 html[data-theme-style="pixel"] .react-flow__controls-button:hover {
-  background: var(--px-mint) !important;
+  background: var(--px-candy-mint) !important;
 }
 
 /* MiniMap */
@@ -598,12 +638,13 @@ html[data-theme-style="pixel"] .react-flow__minimap {
 /* 模态遮罩 */
 html[data-theme-style="pixel"] .px-modal-mask {
   background-color: var(--px-overlay) !important;
-  background-image: radial-gradient(
-    var(--px-ink) 1px,
-    transparent 1px
-  );
-  background-size: 12px 12px;
-  background-position: 0 0;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme-style="pixel"][data-theme-mode="dark"] .px-modal-mask {
+  background-color: rgba(7, 5, 4, 0.78) !important;
 }
 
 /* 滚动条 */

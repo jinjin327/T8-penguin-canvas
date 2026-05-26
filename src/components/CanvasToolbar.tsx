@@ -87,8 +87,8 @@ export default function CanvasToolbar({
   }, [tplOpen]);
 
   const baseBtn = isPixel
-    ? 'relative flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[var(--px-muted)] text-[var(--px-ink)]'
-    : `relative flex items-center justify-center w-8 h-8 rounded-md transition-colors ${
+    ? 't8-toolbar-button relative flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[var(--px-muted)] text-[var(--px-ink)]'
+    : `t8-toolbar-button relative flex items-center justify-center w-8 h-8 rounded-md transition-colors ${
         isDark ? 'text-zinc-200 hover:bg-white/10' : 'text-zinc-700 hover:bg-black/5'
       }`;
   const disabledCls = 'opacity-30 cursor-not-allowed pointer-events-none';
@@ -97,8 +97,8 @@ export default function CanvasToolbar({
     : `w-px self-stretch mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`;
 
   const containerCls = isPixel
-    ? 'flex items-center gap-0.5 px-2 py-1 px-card'
-    : `flex items-center gap-0.5 px-1.5 py-1 rounded-lg backdrop-blur shadow-lg border ${
+    ? 't8-toolbar-panel flex items-center gap-0.5 px-2 py-1 px-card'
+    : `t8-toolbar-panel flex items-center gap-0.5 px-1.5 py-1 rounded-lg backdrop-blur shadow-lg border ${
         isDark ? 'bg-zinc-900/90 border-white/10' : 'bg-white/95 border-black/10'
       }`;
 
@@ -113,7 +113,7 @@ export default function CanvasToolbar({
       : 'text-emerald-600 hover:bg-emerald-500/10';
 
   return (
-    <div className="absolute top-3 right-3 z-20 flex items-start gap-2 select-none">
+    <div className="t8-canvas-toolbar absolute top-3 right-3 z-20 flex items-start gap-2 select-none">
       <div className={containerCls}>
         {/* 批量运行 */}
         {isRunning ? (

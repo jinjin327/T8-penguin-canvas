@@ -1,0 +1,174 @@
+import { useEffect, useRef, useState } from 'react';
+import { Disc3, VolumeX } from 'lucide-react';
+import type { ThemeMusicPreset, ThemeTemplate } from '../theme/types';
+
+interface ThemeMusicToggleProps {
+  template: ThemeTemplate;
+}
+
+type Note = {
+  freq: number;
+  at: number;
+  len: number;
+  type?: OscillatorType;
+};
+
+const PRESET_NOTES: Record<ThemeMusicPreset, Note[]> = {
+  'tech-pulse': [
+    { freq: 220, at: 0, len: 0.12, type: 'sawtooth' },
+    { freq: 330, at: 0.24, len: 0.09, type: 'triangle' },
+    { freq: 277, at: 0.48, len: 0.12, type: 'sawtooth' },
+    { freq: 440, at: 0.72, len: 0.1, type: 'triangle' },
+    { freq: 392, at: 1.18, len: 0.14, type: 'sine' },
+  ],
+  'pixel-pop': [
+    { freq: 523, at: 0, len: 0.08, type: 'square' },
+    { freq: 659, at: 0.14, len: 0.08, type: 'square' },
+    { freq: 784, at: 0.28, len: 0.08, type: 'square' },
+    { freq: 1047, at: 0.42, len: 0.1, type: 'square' },
+    { freq: 784, at: 0.62, len: 0.08, type: 'square' },
+    { freq: 659, at: 0.76, len: 0.08, type: 'square' },
+  ],
+  'grand-line-adventure': [
+    { freq: 392, at: 0, len: 0.18, type: 'triangle' },
+    { freq: 494, at: 0.26, len: 0.16, type: 'triangle' },
+    { freq: 587, at: 0.52, len: 0.18, type: 'triangle' },
+    { freq: 659, at: 0.82, len: 0.2, type: 'sine' },
+    { freq: 784, at: 1.18, len: 0.26, type: 'triangle' },
+    { freq: 659, at: 1.62, len: 0.18, type: 'sine' },
+  ],
+};
+
+const PRESET_LOOP_SECONDS: Record<ThemeMusicPreset, number> = {
+  'tech-pulse': 1.75,
+  'pixel-pop': 1.08,
+  'grand-line-adventure': 2.15,
+};
+
+function clampVolume(value?: number) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0.16;
+  return Math.max(0, Math.min(value, 0.5));
+}
+
+function scheduleNote(ctx: AudioContext, master: GainNode, note: Note, startAt: number, volume: number) {
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const attack = 0.012;
+  const release = 0.045;
+  const noteStart = startAt + note.at;
+  const noteEnd = noteStart + note.len;
+
+  oscillator.type = note.type || 'sine';
+  oscillator.frequency.setValueAtTime(note.freq, noteStart);
+  gain.gain.setValueAtTime(0.0001, noteStart);
+  gain.gain.exponentialRampToValueAtTime(Math.max(volume, 0.0001), noteStart + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd + release);
+
+  oscillator.connect(gain);
+  gain.connect(master);
+  oscillator.start(noteStart);
+  oscillator.stop(noteEnd + release + 0.02);
+}
+
+export default function ThemeMusicToggle({ template }: ThemeMusicToggleProps) {
+  const music = template.music;
+  const [enabled, setEnabled] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  const title = music?.title || 'Theme Music';
+  const preset = music?.preset || 'tech-pulse';
+  const volume = clampVolume(music?.volume);
+
+  const stop = () => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    if (masterGainRef.current) {
+      masterGainRef.current.disconnect();
+      masterGainRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+  };
+
+  const playUrl = async (url: string) => {
+    const audio = new Audio(url);
+    audio.loop = true;
+    audio.volume = volume;
+    audioRef.current = audio;
+    await audio.play();
+  };
+
+  const playSynth = async () => {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const ctx = new AudioContextCtor() as AudioContext;
+    const master = ctx.createGain();
+    master.gain.value = 0.75;
+    master.connect(ctx.destination);
+    audioCtxRef.current = ctx;
+    masterGainRef.current = master;
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const notes = PRESET_NOTES[preset] || PRESET_NOTES['tech-pulse'];
+    const loopSeconds = PRESET_LOOP_SECONDS[preset] || PRESET_LOOP_SECONDS['tech-pulse'];
+    const playLoop = () => {
+      const startAt = ctx.currentTime + 0.015;
+      notes.forEach((note) => scheduleNote(ctx, master, note, startAt, volume));
+    };
+
+    playLoop();
+    timerRef.current = window.setInterval(playLoop, loopSeconds * 1000);
+  };
+
+  const toggle = async () => {
+    if (enabled) {
+      stop();
+      setEnabled(false);
+      return;
+    }
+
+    try {
+      if ((music?.source === 'url' || music?.source === 'upload') && music.url?.trim()) {
+        await playUrl(music.url.trim());
+      } else {
+        await playSynth();
+      }
+      setEnabled(true);
+    } catch (error) {
+      stop();
+      setEnabled(false);
+      console.warn('[theme-music] unable to start theme music', error);
+    }
+  };
+
+  useEffect(() => {
+    stop();
+    setEnabled(false);
+    return stop;
+  }, [template.id, template.music?.preset, template.music?.source, template.music?.url]);
+
+  return (
+    <button
+      type="button"
+      className={`t8-theme-music-toggle nodrag nopan ${enabled ? 'is-playing' : ''}`}
+      onClick={toggle}
+      title={enabled ? `关闭主题音乐：${title}` : `播放主题音乐：${title}`}
+      aria-label={enabled ? `关闭主题音乐：${title}` : `播放主题音乐：${title}`}
+      aria-pressed={enabled}
+    >
+      {enabled ? <Disc3 size={18} /> : <VolumeX size={18} />}
+    </button>
+  );
+}

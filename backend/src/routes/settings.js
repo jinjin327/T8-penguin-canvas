@@ -28,6 +28,10 @@ const DEFAULT_SETTINGS = {
   fileSavePath: config.DEFAULT_LOCAL_SAVE_DIR,
   // v1.3.1: 画布自动保存导出路径(实际写入 <path>/T8-penguin-canvas/canvases)
   canvasAutoSavePath: config.DEFAULT_CANVAS_AUTO_SAVE_DIR,
+  // v1.3.4: 资源库路径(资源文件 + resource_library.json 元数据)
+  resourceLibraryPath: config.DEFAULT_RESOURCE_LIBRARY_DIR,
+  // v1.3.6: 自定义主题模板路径
+  themeTemplatePath: config.DEFAULT_THEME_TEMPLATE_DIR,
   // 其他偏好
   preferences: {
     theme: 'dark',
@@ -72,6 +76,8 @@ function ensureLocalSavePaths() {
     const paths = [
       { label: '文件自动保存路径', value: s.fileSavePath || config.DEFAULT_LOCAL_SAVE_DIR || '' },
       { label: '画布自动保存路径', value: s.canvasAutoSavePath || config.DEFAULT_CANVAS_AUTO_SAVE_DIR || '' },
+      { label: '资源库路径', value: s.resourceLibraryPath || config.DEFAULT_RESOURCE_LIBRARY_DIR || '' },
+      { label: '主题模板路径', value: s.themeTemplatePath || config.DEFAULT_THEME_TEMPLATE_DIR || '' },
     ];
     for (const item of paths) {
       const p = String(item.value || '').trim();
@@ -119,8 +125,8 @@ router.post('/', (req, res) => {
     llmBaseUrl: config.ZHENZHEN_BASE_URL,
   };
   saveSettings(merged);
-  // v1.2.10.2/v1.3.1: 保存后重新确保本地保存路径存在
-  for (const field of ['fileSavePath', 'canvasAutoSavePath']) {
+  // v1.2.10.2/v1.3.1/v1.3.4: 保存后重新确保本地保存路径存在
+  for (const field of ['fileSavePath', 'canvasAutoSavePath', 'resourceLibraryPath', 'themeTemplatePath']) {
     if (typeof incoming[field] !== 'string' || !incoming[field].trim()) continue;
     try {
       const p = incoming[field].trim();

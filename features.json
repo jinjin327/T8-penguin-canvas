@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.3.2",
-  "lastUpdated": "2026-05-25-v1.3.2-rh-tools-node-backup-buttons",
+  "version": "1.4.2",
+  "lastUpdated": "2026-05-26-v1.4.2-recharge-payment-link-stability",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,16 +16,17 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.3.2",
-    "semverVersion": "1.3.2",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；阶段内 patch 从 1.3.0 → 1.3.9，下一阶段进位 1.4.0；当前 v1.3.2 将 RH 超市导出 / 导入入口同步到节点本体，用户无需进入管理弹窗即可备份迁移。",
-    "installer": "dist_electron/T8-PenguinCanvas-Setup-1.3.2.exe (NSIS, 约 87 MB)",
+    "version": "1.4.2",
+    "semverVersion": "1.4.2",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；阶段内 patch 从 1.4.0 → 1.4.9，下一阶段进位 1.5.0；当前 v1.4.2 修复 Electron 用户包充值付款链接消失/二维码窗口不弹出，并移除小额测试档残留。",
+    "installer": "dist_electron/T8-PenguinCanvas-Setup-1.4.2.exe (NSIS, 104.58 MB)",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
       "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号，以及 backend/src/config.js APP_VERSION 必须与 package.json 同步",
-      "_post_build.cjs 验证 8 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge}",
+      "_post_build.cjs 验证 11 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge,resources,themes} + utils/duckPayload",
       "_post_build.cjs 验证 resources/frontend/index.html + assets/ 必存在",
+      "_post_build.cjs 必须让 src/assets/theme-music/*.mp3 经 Vite 输出到 resources/frontend/assets，主题音乐默认静音且随前端资源一起打包",
       "_post_build.cjs 自动清除任何意外混入的 resources/{app,backend}/src 明文目录",
       "_post_build.cjs 必须拦截源码中的非空 RECHARGE_DEFAULT_ENC，以及 resources 中的 data/recharge.private.json、非空 AGENT_HMAC_KEY / DULUPAY_KEY、RECHARGE_DEFAULT_ENC 可逆密文；用户分发包不得携带充值 agent HMAC",
       "打包完成后必须实测启动 win-unpacked/T8-PenguinCanvas.exe 检查日志: 环境=production / 数据目录=AppData/t8-penguin-canvas / GET / 200",
@@ -39,16 +40,47 @@
     "canvasPanel": { "collapsible": true, "defaultOpen": true, "maxHeight": 224 }
   },
   "themes": {
-    "description": "双视觉风格 × 双明暗模式 = 4 套皮肤，由 zustand theme store 持久化，data-theme-style + data-theme-mode 注入到 html 根。切换按钮位于顶部工具条左侧（Sparkles / Cpu 图标）。",
+    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格三套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
+    "templateSystem": {
+      "schema": "t8-theme-template",
+      "version": 2,
+      "defaultPath": "D:\\zhenzhen\\theme-templates",
+      "settingsKey": "themeTemplatePath",
+      "backendRoute": "/api/themes/templates",
+      "editable": true,
+      "importExport": true,
+      "deleteCustomOnly": true,
+      "tokenFiles": ["src/theme/types.ts", "src/theme/defaultTemplates.ts", "src/theme/applyTheme.ts", "src/theme/validateTheme.ts"],
+      "designContract": [
+        "所有主题必须提供 light/dark 两套 ThemeTokens，禁止只改色不校验明暗可读性",
+        "新增 UI 优先使用 --t8-* / --theme-* CSS 变量和 .t8-themed-* 规范类，节点外壳交给 nodeFrame 自动适配",
+        "端口、MiniMap、控制条、顶部栏、侧边栏、GroupBox、弹窗、资源库等全局组件必须跟随模板视觉，不允许单独只适配某个节点",
+        "主题风格化元素使用 visuals.style / iconPack / canvasPattern / nodeFrame / headerMark 表达，避免把某个 IP 或图案写死在业务组件里",
+        "自定义模板导入时必须通过 validateTheme/后端 normalizeTemplate，过滤未知枚举、过长字段和非法音乐 URL"
+      ],
+      "music": {
+        "defaultMuted": true,
+        "toggleComponent": "src/components/ThemeMusicToggle.tsx",
+        "sources": ["synth", "url", "upload"],
+        "uploadLimitMB": 20,
+        "assetDir": "src/assets/theme-music",
+        "builtInTracks": {
+          "tech-default": "classic-one-summer-day.mp3",
+          "pixel-candy": "pixel-theme-of-sss.mp3",
+          "op-style": "op-battle-scars.mp3"
+        },
+        "rule": "主题音乐只在用户主动点击播放按钮后播放；模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
+      }
+    },
     "styles": {
       "tech": {
         "label": "科技风",
-        "description": "原 zinc 玻璃拟态深色 / 浅色，sky 色 accent",
+        "description": "玻璃拟态、细边框、冷色发光、circuit 画布纹理，内置默认音乐 One Summer's Day",
         "default": false
       },
       "pixel": {
         "label": "像素糖果风",
-        "description": "Pindou Studio 风格：奶油底 + 2px 黑描边 + 糖果色块 + 大圆角胶囊 + 硬阴影 (neo-brutalism)（v1.2.0 起为新用户默认主题，搭配 light 模式；像素风下全局禁用 backdrop-filter 避免字模糊）",
+        "description": "Pindou Studio 风格：奶油底 + 2px 黑描边 + 糖果色块 + 大圆角胶囊 + 硬阴影 (neo-brutalism)（v1.2.0 起为新用户默认主题，搭配 light 模式；像素风下全局禁用 backdrop-filter 避免字模糊；内置默认音乐 Theme Of SSS）",
         "default": true,
         "palette": {
           "bg": "#FAF3E7",
@@ -71,6 +103,19 @@
         "borderWidth": 2,
         "shadow": { "hard": "3px 3px 0 #1A1410", "press": "1px 1px 0 #1A1410" },
         "fonts": ["M PLUS Rounded 1c", "DotGothic16"]
+      },
+      "op": {
+        "label": "OP风格",
+        "description": "One Piece 航海冒险视觉模板：海图网格、悬赏令节点框、草帽半透明水印、红蓝金配色、OP iconPack、wanted nodeFrame；明暗模式均需保证正文不描边且可读。",
+        "default": false,
+        "visuals": {
+          "style": "op",
+          "iconPack": "op",
+          "canvasPattern": "map",
+          "nodeFrame": "wanted",
+          "headerMark": "ONE PIECE"
+        },
+        "music": "op-battle-scars.mp3"
       }
     },
     "defaultStyle": "pixel",
@@ -120,22 +165,33 @@
     "phase35": { "label": "RH APIKEY 统一 + 设置面板获取 APIKEY 按钮 (v1.2.9.16)", "status": "complete", "items": ["需求 1: 取消 RH 钱包应用 APIKEY 独立字段 —— 后端 DEFAULT_SETTINGS / GET 脱敏 / 前端 ApiSettings UI / ApiKeys store / canvas.ts 类型 / generation.ts 服务函数全链路移除 rhWalletApiKey 字段; 普通 RunningHub 节点与 RH 钱包应用节点统一读 settings.rhApiKey", "需求 2: 设置面板「贞贞工坊 APIKEY」下 baseUrl 右侧加 1 个「获取 APIKey」按钮 → 新窗口打开 https://ai.t8star.org/register?aff=dP7j", "需求 3: 设置面板「RunningHub APIKEY」下 baseUrl 右侧加 2 个按钮(国内 emerald 主调 + 国外 cyan 次调) → 新窗口打开对应 runninghub.cn / runninghub.ai 郀邀链接(inviteCode=rh-v1121)", "需求 4: 按钮 UI 双主题适配 —— 默认 emerald/cyan 色调 + 像素风 px-btn px-btn--mint / px-btn 两套外观; window.open(url, '_blank', 'noopener,noreferrer') 安全打开", "后端 proxy.js: pickRhApiKey(settings) 简化为单参 → settings.rhApiKey || settings.runninghubApiKey || ''; missingRhKeyError() 错误文案统一为「未配置 RunningHub API Key」; 4 条 RH 路由(submit/query/upload-asset/app-info) 不再读 body.useWallet 与 query.wallet=1", "后端 settings.js: DEFAULT_SETTINGS 移除 rhWalletApiKey 字段; GET /api/settings 脱敏返回不再含 rhWalletApiKey 项", "前端 services/generation.ts: RhSubmitRequest 接口去掉 useWallet 字段; queryRh / fetchRhAppInfo / uploadRhAsset 3 个函数去掉 useWallet 形参 + URL 不再拼接 &wallet=1", "前端 RunningHubNode.tsx: useWallet 变量仅保留 UI 区分(标题/图标/配色), 4 个 RH 调用(submitRh/queryRh/fetchRhAppInfo/uploadRhAsset)全部不再透传 useWallet", "前端 ApiSettings.tsx 核心改造: KeyField 联合移除 'rhWalletApiKey'; emptyMap/emptyShow 同步移除; COMMON_KEYS 由 4 项缩减为 3 项(贞贞/RH/LLM); 新增 linkBtnCls / linkBtnAltCls 双主题样式 + openExternal helper + renderGetKeyButtons(field) 函数; baseUrlNote 容器升级为 flex-wrap, 同时容纳 Lock 备注 与 获取 APIKey 按钮", "向后兼容: 老 settings.json 中残留的 rhWalletApiKey 字段仅被 loadSettings 允许但不再被任何路由消费, 老用户无需迁移", "零破坏: rh-config 节点仍 hidden:true 保留后門 / RH 钱包应用节点与普通 RH 节点 violet/cyan 颜色区分仍在 / 4 套主题(科技×像素×深色×浅色) 按钮样式均适配", "提交链: 9c9875d (11 文件 +112/-66 推送 origin/main; 后续静态打包 NSIS 安装包 + skill.md 第 56 章沉淀)"] },
     "phase36": { "label": "RH 工具节点 · 启动器化包装 RunningHub AI 应用 (v1.2.10 · v1.2.10.1–4 迭代)", "status": "complete", "items": ["v1.2.10.0: RH 分类下新增第 3 个节点「RH 工具」，启动器式包装 RunningHub AI 应用 · 双视图·多实例共享·拼音搜索·独立 JSON 存储(rh-tool-categories.json + rh-tool-apps.json)", "v1.2.10.1: 按 RunningHubNode 一比一重写 RHToolsNode 运行逻辑 —— 修复实例类型/Handle遮挡/上游输入/音频输出/循环器只出1个结果 五个问题；portTypes.rh-tools 调为 inputs:[text,image,video,audio]/outputs:[image,video,audio]；Canvas.EXECUTABLE_NODE_TYPES 加 'rh-tools'；LoopNode/NodeActionBar EXEC_TYPES 同步\u201d", "v1.2.10.2: 颜色改 cyan + 文件自动保存路径全链路 —— RHToolsNode/RHToolEditorModal/nodeRegistry violet → cyan；backend/src/config.js 加 DEFAULT_LOCAL_SAVE_DIR='D:\\zhenzhen'；settings.js DEFAULT_SETTINGS.fileSavePath + ensureFileSavePath() 启动自动 mkdir；files.js 新增 POST /api/files/save-to-disk(支持 /files/output/* + /files/input/* + http(s)://* 三种协议、同名跳过、自动 mkdir -p)；前端 ApiSettings 新增「文件自动保存路径」输入项(初始 D:\\zhenzhen)；services/api.ts 新增 saveAssetToDisk(静默失败)；OutputNode useEffect 监听 collected.{images,videos,audios} ref Set 去重触发 saveAssetToDisk —— 全局生成的图像/视频/音频自动复制到本地", "v1.2.10.3: 像素风走 RunningHubNode 同款糖果调色板 —— 9 个主题色变量(accent/accentSoft/ringColor/bg/surface/surfaceHover/text/subText/border)加 isPixel 分支走 var(--px-ink/--px-yellow/--px-surface/--px-muted/--px-ink-soft); 参数表 background 像素风用 var(--px-muted); 运行按钮 hover 像素风用 var(--px-yellow) —— 与左侧 RunningHub 节点视觉完全一致", "v1.2.10.4: RH 工具 → RH 超市 重命名 —— nodeRegistry label / RHToolsNode 头部标题 / RHToolEditorModal 弹窗头部 三处用户可见文案同步; type:'rh-tools' 与后端存储 key 不变以保证数据兼容", "后端路由清单: GET/POST/PUT/DELETE /api/settings/rh-tool-categories[/:id|/reorder] (5条) + GET/POST/PUT/DELETE /api/settings/rh-tool-apps[/:id|/reorder] (5条) + POST /api/files/save-to-disk (1条全局保存)", "验收: tsc EXIT=0; 从启动器 添加分类/应用 → 进入运行视图 → 上游连上后提交 → 输出预览 → 下游 OutputNode 接收 → 本地 D:\\zhenzhen 出现复制件 全路走通"] },
     "phase37": { "label": "节点落点防重叠 · 阿基米德螺线避让 + 向右扫描 + 兆底 (v1.2.10.5~8)", "status": "complete", "items": ["v1.2.10.5: 节点落点算法初版(nodePlacement.ts) + 双 pass spiral + pendingPlacedNodes 多源累积器", "v1.2.10.6 hotfix3: reorder-grid 覆盖 placement 偏移修复 + onConnect 接入 placeSingleNode", "v1.2.10.6 hotfix4: 去掉 adaptiveStep(防止远距离偏移) + autoOutput gap=0(只防实际重叠) + reorder 用第一个节点作锚点(防止无限循环)", "v1.2.10.7: baseY 对齐源节点垂直中心(handle 位置)，避免输出节点偏上", "v1.2.10.8: 螺线失败后加向右线性扫描(rightwardScan)，避免跳过中间空地直接落到画布最右端", "最终架构: spiral(~400px) → rightwardScan(~3000px) → fallback(最右兜底)"] },
-    "phase38": { "label": "算力充值系统迁移 (v1.2.10.9)", "status": "complete", "items": ["从 gpt-image-2-web 迁移充值核心: 绑定网站用户 ID、档位列表、创建支付订单、支付回调、主动查单、转移算力、失败重试、订单记录", "后端新增 backend/src/routes/recharge.js，Express 路由挂载 /api/recharge/* 与 /pay/*，保留 HMAC 请求签名协议；v1.2.10.11 起公开仓库默认不携带代理密钥", "存储改为 JSON 文件 data/recharge.json + .recharge_device_id，避免引入 sqlite 原生依赖影响 Electron 打包", "档位保留原 20/30/50/100/200/300/500 CP，并新增临时 test_1cny 1 元测试档位；余额查询暂不迁移", "前端新增 RechargeModal.tsx + services/api.ts recharge API，顶部工具条新增「充值」入口，四主题(tech/pixel × light/dark)走各自视觉分支", "打包校验 _post_build.cjs 新增 routes/recharge.t8c，backend/src 修改后需重新 npm run encrypt"] },
+    "phase38": { "label": "算力充值系统迁移 (v1.2.10.9)", "status": "complete", "items": ["从 gpt-image-2-web 迁移充值核心: 绑定网站用户 ID、档位列表、创建支付订单、支付回调、主动查单、转移算力、失败重试、订单记录", "后端新增 backend/src/routes/recharge.js，Express 路由挂载 /api/recharge/* 与 /pay/*，保留 HMAC 请求签名协议；v1.2.10.11 起公开仓库默认不携带代理密钥", "存储改为 JSON 文件 data/recharge.json + .recharge_device_id，避免引入 sqlite 原生依赖影响 Electron 打包", "档位仅保留正式 20/30/50/100/200/300/500 CP；余额查询暂不迁移", "前端新增 RechargeModal.tsx + services/api.ts recharge API，顶部工具条新增「充值」入口，四主题(tech/pixel × light/dark)走各自视觉分支", "打包校验 _post_build.cjs 新增 routes/recharge.t8c，backend/src 修改后需重新 npm run encrypt"] },
     "phase39": { "label": "充值确认弹窗 + 安全硬化 (v1.2.10.10)", "status": "complete", "items": ["创建订单并付款前新增同主题 alertdialog，醒目提示「请核对绑定的用户ID，一旦充错无法退回！」，展示绑定 ID / 套餐 / 金额，用户二次确认后才调用创建订单接口", "后端 CORS 从全开放改为只允许 127.0.0.1/localhost 来源或无 Origin 请求，降低网页跨站驱动本地服务风险", "支付通知 /pay/notify 在缺少 DULUPAY_KEY 时直接 fail，避免空密钥 MD5 被伪造触发转额度", "订单号随机后缀从 3 bytes 提升到 8 bytes，降低碰撞和枚举风险", "GET /api/recharge/order/:orderId 与 /api/recharge/orders 返回脱敏摘要，不再回传 trade_no"] },
     "phase40": { "label": "GitHub 推送密钥清理规则 (v1.2.10.11)", "status": "complete", "items": ["RECHARGE_DEFAULT_ENC 默认改为空字符串，公开仓库不再携带 AGENT_HMAC_KEY 或可逆代理配置", "充值代理配置改为仅通过 RECHARGE_AGENT_BASE_URL / RECHARGE_AGENT_HMAC_KEY / RECHARGE_WEBSITE_URL / RECHARGE_DULUPAY_KEY 等环境变量注入", "skill.md 追加 GitHub 推送前安全清单：严禁提交真实 HMAC、支付平台密钥、data 本地数据、build/dist_electron 打包产物与明文配置"] },
     "phase41": { "label": "本地私有充值配置恢复 (v1.2.10.12)", "status": "complete", "items": ["新增 data/recharge.private.json 本地私有配置兜底，文件被 .gitignore 忽略，本地开发可继续使用充值 agent", "配置读取顺序为公开默认空配置 < data/recharge.private.json < RECHARGE_* 环境变量，GitHub 仍不携带真实 HMAC", "config.js 增加 RECHARGE_PRIVATE_FILE，recharge.js 增加私有配置读取与规范化逻辑"] },
     "phase42": { "label": "充值用户包密钥安全闸 (v1.2.10.13)", "status": "complete", "items": ["用户分发 Electron 包不得携带 AGENT_HMAC_KEY / DULUPAY_KEY / RECHARGE_DEFAULT_ENC 可逆密文，充值全局密钥只能留在 VPS 或本地私有开发环境", "_post_build.cjs 新增充值密钥扫描：发现源码非空 RECHARGE_DEFAULT_ENC、resources/data/recharge.private.json、非空 AGENT_HMAC_KEY / DULUPAY_KEY 或遗留 ZZENC1 密文即失败", "skill.md 打包 SOP 追加用户充值包安全边界：当前客户端 HMAC 方案只适合本地私有测试，正式用户版需要 VPS 提供无需客户端 HMAC 的公开下单/查单接口"] },
     "phase43": { "label": "VPS 公开充值接口 + 三段阶段版本规则 (v1.3.0)", "status": "complete", "items": ["充值系统切换到 VPS /public/recharge/* 公开下单、查单和重试接口，T8 桌面端只保存绑定用户、订单摘要与 order_token，不再携带或使用全局 agent HMAC", "版本规则废弃 4 段 display + 压缩 semver，改为统一三段 x.y.z；从 1.3.0 开始，阶段内 1.3.1 到 1.3.9，下个阶段为 1.4.0", "package.json、package-lock.json、vite.config.ts、vite.config.js、electron/main.cjs、features.json、README.md 已同步到 1.3.0；skill.md 仅本地更新且不得推送 GitHub"] },
     "phase44": { "label": "画布自动保存 + RH 超市导入导出 (v1.3.1)", "status": "complete", "items": ["设置页新增 canvasAutoSavePath，默认 D:\\zhenzhen；画布每次内部保存成功后同步导出 JSON 到 <path>/T8-penguin-canvas/canvases，便于更换版本后用现有导入功能恢复", "画布导出 JSON 升级为 schema=t8-penguin-canvas-export/version=2，包含 canvas 元信息与 viewport；导入兼容普通导出与自动保存备份", "RH 超市管理弹窗新增导出 / 导入按钮；导出分类和应用为 t8-rh-tools JSON，导入默认覆盖当前 RH 超市数据并保留备份内 id，方便旧画布继续匹配已选应用", "后端新增 POST /api/canvas/:id/auto-save、GET /api/settings/rh-tools/export、POST /api/settings/rh-tools/import；设置保存时自动 mkdir 本地保存路径"] },
-    "phase45": { "label": "RH 超市节点本体导入导出入口 (v1.3.2)", "status": "complete", "items": ["RHToolsNode 启动器视图在「增加 / 编辑」下方新增「导出 / 导入」按钮，用户在节点本体即可备份或恢复 RH 超市分类和应用", "导入入口复用现有 t8-rh-tools JSON 清洗与 replace 覆盖逻辑，并在覆盖前提示确认，导入结果在节点内以同主题状态条显示", "RHToolEditorModal 顶部导出 / 导入入口继续保留，节点本体和管理弹窗两处入口共享同一套备份格式与后端导入逻辑", "backend/src/config.js 新增 APP_VERSION，/api/status 返回值同步当前发布版本，便于打包冒烟测试确认运行的是最新包"] }
+    "phase45": { "label": "RH 超市节点本体导入导出入口 (v1.3.2)", "status": "complete", "items": ["RHToolsNode 启动器视图在「增加 / 编辑」下方新增「导出 / 导入」按钮，用户在节点本体即可备份或恢复 RH 超市分类和应用", "导入入口复用现有 t8-rh-tools JSON 清洗与 replace 覆盖逻辑，并在覆盖前提示确认，导入结果在节点内以同主题状态条显示", "RHToolEditorModal 顶部导出 / 导入入口继续保留，节点本体和管理弹窗两处入口共享同一套备份格式与后端导入逻辑", "backend/src/config.js 新增 APP_VERSION，/api/status 返回值同步当前发布版本，便于打包冒烟测试确认运行的是最新包"] },
+    "phase46": { "label": "RH 输出 SS_tools 鸭鸭图透明解码 (v1.3.3)", "status": "complete", "items": ["新增 backend/src/utils/duckPayload.js，纯 Node + sharp 复刻 SS_tools 无密码鸭鸭图解码算法，按 k=2/6/8 三种 LSB 位宽解析 payload length 与 header", "只支持无密码鸭鸭图；检测到 password-protected payload 或非鸭鸭图时不报错、不阻断，保持原 RH 输出 PNG 正常落盘", "RunningHub 查询结果回收阶段接入透明解码：/api/proxy/runninghub/query 下载 RH 远端输出后先 tryDecodeDuckPayload，成功后按真实 ext 保存为图片 / 视频 / 音频", "支持 .binpng 视频载荷恢复：将隐藏的二进制 PNG raw RGB 还原为原视频 bytes，并按 mp4/mov/webm 等真实扩展名输出", "前端 RunningHubNode、RH钱包应用、RHToolsNode 零 UI 改动；三者共享 queryRh 结果，解码后依靠现有后缀分流自动写入 imageUrl / videoUrl / audioUrl", "electron/_post_build.cjs 增加 backend-enc/utils/duckPayload.t8c 必存在校验，防止 Electron 用户包漏掉解码模块", ".gitignore 增加 /SS_tools/，本地参考拷贝及 exe/rar/assets 不进入公开仓库"] },
+    "phase47": { "label": "创作资源库 (v1.3.4)", "status": "complete", "items": ["新增顶部「资源库」入口，打开右侧抽屉；图像 / 视频 / 音频三类独立 Tab、独立分类、搜索、收藏筛选与资源卡片管理", "任意上传或生成素材预览右键新增「加入资源库」菜单，可选择现有分类或新建分类；入库时复制一份到资源库目录，不依赖原 input/output 文件长期存在", "设置页新增 resourceLibraryPath，默认 D:\\zhenzhen\\resources；资源文件与 resource_library.json 元数据都保存在该路径，路径不存在时自动创建，方便更换版本后继续读取", "后端新增 backend/src/routes/resources.js，提供 /api/resources/categories、/api/resources/items、/api/resources/file/:id、/api/resources/thumb/:id；支持本地 input/output 复制、远端 URL 拉取、sha256 去重、删除资源库副本与图片缩略图生成", "远端 URL 入库增加安全护栏：本机/内网地址禁止拉取，30 秒超时，单个远端资源限制 512MB；本地 input/output 资源不受该限制", "资源库卡片支持图片缩略图、视频悬停播放预览、音频播放器、悬停放大、重命名、改分类、收藏、删除、插入画布；插入画布会创建带对应素材 URL 的 UploadNode", "资源库卡片保留 data-drag-source 协议，Ctrl+拖拽可继续投放到现有素材接收节点；双主题 UI 分别适配像素风与科技风", "electron/_post_build.cjs 增加 backend-enc/routes/resources.t8c 必存在校验，防止 Electron 用户包漏掉资源库后端"] },
+    "phase48": { "label": "资源库像素风操作按钮优化 (v1.3.5)", "status": "complete", "items": ["资源库卡片在像素风下取消「插入」文字胶囊，改为 32px 圆形加号图标按钮，避免音频卡片底部出现文字挤压和换行", "像素风插入 / 重命名 / 删除三个操作按钮统一为等尺寸圆形图标按钮，保留 title 与 aria-label，科技风仍保留「+ 插入」文字按钮", "公开版本同步到 1.3.5：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步"] },
+    "phase49": { "label": "主题模板系统 + OP 风格 + 主题音乐 (v1.3.6)", "status": "complete", "items": ["新增 ThemeTemplate v2：内置科技风、像素糖果风、OP 风格三套模板，模板包含 light/dark tokens、visuals 风格元数据与 music 配置", "新增主题模板管理器：设置页支持自定义模板路径，默认 D:\\zhenzhen\\theme-templates；支持导入、导出、复制、编辑、保存、删除自定义模板，后端 /api/themes/templates 负责 JSON 持久化与校验", "新增 OP 风格视觉：海图画布、悬赏令节点框、草帽半透明水印、OP 顶部栏/侧边栏/MiniMap/控制条/GroupBox/端口样式，并修复明暗模式文字可读性与端口悬停偏移", "新增主题音乐按钮：默认静音，位于控制条上方并与放大缩小条对齐；科技风默认 classic-one-summer-day.mp3，像素风默认 pixel-theme-of-sss.mp3，OP 风格默认 op-battle-scars.mp3，用户可在模板编辑器上传替换", "主题设计规范沉淀到 features.json 与本地 skill.md：新增节点和全局 UI 必须优先使用 ThemeTokens、visuals、通用 t8-* CSS 类和模板变量，避免每个节点重复写主题分支", "公开版本同步到 1.3.6：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步"] },
+    "phase50": { "label": "节点右键菜单与 OP 浮层层级修复 (v1.3.7)", "status": "complete", "items": ["修复节点非素材区域右键无响应：素材资源库右键菜单不再用 elementsFromPoint 穿透堆叠层查找 data-drag-source，只响应实际点击目标的最近素材元素，避免误拦截节点普通区域", "Canvas 增加 onContextMenuCapture 兜底：右键落在 .react-flow__node 内且不是素材预览时，统一打开原节点菜单，恢复复制、快速复制、删除、打组、组执行等操作", "OP 风格修复浮层被主题样式压回画布层的问题：theme-op.css 不再对 .t8-canvas-shell 的所有直接子元素强制 position:relative/z-index:1，只限定 ReactFlow 主画布层", "拖线候选菜单、节点右键菜单、空白画布右键菜单统一添加 data-canvas-floating-ui，并在 OP 风格下强制 fixed + 高 z-index，防止后续主题皮肤再次误伤浮层", "公开版本同步到 1.3.7：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步"] },
+    "phase51": { "label": "图像对比工具节点升级", "status": "complete", "items": ["复活原隐藏 image-compare 节点，正式显示为工具节点「图像对比」", "节点提供 A/B 两个图像输入口和一个 image 输出口；连入两张图后无需运行即可在节点内即时预览，输入口旁不再额外显示 A/B 小标签", "支持滑杆、并排、透明叠加、闪烁、差异热力图、差异聚焦 6 种对比方式，并提供 contain/cover/fill 对齐策略与变化比例统计", "热力图改为 A 图底图 + 差异暖色高亮；棋盘模式替换为更实用的差异聚焦，未变化区域降噪变暗、变化区域保留 B 图细节", "点击运行调用 POST /api/image/compare 生成静态对比结果图，写入 data.imageUrl；若旧后端未提供 compare 路由，前端自动用 canvas 兜底生成并上传 base64", "图像对比加入 Canvas 与 NodeActionBar 的可执行节点列表，支持选中运行、顶部 RUN 与批量运行"] },
+    "phase52": { "label": "输出素材快捷图像对比 (v1.3.8)", "status": "complete", "items": ["OutputNode 图像预览右上角新增快捷对比按钮，用户可直接从输出结果打开轻量对比弹窗。", "ImageCompareModal 固定当前输出图为结果图，自动从上游 referenceImages、localRefImages、mjSrefImages、mjOrefImages、RH paramValues、上游连接图片与当前输出其他图收集输入候选，多图通过缩略图切换。", "找不到输入图时仍打开弹窗，支持手动选择本地图像作为输入图，方便多参考图或外部原图场景。", "抽取 src/utils/imageCompare.ts 与 src/components/ImageCompareStage.tsx，ImageCompareNode 与快捷弹窗复用同一套绘制、差异统计、前端 fallback 导出逻辑。", "快捷弹窗支持滑杆、并排、叠加、闪烁、热力、聚焦 6 种模式，并可按当前模式下载对比结果 PNG。", "ImageCompareModal 走 t8-panel / t8-btn / t8-select / --t8-* 变量并使用 data-canvas-floating-ui，兼容科技风、像素糖果风、OP 风格浮层层级。", "公开版本同步到 1.3.8：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步。"] },
+    "phase53": { "label": "同类型批量上传 + 素材合集打散 (v1.3.9)", "status": "complete", "items": ["UploadNode 支持同类型多文件选择与拖拽批量上传，图像 / 视频 / 音频会分别写入 imageUrls / videoUrls / audioUrls，同时保留 imageUrl / videoUrl / audioUrl 兼容旧链路。", "上传节点运行时会把当前合集一次性输出为 OutputNode 合集，方便用户继续预览、连接或保存。", "UploadNode 与 OutputNode 的多素材标题区新增打散合集入口，可将图片 / 视频 / 音频合集拆成多个独立上传或输出节点，替代手动使用「从合集获取」逐个取素材。", "新增 src/utils/mediaCollection.ts 统一素材集合数据结构、文件名 / 大小 / mime 映射与批量节点摆放规则，避免上传和输出节点各自维护重复逻辑。", "新增 src/components/CollectionSplitButton.tsx，入口使用小型主题变量图标按钮，不复用 t8-btn 大按钮样式，避免 OP / 像素糖果风下被撑大或遮挡内容。", "公开版本同步到 1.3.9：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步；skill.md 仅本地更新，继续禁止推送 GitHub。"] },
+    "phase54": { "label": "画布级粘贴/拖入素材生成上传节点 (v1.4.0)", "status": "complete", "items": ["Canvas 支持在画布焦点下 Ctrl+V 粘贴剪贴板图像 / 视频 / 音频，自动上传到 /api/files/upload 并生成 UploadNode。", "支持把一个或多个素材文件直接拖到画布；拖入文件时阻止浏览器默认打开文件，落点按鼠标位置转换为画布坐标。", "同类型多文件自动写入同一个 UploadNode 合集，混合类型文件按 image / video / audio 分成多个 UploadNode，并继续复用 imageUrls / videoUrls / audioUrls 协议与后续打散功能。", "文本输入框、textarea、select 和 contenteditable 内的粘贴不会被画布拦截；原有节点 Ctrl+C / Ctrl+V / Ctrl+Shift+V 内部复制粘贴保持兼容。", "公开版本同步到 1.4.0：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步；skill.md 仅本地更新，继续禁止推送 GitHub。"] },
+    "phase55": { "label": "生成文本框 @ 素材提及 (v1.4.1)", "status": "complete", "items": ["新增 src/components/nodes/MentionPromptInput.tsx 与 mediaMentions.ts：在生成类文本输入中输入 @ 可弹出当前可引用素材列表，支持图像 / 视频 / 音频预览与键盘选择。", "ImageNode / VideoNode / SeedanceNode / AudioNode / LLMNode 接入 @ 素材提及；被提及素材在输入框内显示小方形预览图，下方保留“实际发送”预览，生成提交前按当前素材顺序稳定解析为 @image1 / @video1 / @audio1。", "RunningHubNode 同步接入 @ 素材提及，普通 RunningHub 与 RH钱包应用共享该能力；仅改 TEXT/STRING 类参数字段，媒体上传字段仍使用原有“从上游自动获取”和 uploadRhAsset 链路。", "RHToolsNode 的 RH超市应用运行视图同步接入 @ 素材提及，并保留原有主题变量 style，确保科技风 / 像素糖果风 / OP 风格下输入框视觉一致。", "中文 IME 输入在 contenteditable 中单独处理 compositionStart/compositionEnd，避免中文逐字截断；多次 @ 提及时保持光标位置、弹窗重开和 mention ranges 稳定。", "公开版本同步到 1.4.1：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步；skill.md 仅本地更新，继续禁止推送 GitHub。"] },
+    "phase56": { "label": "充值付款链接稳定性 + Electron 外链兜底 (v1.4.2)", "status": "complete", "items": ["充值后端彻底移除小额测试档，/api/recharge/plans 只返回 20/30/50/100/200/300/500 CP 七个正式档位。", "订单创建、主动查单和订单历史都会保存并回传 pending 订单的 pay_url，避免用户点击查询状态后扫码付款链接瞬间消失。", "RechargeModal 增加付款链接缓存、打开付款页、复制付款链接和订单历史“付”快捷按钮；如果 Electron/系统拦截新窗口，用户仍可复制链接到浏览器完成支付。", "Electron 主进程增加 http/https 外链白名单打开逻辑、setWindowOpenHandler、will-navigate 保护和 preload openExternal IPC，修复打包后二维码窗口不弹出的问题。", "修复主窗口 preload 路径为 preload.cjs，避免打包后的 Electron preload 文件名不一致。", "公开版本同步到 1.4.2：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 全部同步；skill.md 仅本地更新，继续禁止推送 GitHub。"] }
   },
   "categories": {
     "input": {
       "label": "输出素材",
       "count": 2,
       "nodes": [
-        { "type": "upload", "label": "上传素材节点", "description": "图像 / 视频 / 音频 三合一上传(选型后输出端口自适应染色 + 只能连到同类型入口)" },
-        { "type": "output", "label": "输出素材节点", "description": "终端预览节点：自动收集上游任意节点的 文本/图像/视频/音频，图像视频按原始宽高比显示(object-contain)，文本双击进入可编辑状态(Ctrl+Enter 保存 / Esc 取消 / “恢复”返回 live)" }
+        { "type": "upload", "label": "上传素材节点", "description": "图像 / 视频 / 音频 三合一上传；支持同类型批量上传、输出合集与一键打散，选型后输出端口自适应染色" },
+        { "type": "output", "label": "输出素材节点", "description": "终端预览节点：自动收集上游任意节点的 文本/图像/视频/音频，多素材合集可一键打散为独立输出节点；图像视频按原始宽高比显示(object-contain)，文本双击可编辑" }
       ]
     },
     "core": {
@@ -177,7 +233,7 @@
       "nodes": [
         { "type": "drawing-board", "label": "画板", "description": "手绘 / 涂抹", "hidden": true },
         { "type": "browser", "label": "浏览器", "description": "网页内嵌", "hidden": true },
-        { "type": "image-compare", "label": "图片对比", "description": "前后对比", "hidden": true },
+        { "type": "image-compare", "label": "图像对比", "description": "双图滑杆 / 并排 / 叠加 / 闪烁 / 热力图 / 差异聚焦，运行后输出一张对比结果图" },
         { "type": "frame-extractor", "label": "抽帧", "description": "视频抽帧", "hidden": true },
         { "type": "frame-pair", "label": "首尾帧获取", "description": "v1.2.7 新增。输入一个视频节点，运行后抽取首帧与尾帧，输出 2 个 image 素材(双 source handle id=first/last)。浏览器端 video+canvas 抽帧上传 base64，双主题 (像素风糖果色/科技风玻璃)，接入运行总线可被批量运行调起" },
         { "type": "loop", "label": "循环器", "description": "v1.2.8 新增。接多个同类型素材(text/image/video/audio)，两种模式: 串联逐个注入自身进发下游可执行子图 / 并联克隆 (N-1) 份子图并发跱发。采集输出位序位填 null，永久保留克隆节点，克隆块垂直堆叠(yOffset = i × blockH)，使用 runBus.runningIds + triggerRunMany 多节点并发触发。双主题 violet 调" },
@@ -358,6 +414,7 @@
         "POST /api/image/upscale — lanczos3 放大",
         "POST /api/image/grid-crop — 九宫格切图",
         "POST /api/image/combine — 横/纵向拼接",
+        "POST /api/image/compare — 双图对比结果生成(slider/side-by-side/blink/overlay/heatmap/focus)",
         "POST /api/image/remove-bg — 抠图(占位)"
       ],
       "proxy": [
@@ -381,7 +438,7 @@
       "recharge": [
         "GET /api/recharge/config — 充值代理配置状态(不返回密钥)",
         "GET/POST/DELETE /api/recharge/binding — 绑定/解绑网站用户 ID",
-        "GET /api/recharge/plans — 算力充值档位(含临时 1 元测试档)",
+        "GET /api/recharge/plans — 算力充值正式档位(20/30/50/100/200/300/500 CP)",
         "POST /api/recharge/order/create — 创建支付订单",
         "GET /api/recharge/order/:orderId — 查询本地订单状态",
         "GET /api/recharge/order/:orderId/check — 主动向支付代理查单并尝试转移算力",
@@ -395,14 +452,14 @@
     "image", "edit",
     "multi-angle-3d", "panorama-720", "penguin-portrait",
     "video", "seedance", "audio", "llm", "runninghub", "runninghub-wallet", "rh-tools",
-    "resize", "upscale", "grid-crop", "remove-bg", "combine",
+    "resize", "upscale", "grid-crop", "remove-bg", "combine", "image-compare",
     "frame-extractor", "frame-pair"
   ],
   "nonExecutableNodeTypes": {
     "description": "不参与批量运行的节点(输入 / 纯展示 / 参数谷 / 工具箱提示)",
     "nodes": [
       "upload", "text", "idea", "bp", "relay",
-      "portrait-metadata", "storyboard-grid", "image-compare", "video-output",
+      "portrait-metadata", "storyboard-grid", "video-output",
       "drawing-board", "browser", "rh-config",
       "cinematic", "video-motion"
     ]
@@ -410,13 +467,14 @@
   "shortcuts": {
     "Ctrl+Z": "撤销",
     "Ctrl+Shift+Z / Ctrl+Y": "重做",
-    "Ctrl+C / Ctrl+V / Ctrl+D": "复制 / 粘贴 / 快速复制",
+    "Ctrl+C / Ctrl+V / Ctrl+D": "复制 / 粘贴 / 快速复制；画布上 Ctrl+V 若剪贴板含图像/视频/音频则直接生成上传素材节点",
     "Ctrl+Shift+V": "连边粘贴(保留与原画布邻居的连接)",
     "Delete / Backspace": "删除选中",
     "Ctrl+A": "全选",
     "左键拖动空白": "平移画布",
     "Ctrl + 左键拖动(画布/组空白)": "框选多个节点",
     "Ctrl + 左键拖动(图片/视频/音频缩略图)": "跨节点拖拽素材到另一个节点 (phase15)",
+    "拖拽文件到画布": "图像/视频/音频文件直接上传并生成 UploadNode；同类型多文件自动形成合集",
     "右键点击节点/选区": "弹出菜单(组执行/打组/复制/删除)",
     "打组后右上角 ▶": "执行组内所有节点",
     "打组后双击标题": "重命名节点组",

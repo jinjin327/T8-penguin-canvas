@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useReactFlow, useNodes, Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Play, X, Edit2 } from 'lucide-react';
 import { useThemeStore } from '../../stores/theme';
+import { resolveThemeTemplate } from '../../theme/defaultTemplates';
 import { useGroupBusStore, GROUP_COLORS } from '../../stores/groupBus';
 
 // 文件名后缀识别(与 OutputNode 一致): 剑中低代价修正「上游用 imageUrl 装视频/音频」兑底
@@ -31,7 +32,12 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
   const width = d?.width ?? 320;
   const height = d?.height ?? 200;
 
-  const { theme, style } = useThemeStore();
+  const { theme, style, templateId, customTemplates } = useThemeStore();
+  const currentTemplate = useMemo(
+    () => resolveThemeTemplate(templateId, customTemplates),
+    [templateId, customTemplates],
+  );
+  const visualStyle = currentTemplate.visuals?.style || style;
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';
 
@@ -337,7 +343,12 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
       };
 
   return (
-    <div style={outerStyle}>
+    <div
+      className="t8-group-box"
+      data-theme-visual={visualStyle}
+      data-selected={selected ? 'true' : 'false'}
+      style={outerStyle}
+    >
       {/* === 右侧 source Handle: 聚合组内所有节点输出一次性向组外传出 === */}
       {/*  - 主题适配: 科技风使用组颜色圆形, 像素风使用方形+黑边+硬阴影  */}
       {/*  - title 提示实时聚合数量, 让用户一眼看到能传出多少资源 */}
@@ -347,7 +358,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
         id="group-out"
         isConnectableStart={true}
         isConnectableEnd={false}
-        className="!border-0"
+        className="t8-group-box__handle"
         style={{
           background: isPixel ? '#1A1410' : color,
           width: isPixel ? 14 : 14,
@@ -369,6 +380,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
       />
       {/* 顶部标题栏 */}
       <div
+        className="t8-group-box__header"
         style={{
           height: HEADER_H,
           background: headerBg,
@@ -387,7 +399,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
       >
         {/* 颜色指示点(点击切色) */}
         <button
-          className="nodrag"
+          className="nodrag t8-group-box__swatch"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -439,7 +451,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
           />
         ) : (
           <div
-            className="nodrag"
+            className="nodrag t8-group-box__title"
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -466,6 +478,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
 
         {/* 节点数 (实时计算: 当前几何上在组内的节点数) */}
         <span
+          className="t8-group-box__count"
           style={{
             fontSize: 11,
             fontWeight: 500,
@@ -479,7 +492,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
         {/* 编辑按钮 */}
         {!isEditing && (
           <button
-            className="nodrag"
+            className="nodrag t8-group-box__button"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
@@ -513,7 +526,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
 
         {/* 执行按钮(右上角) */}
         <button
-          className="nodrag"
+          className="nodrag t8-group-box__button t8-group-box__button--run"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -541,7 +554,7 @@ const GroupBoxNode = ({ id, data, selected }: NodeProps) => {
 
         {/* 删除按钮(仅删除组本身,不删成员) */}
         <button
-          className="nodrag"
+          className="nodrag t8-group-box__button"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();

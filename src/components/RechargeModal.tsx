@@ -43,6 +43,11 @@ type PayType = 'alipay' | 'wxpay';
 type ResultState =
   | { kind: 'created'; data: RechargeOrderCreateResponse }
   | { kind: 'checked'; data: RechargeOrderCheckResponse };
+type T8Window = Window & {
+  t8pc?: {
+    openExternal?: (url: string) => Promise<{ success: boolean; message?: string }>;
+  };
+};
 
 const STATUS_LABEL: Record<RechargeOrderStatus, string> = {
   pending: '待付款',
@@ -70,6 +75,17 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
   const [result, setResult] = useState<ResultState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const payUrlCacheRef = useRef<Record<string, string>>({});
+
+  const rememberPayUrl = useCallback((orderId?: string, payUrl?: string) => {
+    const id = String(orderId || '').trim();
+    const url = String(payUrl || '').trim();
+    if (id && /^https?:\/\//i.test(url)) payUrlCacheRef.current[id] = url;
+  }, []);
+
+  const rememberOrderPayUrls = useCallback((list: RechargeOrder[]) => {
+    for (const order of list) rememberPayUrl(order.order_id, order.pay_url);
+  }, [rememberPayUrl]);
 
   const selectedPlan = useMemo(
     () => plans.find((p) => p.id === selectedId) || null,
@@ -85,8 +101,9 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
 
   const refreshOrders = useCallback(async () => {
     const list = await getRechargeOrders(20);
+    rememberOrderPayUrls(list);
     setOrders(list);
-  }, []);
+  }, [rememberOrderPayUrls]);
 
   const refreshBinding = useCallback(async () => {
     const b = await getRechargeBinding();
@@ -107,6 +124,7 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
       setConfigInfo(cfg);
       setBinding(b);
       setPlans(ps);
+      rememberOrderPayUrls(os);
       setOrders(os);
       if (b.bound && b.website_user_id) setUserIdInput(String(b.website_user_id));
       if (ps.length > 0) setSelectedId((cur) => cur || ps[0].id);
@@ -115,7 +133,7 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [rememberOrderPayUrls]);
 
   useEffect(() => {
     if (!open) {
@@ -198,7 +216,12 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
   };
 
   const applyCheckedResult = useCallback(async (data: RechargeOrderCheckResponse, fromPoll: boolean) => {
-    setResult({ kind: 'checked', data });
+    const cachedPayUrl = data.pay_url || payUrlCacheRef.current[data.order_id] || '';
+    if (cachedPayUrl) rememberPayUrl(data.order_id, cachedPayUrl);
+    setResult({
+      kind: 'checked',
+      data: cachedPayUrl ? { ...data, pay_url: cachedPayUrl } : data,
+    });
     if (data.status === 'success') {
       clearPoll();
       logBus.success(`充值订单完成: ${data.order_id}`, 'recharge');
@@ -212,7 +235,7 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
     } else if (!fromPoll) {
       logBus.warn(`订单尚未付款: ${data.order_id}`, 'recharge');
     }
-  }, [clearPoll, refreshOrders]);
+  }, [clearPoll, refreshOrders, rememberPayUrl]);
 
   const pollOnce = useCallback(async (orderId: string, fromPoll = false) => {
     try {
@@ -229,6 +252,39 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
       void pollOnce(orderId, true);
     }, 3000);
   }, [clearPoll, pollOnce]);
+
+  const openPayUrl = useCallback(async (payUrl?: string) => {
+    const url = String(payUrl || '').trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setNotice('付款链接无效，请重新创建订单');
+      return false;
+    }
+    try {
+      const bridge = (window as T8Window).t8pc;
+      if (bridge?.openExternal) {
+        const r = await bridge.openExternal(url);
+        if (r?.success) return true;
+        throw new Error(r?.message || '打开付款页失败');
+      }
+    } catch (e: any) {
+      console.warn('[recharge] electron openExternal failed:', e?.message || e);
+    }
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (popup) return true;
+    setNotice('付款窗口被系统拦截，请点击“复制付款链接”后粘贴到浏览器打开');
+    return false;
+  }, []);
+
+  const copyPayUrl = useCallback(async (payUrl?: string) => {
+    const url = String(payUrl || '').trim();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      logBus.info('付款链接已复制', 'recharge');
+    } catch {
+      setNotice(`复制失败，请手动复制付款链接：${url}`);
+    }
+  }, []);
 
   const requestCreateOrder = () => {
     if (!binding.bound) {
@@ -254,10 +310,12 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
     setNotice('');
     try {
       const data = await createRechargeOrder(selectedPlan.id, payType);
+      rememberPayUrl(data.order_id, data.pay_url);
       setResult({ kind: 'created', data });
       await refreshOrders();
       startPoll(data.order_id);
       logBus.success(`充值订单已创建: ${data.order_id}`, 'recharge');
+      void openPayUrl(data.pay_url);
     } catch (e: any) {
       setNotice(e?.message || '创建订单失败');
       logBus.error(`创建充值订单失败: ${e?.message || e}`, 'recharge');
@@ -305,6 +363,14 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
 
   const resultData = result?.data;
   const resultStatus = result?.kind === 'created' ? 'pending' : result?.data.status;
+  const resultPayUrl = resultData?.order_id
+    ? String(
+        resultData.pay_url ||
+        payUrlCacheRef.current[resultData.order_id] ||
+        orders.find((order) => order.order_id === resultData.order_id)?.pay_url ||
+        '',
+      )
+    : '';
 
   return (
     <div
@@ -497,16 +563,31 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
                 <div>额度：{(Number(resultData.quota) / QUOTA_PER_POWER).toFixed(2)} CP</div>
               </div>
               <div className="flex flex-wrap gap-2">
-                {result.kind === 'created' && (
-                  <a
-                    href={result.data.pay_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={primaryBtnCls}
-                  >
+                {resultStatus === 'pending' && resultPayUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void openPayUrl(resultPayUrl)}
+                      className={primaryBtnCls}
+                    >
+                      <ExternalLink size={14} />
+                      打开付款页
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copyPayUrl(resultPayUrl)}
+                      className={ghostBtnCls}
+                    >
+                      <Link2 size={14} />
+                      复制付款链接
+                    </button>
+                  </>
+                )}
+                {resultStatus === 'pending' && !resultPayUrl && (
+                  <div className={`flex items-center gap-1 text-xs ${hintCls}`}>
                     <ExternalLink size={14} />
-                    打开付款页
-                  </a>
+                    当前订单缺少付款链接，请重新创建订单或刷新后再试。
+                  </div>
                 )}
                 <button className={ghostBtnCls} onClick={() => void pollOnce(resultData.order_id, false)}>
                   <RefreshCw size={14} />
@@ -544,6 +625,11 @@ export default function RechargeModal({ open, onClose }: RechargeModalProps) {
                       </div>
                     </div>
                     {renderStatus(order.status)}
+                    {order.status === 'pending' && order.pay_url && (
+                      <button className={`${primaryBtnCls} !py-1 !px-2 !text-xs`} onClick={() => void openPayUrl(order.pay_url)}>
+                        付
+                      </button>
+                    )}
                     <button className={`${ghostBtnCls} !py-1 !px-2 !text-xs`} onClick={() => void pollOnce(order.order_id, false)}>
                       查
                     </button>

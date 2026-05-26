@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 import {
   ReactFlow,
   Background,
@@ -25,6 +25,7 @@ import { Play, Copy, CopyPlus, Trash2, FolderPlus } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useCanvasStore } from '../stores/canvas';
 import { useThemeStore } from '../stores/theme';
+import { getTemplateMode, resolveThemeTemplate } from '../theme/defaultTemplates';
 import { useRunBusStore } from '../stores/runBus';
 import { useGroupBusStore, GROUP_COLORS, DEFAULT_GROUP_NAME } from '../stores/groupBus';
 import { topologicalSort } from '../utils/topologicalSort';
@@ -37,11 +38,13 @@ import {
   rectOf,
   type Rect as PlacementRect,
 } from '../utils/nodePlacement';
+import { createUploadDataFromItems, type MediaItem, type MediaKind } from '../utils/mediaCollection';
 import * as api from '../services/api';
 import CanvasToolbar from './CanvasToolbar';
 import TerminalPanel from './TerminalPanel';
 import NodeActionBar from './NodeActionBar';
 import MaterialDragOverlay from './MaterialDragOverlay';
+import ThemeMusicToggle from './ThemeMusicToggle';
 import { useCanvasHistory } from '../hooks/useCanvasHistory';
 import type { CanvasTemplate } from '../config/canvasTemplates';
 import PlaceholderNode from './nodes/PlaceholderNode';
@@ -199,6 +202,7 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   loop: { mode: 'serial', kind: 'image', outputs: [], progress: { done: 0, total: 0, ok: 0, fail: 0 } },
   // 从合集获取: 默认 image + 第 1 个
   'pick-from-set': { pickKind: 'image', pickIndex: 1 },
+  'image-compare': { mode: 'slider', align: 'contain', split: 50, opacity: 50, threshold: 24 },
 };
 
 // 可被“批量运行”调起的节点类型集合
@@ -209,7 +213,7 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
   // v1.2.10.1: rh-tools 与 RunningHub 同质，同样可被批量运行调起
   'rh-tools',
-  'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine',
+  'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine', 'image-compare',
   'frame-extractor', 'frame-pair',
   'upload',
   // v1.2.8 工具节点 (循环器 / 从合集获取)
@@ -246,13 +250,101 @@ const edgeTypes = {
   deletable: DeletableEdge,
 };
 
+export interface AddNodeOptions {
+  atScreen?: { x: number; y: number };
+  data?: Record<string, any>;
+}
+
+export type AddNodeFn = (type: NodeType, options?: AddNodeOptions) => void;
+
+const MEDIA_EXTENSIONS: Record<MediaKind, string[]> = {
+  image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'],
+  video: ['mp4', 'webm', 'mov', 'm4v', 'mkv'],
+  audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'],
+};
+
+function inferCanvasMediaKind(file: File): MediaKind | null {
+  const mime = file.type || '';
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  const ext = (file.name || '').split('.').pop()?.toLowerCase();
+  if (!ext) return null;
+  if (MEDIA_EXTENSIONS.image.includes(ext)) return 'image';
+  if (MEDIA_EXTENSIONS.video.includes(ext)) return 'video';
+  if (MEDIA_EXTENSIONS.audio.includes(ext)) return 'audio';
+  return null;
+}
+
+function fallbackMediaName(file: File, kind: MediaKind, index: number): string {
+  if (file.name) return file.name;
+  const ext = kind === 'image' ? 'png' : kind === 'video' ? 'mp4' : 'wav';
+  return `canvas-${kind}-${Date.now()}-${index + 1}.${ext}`;
+}
+
+async function uploadCanvasMediaFile(file: File, kind: MediaKind, index: number): Promise<MediaItem> {
+  const fileName = fallbackMediaName(file, kind, index);
+  const fd = new FormData();
+  fd.append('file', file, fileName);
+  const res = await fetch('/api/files/upload', { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json.error || `上传失败 HTTP ${res.status}`);
+  }
+  if (!json.success || !json.data?.url) {
+    throw new Error(json.error || '上传失败:未返回 URL');
+  }
+  return {
+    kind,
+    url: json.data.url,
+    name: fileName,
+    size: file.size,
+    mime: file.type,
+  };
+}
+
+function collectCanvasMediaFiles(dataTransfer: DataTransfer | null | undefined): File[] {
+  if (!dataTransfer) return [];
+  const files: File[] = [];
+  const seen = new Set<string>();
+  const push = (file: File | null) => {
+    if (!file || !inferCanvasMediaKind(file)) return;
+    const key = `${file.name}|${file.size}|${file.type}|${file.lastModified}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+  Array.from(dataTransfer.files || []).forEach(push);
+  Array.from(dataTransfer.items || []).forEach((item) => {
+    if (item.kind === 'file') push(item.getAsFile());
+  });
+  return files;
+}
+
+function hasFileTransfer(dataTransfer: DataTransfer | null | undefined): boolean {
+  return Array.from(dataTransfer?.types || []).includes('Files');
+}
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  const tag = el?.tagName?.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || !!el?.isContentEditable;
+}
+
 interface CanvasInnerProps {
-  onAddNodeRef?: React.MutableRefObject<((type: NodeType) => void) | null>;
+  onAddNodeRef?: React.MutableRefObject<AddNodeFn | null>;
 }
 
 function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const { activeId } = useCanvasStore();
-  const { theme, style } = useThemeStore();
+  const { theme, style, templateId, customTemplates } = useThemeStore();
+  const currentTemplate = useMemo(
+    () => resolveThemeTemplate(templateId, customTemplates),
+    [templateId, customTemplates],
+  );
+  const visualStyle = currentTemplate.visuals?.style || style;
+  const isOp = visualStyle === 'op';
+  const themeTokens = getTemplateMode(currentTemplate, theme).tokens;
   const { screenToFlowPosition, setCenter, getViewport } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -265,6 +357,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[]; incomingEdges?: Edge[]; outgoingEdges?: Edge[] } | null>(null);
   const [clipboardCount, setClipboardCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastCanvasPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const internalPasteTimerRef = useRef<number | null>(null);
 
   // 拖线到空白处的候选节点菜单(connection picker)
   const [picker, setPicker] = useState<{
@@ -423,7 +517,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   //   期望落点冲突时按螺线 (右→下→左→上 step=80 maxTries=64) 自动避让,
   //   兜底走最右侧 + 写日志 + setCenter 飞镜。
   const addNode = useCallback(
-    (type: NodeType, atScreen?: { x: number; y: number }) => {
+    (type: NodeType, options?: AddNodeOptions) => {
+      const atScreen = options?.atScreen;
       const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       let cx: number;
       let cy: number;
@@ -455,11 +550,112 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         id,
         type,
         position: { x: finalPos.x, y: finalPos.y },
-        data: { ...(INITIAL_DATA[type] || {}) },
+        data: { ...(INITIAL_DATA[type] || {}), ...(options?.data || {}) },
       };
       setNodes((prev) => [...prev, newNode]);
     },
     [screenToFlowPosition, nodes, getViewport, setCenter]
+  );
+
+  const createUploadNodesFromFiles = useCallback(
+    async (rawFiles: File[], atScreen?: { x: number; y: number }) => {
+      const buckets: Record<MediaKind, File[]> = { image: [], video: [], audio: [] };
+      let skipped = 0;
+      rawFiles.forEach((file) => {
+        const kind = inferCanvasMediaKind(file);
+        if (!kind) {
+          skipped += 1;
+          return;
+        }
+        buckets[kind].push(file);
+      });
+
+      const kinds = (['image', 'video', 'audio'] as MediaKind[]).filter((kind) => buckets[kind].length > 0);
+      if (kinds.length === 0) return false;
+
+      const payloads: Array<{ kind: MediaKind; items: MediaItem[] }> = [];
+      const failures: string[] = [];
+      for (const kind of kinds) {
+        const items: MediaItem[] = [];
+        for (let i = 0; i < buckets[kind].length; i += 1) {
+          const file = buckets[kind][i];
+          try {
+            items.push(await uploadCanvasMediaFile(file, kind, i));
+          } catch (err: any) {
+            failures.push(`${file.name || kind}: ${err?.message || '上传失败'}`);
+          }
+        }
+        if (items.length > 0) payloads.push({ kind, items });
+      }
+
+      if (payloads.length === 0) {
+        if (failures.length > 0) alert(`素材导入失败:\n${failures.slice(0, 5).join('\n')}`);
+        return true;
+      }
+
+      const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
+      const rect = flowEl?.getBoundingClientRect();
+      const screenPoint =
+        atScreen ||
+        lastCanvasPointerRef.current ||
+        (rect
+          ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+          : { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      const base = screenToFlowPosition(screenPoint);
+      const size = defaultSizeOf('upload');
+      const desired = payloads.map((_, index) => ({
+        x: base.x - size.w / 2 + (index % 3) * 300,
+        y: base.y - size.h / 2 + Math.floor(index / 3) * 300,
+        w: size.w,
+        h: size.h,
+      }));
+      const offset = placeBatchNodes(desired, nodesRef.current, {
+        source: 'placement:canvas-media-upload',
+      });
+      const stamp = Date.now();
+      const newNodes = payloads.map((payload, index) => ({
+        id: `upload-canvas-${payload.kind}-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        type: 'upload',
+        position: {
+          x: desired[index].x + offset.dx,
+          y: desired[index].y + offset.dy,
+        },
+        selected: true,
+        data: createUploadDataFromItems(payload.kind, payload.items),
+      })) as Node[];
+
+      setNodes((prev) => [...prev.map((n) => ({ ...n, selected: false })), ...newNodes]);
+      if (skipped > 0) {
+        console.warn(`画布导入素材时跳过 ${skipped} 个不支持的文件`);
+      }
+      if (failures.length > 0) {
+        alert(`部分素材上传失败:\n${failures.slice(0, 5).join('\n')}`);
+      }
+      return true;
+    },
+    [screenToFlowPosition]
+  );
+
+  const handleCanvasPointerMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    lastCanvasPointerRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const onCanvasFileDragOver = useCallback((e: ReactDragEvent) => {
+    if (!hasFileTransfer(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const onCanvasFileDrop = useCallback(
+    (e: ReactDragEvent) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const files = collectCanvasMediaFiles(e.dataTransfer);
+      if (files.length === 0) return;
+      void createUploadNodesFromFiles(files, { x: e.clientX, y: e.clientY });
+    },
+    [createUploadNodesFromFiles]
   );
 
   // ===== 复制 / 粘贴 / 删除 =====
@@ -1087,6 +1283,23 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const closePaneMenu = useCallback(() => setPaneMenu(null), []);
 
+  const openNodeContextMenuAt = useCallback(
+    (clientX: number, clientY: number, nodeId: string) => {
+      const currentNodes = nodesRef.current;
+      let ids: string[];
+      const currentSelected = currentNodes.filter((n) => n.selected).map((n) => n.id);
+      if (currentSelected.includes(nodeId) && currentSelected.length > 1) {
+        ids = currentSelected;
+      } else {
+        setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === nodeId })));
+        ids = [nodeId];
+      }
+      setPaneMenu(null);
+      setContextMenu({ x: clientX, y: clientY, ids });
+    },
+    []
+  );
+
   // 选区右键(框选 ≥ 1 个节点后右键)
   const onSelectionContextMenu = useCallback(
     (e: React.MouseEvent, sels: Node[]) => {
@@ -1102,17 +1315,28 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const onNodeContextMenu = useCallback(
     (e: React.MouseEvent, node: Node) => {
       e.preventDefault();
-      let ids: string[];
-      const currentSelected = nodes.filter((n) => n.selected).map((n) => n.id);
-      if (currentSelected.includes(node.id) && currentSelected.length > 1) {
-        ids = currentSelected;
-      } else {
-        setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === node.id })));
-        ids = [node.id];
-      }
-      setContextMenu({ x: e.clientX, y: e.clientY, ids });
+      openNodeContextMenuAt(e.clientX, e.clientY, node.id);
     },
-    [nodes]
+    [openNodeContextMenuAt]
+  );
+
+  // ReactFlow 的 onNodeContextMenu 在 input/select/button 等 nodrag 控件上可能不会触发。
+  // 用画布根节点捕获阶段兜底：只要右键落在节点内且不是素材预览，就打开原节点菜单。
+  const onCanvasContextMenuCapture = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (!target) return;
+      if (target.closest('[data-resource-context-menu]')) return;
+      if (target.closest('[data-drag-source]')) return;
+      const nodeEl = target.closest('.react-flow__node') as HTMLElement | null;
+      const nodeId = nodeEl?.getAttribute('data-id') || '';
+      if (!nodeId || nodeId === BULK_PHANTOM_ID) return;
+      if (!nodesRef.current.some((n) => n.id === nodeId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openNodeContextMenuAt(e.clientX, e.clientY, nodeId);
+    },
+    [openNodeContextMenuAt]
   );
 
   // 空白处右键: 弹出快速添加节点菜单(同时关闭选区菜单)
@@ -2362,6 +2586,24 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     }
   }, [nodes, edges, loaded]);
 
+  // ===== 外部素材粘贴: Ctrl+V 图像/视频/音频直接生成上传素材节点 =====
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (!activeId || isTextEditingTarget(e.target)) return;
+      const files = collectCanvasMediaFiles(e.clipboardData);
+      if (files.length === 0) return;
+      if (internalPasteTimerRef.current) {
+        window.clearTimeout(internalPasteTimerRef.current);
+        internalPasteTimerRef.current = null;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      void createUploadNodesFromFiles(files);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [activeId, createUploadNodesFromFiles]);
+
   // ===== 全局快捷键 =====
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2393,7 +2635,11 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         e.preventDefault();
         handlePaste(true);
       } else if (ctrl && e.key.toLowerCase() === 'v') {
-        handlePaste(false);
+        if (internalPasteTimerRef.current) window.clearTimeout(internalPasteTimerRef.current);
+        internalPasteTimerRef.current = window.setTimeout(() => {
+          internalPasteTimerRef.current = null;
+          handlePaste(false);
+        }, 0);
       } else if (ctrl && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         handleDuplicate();
@@ -2417,7 +2663,13 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (internalPasteTimerRef.current) {
+        window.clearTimeout(internalPasteTimerRef.current);
+        internalPasteTimerRef.current = null;
+      }
+    };
   }, [histUndo, histRedo, handleCopy, handlePaste, handleDuplicate, handleDeleteSelected, handleCreateGroup, nodes, selectedCount]);
 
   // 全局滚轮拦截 —— 自动给所有节点内的 input / textarea / select / contenteditable
@@ -2430,15 +2682,11 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   }, []);
 
   const isDark = theme === 'dark';
-    const isPixel = style === 'pixel';
-    const guideColor = isPixel ? '#FF89A7' : '#fb923c';
-    const edgeStroke = isPixel ? '#1A1410' : isDark ? '#71717a' : '#a1a1aa';
-    const dotColor = isPixel
-      ? isDark ? '#5C4D3E' : '#C8B89A'
-      : isDark ? '#27272a' : '#d4d4d8';
-  const bgColor = isPixel
-    ? isDark ? '#1F1A14' : '#FAF3E7'
-    : isDark ? '#0a0a0b' : '#fafafa';
+  const isPixel = style === 'pixel';
+  const guideColor = themeTokens.edgeSelected;
+  const edgeStroke = themeTokens.edge;
+  const dotColor = themeTokens.gridDot;
+  const bgColor = themeTokens.canvasBg;
 
   const memoNodeTypes = useMemo(() => nodeTypes, []);
   const memoEdgeTypes = useMemo(() => edgeTypes, []);
@@ -2463,8 +2711,9 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   if (!activeId) {
     return (
       <div
-        className="flex-1 flex items-center justify-center"
-        style={{ background: bgColor, color: isDark ? '#71717a' : '#52525b' }}
+        className="t8-canvas-shell flex-1 flex items-center justify-center"
+        data-theme-visual={visualStyle}
+        style={{ background: bgColor, color: themeTokens.textMuted }}
       >
         <div className="text-center">
           <div className="text-2xl mb-2 font-bold tracking-wide">🐧 贞贞的无限画布（企鹅共创版）</div>
@@ -2475,7 +2724,13 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   }
 
   return (
-    <div className="flex-1 relative" style={{ background: bgColor }}>
+    <div
+      className="t8-canvas-shell flex-1 relative"
+      data-theme-visual={visualStyle}
+      style={{ background: bgColor }}
+      onContextMenuCapture={onCanvasContextMenuCapture}
+      onMouseMove={handleCanvasPointerMove}
+    >
       <CanvasToolbar
         canUndo={canUndo}
         canRedo={canRedo}
@@ -2522,6 +2777,8 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         onSelectionContextMenu={onSelectionContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
+        onDragOver={onCanvasFileDragOver}
+        onDrop={onCanvasFileDrop}
         onSelectionChange={onSelectionChange}
         onSelectionEnd={onSelectionEnd}
         selectionKeyCode={memoSelectionKeyCode}
@@ -2584,11 +2841,19 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             </svg>
           </ViewportPortal>
         )}
+        <ThemeMusicToggle template={currentTemplate} />
         <Controls
           style={{
-            background: isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-            borderRadius: 8,
+            background: isOp
+              ? themeTokens.panelBg
+              : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
+            border: isOp
+              ? `3px solid ${themeTokens.textMain}`
+              : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
+            borderRadius: isOp ? '16px 16px 8px 8px' : 8,
+            left: isOp ? 18 : undefined,
+            bottom: isOp ? 34 : undefined,
+            boxShadow: isOp ? `4px 4px 0 ${themeTokens.textMain}` : undefined,
           }}
         />
         <MiniMap
@@ -2600,13 +2865,25 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             setCenter(position.x, position.y, { zoom, duration: 400 });
           }}
           style={{
-            background: isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-            borderRadius: 8,
+            width: isOp ? 144 : undefined,
+            height: isOp ? 144 : undefined,
+            background: isOp
+              ? themeTokens.panelBg
+              : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
+            border: isOp
+              ? `4px double ${themeTokens.textMain}`
+              : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
+            borderRadius: isOp ? 999 : 8,
+            right: isOp ? 24 : undefined,
+            bottom: isOp ? 42 : undefined,
+            boxShadow: isOp
+              ? `0 0 0 7px ${themeTokens.warning}, 5px 5px 0 ${themeTokens.textMain}`
+              : undefined,
             cursor: 'pointer',
+            overflow: isOp ? 'hidden' : undefined,
           }}
-          maskColor={isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
-          nodeColor={() => (isDark ? '#a1a1aa' : '#52525b')}
+          maskColor={isOp ? 'rgba(15,124,140,.28)' : isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
+          nodeColor={() => (isOp ? themeTokens.secondary : isDark ? '#a1a1aa' : '#52525b')}
         />
         {/* 选中可执行节点时的浮动操作栏 (执行 / 中止 / 关闭) */}
         <NodeActionBar />
@@ -2620,6 +2897,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         <>
           {/* 遮罩层:点击空白关闭 (fixed 覆盖整个视口,确保点击空白区域可关闭) */}
           <div
+            data-canvas-floating-ui="picker-backdrop"
             className="fixed inset-0 z-30"
             onClick={() => setPicker(null)}
             onContextMenu={(e) => {
@@ -2628,6 +2906,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             }}
           />
           <div
+            data-canvas-floating-ui="picker-menu"
             className="fixed z-40 rounded-xl overflow-hidden"
             style={{
               // 使用 fixed + clientX/clientY (视口坐标) 让菜单精确跟随鼠标释放位置
@@ -2761,6 +3040,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           <>
             {/* 遮罩层 */}
             <div
+              data-canvas-floating-ui="node-menu-backdrop"
               className="fixed inset-0 z-30"
               onClick={closeContextMenu}
               onContextMenu={(e) => {
@@ -2769,6 +3049,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
               }}
             />
             <div
+              data-canvas-floating-ui="node-menu"
               className="fixed z-40 overflow-hidden"
               style={{
                 left: Math.min(contextMenu.x, window.innerWidth - 220),
@@ -2884,6 +3165,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           <>
             {/* 遮罩层 */}
             <div
+              data-canvas-floating-ui="pane-menu-backdrop"
               className="fixed inset-0 z-30"
               onClick={closePaneMenu}
               onContextMenu={(e) => {
@@ -2892,6 +3174,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
               }}
             />
             <div
+              data-canvas-floating-ui="pane-menu"
               className="fixed z-40 overflow-hidden"
               style={{
                 left: Math.min(paneMenu.x, window.innerWidth - 220),
@@ -2930,7 +3213,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
                     onClick={() => {
                       const at = { x: paneMenu.x, y: paneMenu.y };
                       closePaneMenu();
-                      addNode(meta.type as NodeType, at);
+                      addNode(meta.type as NodeType, { atScreen: at });
                     }}
                   >
                     <span
@@ -2959,7 +3242,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
 }
 
 interface CanvasProps {
-  onAddNodeRef?: React.MutableRefObject<((type: NodeType) => void) | null>;
+  onAddNodeRef?: React.MutableRefObject<AddNodeFn | null>;
 }
 
 export default function Canvas(props: CanvasProps) {

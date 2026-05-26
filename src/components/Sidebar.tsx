@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as Icons from 'lucide-react';
 import {
   Check,
@@ -13,10 +13,13 @@ import {
   X,
 } from 'lucide-react';
 import { NODE_GROUPS } from '../config/nodeRegistry';
+
+// vite.config.ts 中通过 define 注入的编译期常量（与 package.json version 同步）
+declare const __APP_VERSION__: string;
 import type { NodeMeta, NodeType } from '../types/canvas';
 import { useThemeStore } from '../stores/theme';
 import { useCanvasStore } from '../stores/canvas';
-
+import { resolveThemeTemplate } from '../theme/defaultTemplates';
 const COLOR_HEX: Record<string, string> = {
   sky: '#7dd3fc',
   amber: '#fcd34d',
@@ -32,12 +35,42 @@ const COLOR_HEX: Record<string, string> = {
   slate: '#cbd5e1',
 };
 
+const OP_ICON_BY_TYPE: Record<string, string> = {
+  upload: 'Anchor',
+  output: 'Gem',
+  text: 'ScrollText',
+  image: 'Map',
+  video: 'Telescope',
+  seedance: 'Film',
+  audio: 'Music2',
+  llm: 'Compass',
+  runninghub: 'Waypoints',
+  'runninghub-wallet': 'WalletCards',
+  'rh-tools': 'ShipWheel',
+  'frame-pair': 'Telescope',
+  loop: 'Repeat',
+  'pick-from-set': 'Map',
+  resize: 'Maximize2',
+  combine: 'Boxes',
+  'grid-crop': 'Grid3x3',
+  idea: 'Lightbulb',
+  bp: 'Map',
+  relay: 'ArrowRightLeft',
+  cinematic: 'Clapperboard',
+  'video-motion': 'Sailboat',
+};
+
 interface SidebarProps {
   onAddNode: (type: NodeType) => void;
 }
 
 export default function Sidebar({ onAddNode }: SidebarProps) {
-  const { theme, style } = useThemeStore();
+  const { theme, style, templateId, customTemplates } = useThemeStore();
+  const currentTemplate = useMemo(
+    () => resolveThemeTemplate(templateId, customTemplates),
+    [templateId, customTemplates],
+  );
+  const visualStyle = currentTemplate.visuals?.style || style;
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -88,14 +121,15 @@ export default function Sidebar({ onAddNode }: SidebarProps) {
   const toggle = (key: string) => setCollapsed((s) => ({ ...s, [key]: !s[key] }));
 
   const renderNode = (n: NodeMeta) => {
-    const Icon = (Icons as any)[n.icon] || Icons.Box;
+    const themedIcon = visualStyle === 'op' ? OP_ICON_BY_TYPE[n.type] || n.icon : n.icon;
+    const Icon = (Icons as any)[themedIcon] || Icons.Box;
     const colorHex = COLOR_HEX[n.color] || COLOR_HEX.slate;
     return (
       <button
         key={n.type}
         onClick={() => onAddNode(n.type)}
         title={n.description}
-        className={`w-full text-left flex items-center gap-2 px-2 py-1.5 transition-colors text-xs ${
+        className={`t8-sidebar-node w-full text-left flex items-center gap-2 px-2 py-1.5 transition-colors text-xs ${
           isPixel
             ? 'px-row'
             : `rounded-md ${
@@ -144,7 +178,7 @@ export default function Sidebar({ onAddNode }: SidebarProps) {
 
   return (
     <div
-      className={`w-64 flex flex-col border-r overflow-hidden ${
+      className={`t8-sidebar w-64 flex flex-col border-r overflow-hidden ${
         isPixel
           ? 'px-panel'
           : isDark
@@ -408,9 +442,9 @@ export default function Sidebar({ onAddNode }: SidebarProps) {
         }`}
       >
         {isPixel ? (
-          <span className="px-chip px-chip--muted">T8 · v1.0.1</span>
+          <span className="px-chip px-chip--muted">T8 · v{__APP_VERSION__}</span>
         ) : (
-          <>T8-penguin-canvas · v1.0.1</>
+          <>T8-penguin-canvas · v{__APP_VERSION__}</>
         )}
       </div>
     </div>

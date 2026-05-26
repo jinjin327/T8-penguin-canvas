@@ -16,6 +16,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const UNPACKED = path.join(ROOT, 'dist_electron', 'win-unpacked');
 const RES = path.join(UNPACKED, 'resources');
+let missingCount = 0;
 
 function ok(p) {
   console.log('  ✅', path.relative(UNPACKED, p));
@@ -26,7 +27,26 @@ function bad(p) {
 
 function checkFile(p) {
   if (fs.existsSync(p)) ok(p);
-  else bad(p);
+  else {
+    missingCount += 1;
+    bad(p);
+  }
+}
+
+function checkFrontendAsset(prefix, ext) {
+  const assetsDir = path.join(RES, 'frontend', 'assets');
+  const label = path.join(assetsDir, `${prefix}*${ext}`);
+  if (!fs.existsSync(assetsDir)) {
+    missingCount += 1;
+    bad(label);
+    return;
+  }
+  const found = fs.readdirSync(assetsDir).find((name) => name.startsWith(prefix) && name.endsWith(ext));
+  if (found) ok(path.join(assetsDir, found));
+  else {
+    missingCount += 1;
+    bad(label);
+  }
 }
 
 function listDir(p, indent = '    ') {
@@ -165,10 +185,16 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'routes', 'files.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'imageOps.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'recharge.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'routes', 'resources.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'routes', 'themes.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'utils', 'duckPayload.t8c'));
 
   console.log('\n[2] 前端 dist:');
   checkFile(path.join(RES, 'frontend', 'index.html'));
   checkFile(path.join(RES, 'frontend', 'assets'));
+  checkFrontendAsset('classic-one-summer-day-', '.mp3');
+  checkFrontendAsset('pixel-theme-of-sss-', '.mp3');
+  checkFrontendAsset('op-battle-scars-', '.mp3');
 
   console.log('\n[3] 清除可能混入的明文后端源码:');
   nukePlainBackend();
@@ -178,6 +204,11 @@ function main() {
 
   console.log('\n[5] resources/ 完整结构:');
   listDir(RES);
+
+  if (missingCount > 0) {
+    console.error(`\n[post-build] FAILED: ${missingCount} required files are missing`);
+    process.exit(1);
+  }
 
   console.log('\n[post-build] DONE ✅');
 }

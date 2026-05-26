@@ -108,27 +108,16 @@ function saveStore(store) {
 }
 
 function getPlans() {
-  const testPlan = {
-    id: 'test_1cny',
-    power: 1,
-    price: 1.0,
-    quota: QUOTA_PER_POWER,
-    name: '测试1CP-1.00CNY',
-    test: true,
-  };
-  return [
-    testPlan,
-    ...POWER_TIERS.map((power) => {
-      const price = Number((power * 1.35).toFixed(2));
-      return {
-        id: `cp_${power}`,
-        power,
-        price,
-        quota: power * QUOTA_PER_POWER,
-        name: `${power}CP-${price.toFixed(2)}CNY`,
-      };
-    }),
-  ];
+  return POWER_TIERS.map((power) => {
+    const price = Number((power * 1.35).toFixed(2));
+    return {
+      id: `cp_${power}`,
+      power,
+      price,
+      quota: power * QUOTA_PER_POWER,
+      name: `${power}CP-${price.toFixed(2)}CNY`,
+    };
+  });
 }
 
 function genOrderId() {
@@ -225,7 +214,7 @@ async function retryPublicOrder(order) {
 }
 
 function orderPublic(order, extra = {}) {
-  return {
+  const payload = {
     success: true,
     status: order.status,
     order_id: order.order_id,
@@ -236,10 +225,15 @@ function orderPublic(order, extra = {}) {
     pay_time: order.pay_time || '',
     transfer_message: extra.transfer_message || order.transfer_message || '',
   };
+  const payUrl = String(extra.pay_url || order.pay_url || '').trim();
+  if (payUrl && order.status === 'pending') {
+    payload.pay_url = payUrl;
+  }
+  return payload;
 }
 
 function orderSummary(order) {
-  return {
+  const payload = {
     order_id: order.order_id,
     website_user_id: order.website_user_id,
     plan_id: order.plan_id,
@@ -253,6 +247,10 @@ function orderSummary(order) {
     pay_time: order.pay_time || '',
     transfer_message: order.transfer_message || '',
   };
+  if (order.status === 'pending' && order.pay_url) {
+    payload.pay_url = order.pay_url;
+  }
+  return payload;
 }
 
 function asyncRoute(fn) {
@@ -326,6 +324,7 @@ apiRouter.post('/order/create', asyncRoute(async (req, res) => {
     pay_type: payType,
     status: 'pending',
     trade_no: '',
+    pay_url: '',
     create_time: nowText(),
     pay_time: '',
     transfer_message: '',
@@ -341,6 +340,7 @@ apiRouter.post('/order/create', asyncRoute(async (req, res) => {
   order.power = Number(created.power || plan.power);
   order.amount = Number(created.amount || plan.price);
   order.quota = Number(created.quota || plan.quota);
+  order.pay_url = String(created.pay_url || '');
 
   store.orders.unshift(order);
   saveStore(store);
@@ -384,8 +384,9 @@ apiRouter.get('/order/:orderId/check', asyncRoute(async (req, res) => {
   order.status = query.status || order.status;
   order.pay_time = query.pay_time || order.pay_time || '';
   order.transfer_message = query.transfer_message || '';
+  if (query.pay_url) order.pay_url = String(query.pay_url);
   saveStore(store);
-  res.json(orderPublic(order));
+  res.json(orderPublic(order, { pay_url: query.pay_url || '' }));
 }));
 
 apiRouter.post('/order/:orderId/retry', asyncRoute(async (req, res) => {

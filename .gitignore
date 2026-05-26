@@ -34,6 +34,9 @@ _*.log
 # Local project operating manual (do not publish)
 /skill.md
 
+# Local reference copy of external SS_tools project (do not publish binaries/assets)
+/SS_tools/
+
 # Dependencies
 node_modules
 .pnp

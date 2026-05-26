@@ -10,11 +10,49 @@ const path = require('path');
 const multer = require('multer');
 const config = require('../config');
 const { getWhitePng } = require('../utils/whitePng');
+const { tryDecodeDuckPayload } = require('../utils/duckPayload');
 
 const router = express.Router();
 
 // 音频文件上传中间件(内存存储, 50MB)
 const audioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+function safeOutputExt(ext, fallback = 'png') {
+  const s = String(ext || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\./, '')
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 12);
+  return s || fallback;
+}
+
+function extFromContentType(contentType) {
+  const ct = String(contentType || '').toLowerCase().split(';')[0].trim();
+  const map = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/bmp': 'bmp',
+    'image/avif': 'avif',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/flac': 'flac',
+  };
+  return map[ct] || '';
+}
+
+function inferRemoteOutputExt(url, contentType) {
+  const tail = String(url || '').split(/[?#]/)[0];
+  const m = tail.match(/\.([a-z0-9]{2,8})$/i);
+  return safeOutputExt(m ? m[1] : extFromContentType(contentType), 'png');
+}
 
 // ========== 工具:加载 Settings 明文 ==========
 function loadRawSettings() {
@@ -1971,11 +2009,22 @@ router.get('/runninghub/query', async (req, res) => {
         try {
           const fr = await fetch(remote);
           if (fr.ok) {
-            const buf = Buffer.from(await fr.arrayBuffer());
-            // 扩展名识别：优先从 url 尾部取，避免 url 中间出现 .png 造成误判
-            const tail = remote.split(/[?#]/)[0];
-            const m = tail.match(/\.(png|jpe?g|webp|gif|bmp|mp4|webm|mov|m4v|mkv|mp3|wav|ogg|m4a|flac)$/i);
-            const ext = (m ? m[1] : 'png').toLowerCase();
+            let buf = Buffer.from(await fr.arrayBuffer());
+            let ext = inferRemoteOutputExt(remote, fr.headers.get('content-type'));
+            const duck = await tryDecodeDuckPayload(buf);
+            if (duck?.decoded && duck.buffer) {
+              buf = duck.buffer;
+              ext = safeOutputExt(duck.ext, ext);
+              console.log(
+                '[RH/query][duck] decoded',
+                `bits=${duck.lsbBits}`,
+                `${duck.originalExt} -> ${ext}`,
+                `kind=${duck.kind}`,
+                `bytes=${buf.length}`,
+              );
+            } else if (duck?.passwordProtected) {
+              console.log('[RH/query][duck] password protected payload detected, keep original duck image');
+            }
             const filename = `rh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
             fs.writeFileSync(path.join(config.OUTPUT_DIR, filename), buf);
             urls.push(`/files/output/${filename}`);
