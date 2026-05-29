@@ -55,8 +55,9 @@ export async function getCanvasData(id: string): Promise<CanvasData> {
   return res.data;
 }
 
-export async function saveCanvasData(id: string, data: CanvasData): Promise<void> {
-  await request(`${BASE}/canvas/${id}`, {
+export async function saveCanvasData(id: string, data: CanvasData, options?: { allowEmpty?: boolean }): Promise<void> {
+  const query = options?.allowEmpty ? '?allowEmpty=1' : '';
+  await request(`${BASE}/canvas/${id}${query}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
@@ -425,6 +426,35 @@ export function updateResourceItem(id: string, patch: Partial<Pick<ResourceItem,
 export function deleteResourceItem(id: string) {
   return safeRequest<void>(`${BASE}/resources/items/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+  });
+}
+
+// ========== Eagle 本地库 ==========
+export interface EagleImportMaterial {
+  id?: string;
+  kind: ResourceMaterialSetKind;
+  url?: string;
+  text?: string;
+  name?: string;
+  tags?: string[];
+}
+
+export interface EagleImportResult {
+  base: string;
+  imported: Array<{ kind: string; name: string; result?: any }>;
+  skipped: Array<{ kind: string; name: string; reason: string }>;
+  failures: Array<{ kind: string; name: string; error: string }>;
+}
+
+export function sendToEagle(payload: {
+  materials: EagleImportMaterial[];
+  tags?: string[];
+  folderId?: string;
+  eagleApiBase?: string;
+}) {
+  return safeRequest<EagleImportResult>(`${BASE}/eagle/import`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

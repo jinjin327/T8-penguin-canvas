@@ -21,7 +21,7 @@ import {
   type EdgeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Play, Copy, CopyPlus, Trash2, FolderPlus, PackagePlus, Library, Download } from 'lucide-react';
+import { Play, Copy, CopyPlus, Trash2, FolderPlus, PackagePlus, Library, Download, Send as SendIcon } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useCanvasStore } from '../stores/canvas';
 import { useThemeStore } from '../stores/theme';
@@ -38,7 +38,19 @@ import {
   rectOf,
   type Rect as PlacementRect,
 } from '../utils/nodePlacement';
-import { createUploadDataFromItems, fileNameFromUrl, getMediaItemsFromData, type MediaItem, type MediaKind } from '../utils/mediaCollection';
+import { createOutputDataFromItems, createUploadDataFromItems, fileNameFromUrl, getMediaItemsFromData, type MediaItem, type MediaKind } from '../utils/mediaCollection';
+import { markCanvasNodesDeleted } from '../utils/deletedNodeRegistry';
+import {
+  bucketSendableMaterials,
+  collectSendableMaterialsFromNode,
+  collectSendableMaterialsFromNodes,
+  sendableMaterialKey,
+  sendableMaterialSignature,
+  sendableToMediaItem,
+  summarizeSendableMaterials,
+  type SendTargetMode,
+  type SendableMaterial,
+} from '../utils/sendMaterials';
 import {
   collectMaterialSetBucketsFromData,
   isMaterialSetKind,
@@ -55,6 +67,7 @@ import TerminalPanel from './TerminalPanel';
 import NodeActionBar from './NodeActionBar';
 import MaterialDragOverlay from './MaterialDragOverlay';
 import ThemeMusicToggle from './ThemeMusicToggle';
+import SendMaterialsModal from './SendMaterialsModal';
 import { useCanvasHistory } from '../hooks/useCanvasHistory';
 import type { CanvasTemplate } from '../config/canvasTemplates';
 import PlaceholderNode from './nodes/PlaceholderNode';
@@ -74,6 +87,7 @@ import CombineNode from './nodes/CombineNode';
 import RemoveBgNode from './nodes/RemoveBgNode';
 import ImageCompareNode from './nodes/ImageCompareNode';
 import ToolboxParamNode from './nodes/ToolboxParamNode';
+import PortraitMasterNode from './nodes/PortraitMasterNode';
 import IdeaNode from './nodes/IdeaNode';
 import BpNode from './nodes/BpNode';
 import RelayNode from './nodes/RelayNode';
@@ -148,10 +162,11 @@ const SPECIFIC_NODES: Record<string, any> = {
   bp: BpNode,
   relay: RelayNode,
   'video-output': VideoOutputNode,
-  // Toolbox (3)
+  // Toolbox (4)
   cinematic: ToolboxParamNode,
   'video-motion': ToolboxParamNode,
   'multi-angle-visual': ToolboxParamNode,
+  'portrait-master': PortraitMasterNode,
   // Input (1) - 上传素材
   upload: UploadNode,
   // Output (1) - 输出素材(文本/图像/视频/音频 预览 + 文本双击编辑)
@@ -178,6 +193,14 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   },
   cinematic: { kind: 'cinematic', cinematicLanguage: 'en', cinematicStrength: 'balanced' },
   'video-motion': { kind: 'video-motion', motionLanguage: 'en' },
+  'portrait-master': {
+    portraitLanguage: 'en',
+    portraitSelection: {},
+    portraitLocks: {},
+    portraitWeights: {},
+    portraitCustomText: '',
+    prompt: '',
+  },
   'text-split': {
     sourceText: '',
     splitMode: 'line',
@@ -269,12 +292,270 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   // v1.2.8 工具节点 (循环器 / 从合集获取)
   'loop', 'pick-from-set',
   // v1.4.8: 工具箱文本节点也可点击 RUN 直接外挂 OutputNode
-  'cinematic', 'video-motion', 'multi-angle-visual',
+  'cinematic', 'video-motion', 'multi-angle-visual', 'portrait-master',
 ]);
 
 // 网格吸附步长 / 对齐阈值(世界坐标)
 const SNAP_GRID: [number, number] = [20, 20];
 const ALIGN_THRESHOLD = 6;
+
+interface SendNodeSpec {
+  type: NodeType;
+  data: Record<string, any>;
+}
+
+function mediaItemsFromSendables(items: SendableMaterial[], kind: MediaKind): MediaItem[] {
+  return items
+    .map(sendableToMediaItem)
+    .filter((item): item is MediaItem => !!item && item.kind === kind);
+}
+
+function cloneRecord(value: unknown): Record<string, any> {
+  if (!value || typeof value !== 'object') return {};
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return { ...(value as Record<string, any>) };
+  }
+}
+
+function portraitMasterDataFromSource(data: unknown): Record<string, any> | null {
+  const cloned = cloneRecord(data);
+  const hasConfig = cloned.portraitMetadata || cloned.portraitSelection || cloned.portraitSummary || cloned.portraitStats;
+  if (!hasConfig) return null;
+  [
+    'status',
+    'error',
+    'taskId',
+    'progress',
+    'isRunning',
+    'isPolling',
+    'pollingTimer',
+    'sentFromMaterialBridge',
+    'sendBridgeSignature',
+    'sendBridgeMode',
+    'sendBridgeSourceCanvasId',
+    'sendBridgeSourceNodeIds',
+    'sendBridgeCreatedAt',
+  ].forEach((key) => {
+    delete cloned[key];
+  });
+  const promptText = String(cloned.prompt || cloned.outputText || cloned.text || '').trim();
+  cloned.prompt = promptText;
+  cloned.text = promptText;
+  cloned.outputText = promptText;
+  return cloned;
+}
+
+function buildSendNodeSpecs(materials: SendableMaterial[], mode: SendTargetMode): SendNodeSpec[] {
+  const buckets = bucketSendableMaterials(materials);
+  const specs: SendNodeSpec[] = [];
+  const textValues = buckets.text.map((item) => (item.text || '').trim()).filter(Boolean);
+  const mediaKinds: MediaKind[] = ['image', 'video', 'audio'];
+
+  if (mode === 'portrait-master') {
+    const seen = new Set<string>();
+    for (const item of materials) {
+      if (item.sourceType !== 'portrait-master' || !item.sourceNodeData) continue;
+      const key = item.sourceNodeId || JSON.stringify(item.sourceNodeData.portraitMetadata || item.sourceNodeData.portraitSelection || {});
+      if (seen.has(key)) continue;
+      const data = portraitMasterDataFromSource(item.sourceNodeData);
+      if (!data) continue;
+      seen.add(key);
+      specs.push({ type: 'portrait-master', data });
+    }
+    return specs;
+  }
+
+  if (mode === 'material-set') {
+    for (const kind of ['image', 'video', 'audio', 'text'] as MaterialSetKind[]) {
+      if (buckets[kind].length === 0) continue;
+      specs.push({
+        type: 'material-set',
+        data: materialSetItemsToData(kind, buckets[kind]),
+      });
+    }
+    return specs;
+  }
+
+  if (mode === 'output') {
+    for (const kind of mediaKinds) {
+      const items = mediaItemsFromSendables(buckets[kind], kind);
+      if (items.length === 0) continue;
+      specs.push({
+        type: 'output',
+        data: {
+          ...createOutputDataFromItems(kind, items),
+          sendSource: 'cross-canvas',
+        },
+      });
+    }
+    if (textValues.length > 0) {
+      specs.push({
+        type: 'output',
+        data: {
+          directOutputText: textValues.join('\n\n'),
+          directTextSegments: textValues,
+          textSegments: textValues,
+          sendSource: 'cross-canvas',
+        },
+      });
+    }
+    return specs;
+  }
+
+  if (mode === 'split-upload') {
+    for (const kind of mediaKinds) {
+      const items = mediaItemsFromSendables(buckets[kind], kind);
+      for (const item of items) {
+        specs.push({
+          type: 'upload',
+          data: createUploadDataFromItems(kind, [item]),
+        });
+      }
+    }
+    textValues.forEach((text) => {
+      specs.push({ type: 'text', data: { prompt: text, text } });
+    });
+    return specs;
+  }
+
+  for (const kind of mediaKinds) {
+    const items = mediaItemsFromSendables(buckets[kind], kind);
+    if (items.length === 0) continue;
+    specs.push({
+      type: 'upload',
+      data: createUploadDataFromItems(kind, items),
+    });
+  }
+  textValues.forEach((text) => {
+    specs.push({ type: 'text', data: { prompt: text, text } });
+  });
+  return specs;
+}
+
+function basePositionForAppend(existingNodes: Node[]): { x: number; y: number } {
+  const normalNodes = existingNodes.filter((node) => node.id !== BULK_PHANTOM_ID);
+  if (normalNodes.length === 0) return { x: 80, y: 80 };
+  const rects = normalNodes.map((node) => rectOf(node));
+  const maxRight = Math.max(...rects.map((rect) => rect.x + rect.w));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  return { x: maxRight + 120, y: minY };
+}
+
+function materialNodesFromSpecs(
+  specs: SendNodeSpec[],
+  existingNodes: Node[],
+  base: { x: number; y: number },
+  bridge?: { signature: string; mode: SendTargetMode; sourceCanvasId?: string | null; sourceNodeIds?: string[] },
+): Node[] {
+  const stamp = Date.now();
+  const desired = specs.map((spec, index) => {
+    const size = defaultSizeOf(spec.type);
+    return {
+      x: base.x + (index % 2) * (size.w + 80),
+      y: base.y + Math.floor(index / 2) * (size.h + 80),
+      w: size.w,
+      h: size.h,
+    };
+  });
+  const offset = placeBatchNodes(desired, existingNodes, {
+    source: 'placement:send-materials',
+  });
+  return specs.map((spec, index) => ({
+    id: `${spec.type}-send-${stamp}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    type: spec.type,
+    position: {
+      x: desired[index].x + offset.dx,
+      y: desired[index].y + offset.dy,
+    },
+    selected: true,
+    data: {
+      ...(INITIAL_DATA[spec.type] || {}),
+      ...spec.data,
+      sentFromMaterialBridge: true,
+      sendBridgeSignature: bridge?.signature || '',
+      sendBridgeMode: bridge?.mode,
+      sendBridgeSourceCanvasId: bridge?.sourceCanvasId || undefined,
+      sendBridgeSourceNodeIds: bridge?.sourceNodeIds || [],
+      sendBridgeCreatedAt: stamp,
+    },
+  })) as Node[];
+}
+
+function sourceNodeIdsFromMaterials(materials: SendableMaterial[]): string[] {
+  const ids = new Set<string>();
+  materials.forEach((item) => {
+    if (typeof item.sourceNodeId === 'string' && item.sourceNodeId.trim()) {
+      ids.add(item.sourceNodeId.trim());
+    }
+  });
+  return [...ids].sort();
+}
+
+function removeDuplicateSendBridgeNodes(
+  nodes: Node[],
+  edges: Edge[],
+  materials: SendableMaterial[],
+  signature: string,
+  sourceCanvasId?: string | null,
+): { nodes: Node[]; edges: Edge[]; removed: number } {
+  const materialKeys = new Set(
+    materials
+      .map((item) => sendableMaterialKey(item))
+      .filter(Boolean),
+  );
+  const currentSourceNodeIds = new Set(sourceNodeIdsFromMaterials(materials));
+  const normalizedSourceCanvasId = typeof sourceCanvasId === 'string' ? sourceCanvasId : '';
+  const removeIds = new Set<string>();
+  for (const node of nodes) {
+    const data = node.data as any;
+    if (!data?.sentFromMaterialBridge) continue;
+    if (signature && data.sendBridgeSignature === signature) {
+      removeIds.add(node.id);
+      continue;
+    }
+    const nodeSourceCanvasId = typeof data.sendBridgeSourceCanvasId === 'string' ? data.sendBridgeSourceCanvasId : '';
+    const nodeSourceIds: string[] = Array.isArray(data.sendBridgeSourceNodeIds)
+      ? data.sendBridgeSourceNodeIds.filter(
+          (value: unknown): value is string => typeof value === 'string' && Boolean(value.trim()),
+        )
+      : [];
+    const sharesSourceNode =
+      currentSourceNodeIds.size > 0 &&
+      nodeSourceIds.some((nodeId) => currentSourceNodeIds.has(nodeId));
+    const bridgeFromSameSourceCanvas =
+      Boolean(normalizedSourceCanvasId) &&
+      nodeSourceCanvasId === normalizedSourceCanvasId;
+    if (sharesSourceNode || bridgeFromSameSourceCanvas) {
+      removeIds.add(node.id);
+      continue;
+    }
+    if (data.sendBridgeSignature) continue;
+    const nodeKeys = collectSendableMaterialsFromNode(node)
+      .map((item) => sendableMaterialKey(item))
+      .filter(Boolean);
+    if (nodeKeys.length > 0 && nodeKeys.every((key) => materialKeys.has(key))) {
+      removeIds.add(node.id);
+    }
+  }
+  if (removeIds.size === 0) return { nodes, edges, removed: 0 };
+  return {
+    nodes: nodes.filter((node) => !removeIds.has(node.id)),
+    edges: edges.filter((edge) => !removeIds.has(edge.source) && !removeIds.has(edge.target)),
+    removed: removeIds.size,
+  };
+}
+
+function centerOfMaterialNodes(nodes: Node[]): { x: number; y: number } | null {
+  if (nodes.length === 0) return null;
+  const rects = nodes.map((node) => rectOf(node));
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.w));
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.h));
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
 
 // 把所有节点类型都注册到对应组件(已实现的用业务组件,其余用 Placeholder)
 const nodeTypes = NODE_REGISTRY.reduce<Record<string, any>>((acc, m) => {
@@ -295,6 +576,46 @@ function BulkPhantomNode() {
 }
 nodeTypes.bulkPhantom = BulkPhantomNode;
 const BULK_PHANTOM_ID = '__bulk_phantom__';
+
+function findNearestNavigableNode(nodes: Node[], center: { x: number; y: number }): Node | null {
+  const valid = (node: Node, includeGroups: boolean) => {
+    if (!node.id || node.id === BULK_PHANTOM_ID) return false;
+    if ((node as any).hidden) return false;
+    if (!includeGroups && node.type === 'groupBox') return false;
+    return true;
+  };
+  const candidates = nodes.filter((node) => valid(node, false));
+  const fallbackCandidates = candidates.length > 0 ? candidates : nodes.filter((node) => valid(node, true));
+  let best: Node | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  fallbackCandidates.forEach((node) => {
+    const rect = rectOf(node);
+    const nodeCenter = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+    const dx = nodeCenter.x - center.x;
+    const dy = nodeCenter.y - center.y;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = node;
+    }
+  });
+  return best;
+}
+
+function pulseNearestNode(nodeId: string) {
+  window.setTimeout(() => {
+    const css = (window as any).CSS;
+    const safeId = typeof css?.escape === 'function'
+      ? css.escape(nodeId)
+      : nodeId.replace(/["\\]/g, '\\$&');
+    const el = document.querySelector(`.react-flow__node[data-id="${safeId}"]`) as HTMLElement | null;
+    if (!el) return;
+    el.classList.remove('t8-nearest-node-pulse');
+    void el.offsetWidth;
+    el.classList.add('t8-nearest-node-pulse');
+    window.setTimeout(() => el.classList.remove('t8-nearest-node-pulse'), 1300);
+  }, 460);
+}
 
 // 边类型: 默认边采用可点击断开的 DeletableEdge
 const edgeTypes = {
@@ -383,12 +704,31 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
   return tag === 'input' || tag === 'textarea' || tag === 'select' || !!el?.isContentEditable;
 }
 
+function isCanvasOverviewShortcutBlocked(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const el = target as HTMLElement;
+  if (el === document.body || el === document.documentElement) return false;
+  if (isTextEditingTarget(el)) return true;
+  return !!el.closest(
+    [
+      'button',
+      'a',
+      '[role="button"]',
+      '[data-canvas-floating-ui]',
+      '.react-flow__node',
+      '.t8-canvas-toolbar',
+      '.t8-context-menu',
+      '.t8-sidebar',
+    ].join(','),
+  );
+}
+
 interface CanvasInnerProps {
   onAddNodeRef?: React.MutableRefObject<AddNodeFn | null>;
 }
 
 function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
-  const { activeId } = useCanvasStore();
+  const { activeId, canvases, loadCanvases, setActive } = useCanvasStore();
   const { theme, style, templateId, customTemplates } = useThemeStore();
   const currentTemplate = useMemo(
     () => resolveThemeTemplate(templateId, customTemplates),
@@ -398,13 +738,17 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const isOp = visualStyle === 'op';
   const isNaruto = visualStyle === 'naruto';
   const isEva = visualStyle === 'eva';
+  const isYyh = visualStyle === 'yyh';
   const themeTokens = getTemplateMode(currentTemplate, theme).tokens;
-  const { screenToFlowPosition, setCenter, getViewport } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getViewport, fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const saveTimer = useRef<number | null>(null);
-  const lastSavedRef = useRef<string>('');
+  const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>(null);
+  const saveTimersByCanvasRef = useRef<Map<string, number>>(new Map());
+  const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; snapshot: string }>>(new Map());
+  const lastSavedByCanvasRef = useRef<Map<string, string>>(new Map());
+  const allowEmptySaveCanvasIdsRef = useRef<Set<string>>(new Set());
 
   // 选中节点 / 剪贴板
   const [selectedCount, setSelectedCount] = useState(0);
@@ -445,6 +789,43 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     edgesRef.current = edges;
   }, [edges]);
 
+  const markManualNodeDeletion = useCallback(
+    (nodeIds: Iterable<string>, beforeNodes?: Node[]) => {
+      if (!activeId) return;
+      const idList = [...nodeIds].filter((id) => typeof id === 'string' && id.trim());
+      if (idList.length === 0) return;
+      markCanvasNodesDeleted(activeId, idList);
+      const removeIds = new Set(idList);
+      const baseNodes = beforeNodes || nodesRef.current;
+      const remaining = baseNodes.filter((node) => node.id !== BULK_PHANTOM_ID && !removeIds.has(node.id));
+      if (remaining.length === 0) {
+        allowEmptySaveCanvasIdsRef.current.add(activeId);
+      }
+    },
+    [activeId],
+  );
+
+  useEffect(() => {
+    const onOpenSendMaterials = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        materials?: SendableMaterial[];
+        sourceLabel?: string;
+        defaultMode?: SendTargetMode;
+        atScreen?: { x: number; y: number };
+      }>).detail || {};
+      const materials = Array.isArray(detail.materials) ? detail.materials : [];
+      if (materials.length === 0) return;
+      setSendModal({
+        materials,
+        sourceLabel: detail.sourceLabel || '素材',
+        defaultMode: detail.defaultMode || 'auto',
+        atScreen: detail.atScreen,
+      });
+    };
+    window.addEventListener('penguin:open-send-materials', onOpenSendMaterials);
+    return () => window.removeEventListener('penguin:open-send-materials', onOpenSendMaterials);
+  }, []);
+
   // 吸附 + 对齐辅助线
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [guides, setGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
@@ -464,6 +845,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     y: number;
     ids: string[];
   } | null>(null);
+  const [sendModal, setSendModal] = useState<{
+    materials: SendableMaterial[];
+    sourceLabel: string;
+    defaultMode: SendTargetMode;
+    atScreen?: { x: number; y: number };
+  } | null>(null);
+  const pendingSendFocusRef = useRef<{
+    canvasId: string;
+    center: { x: number; y: number };
+    zoom: number;
+  } | null>(null);
+  const pendingSendFocusTimerRef = useRef<number | null>(null);
 
   // 画布空白区右键菜单(快速添加节点)
   const [paneMenu, setPaneMenu] = useState<{
@@ -499,15 +892,21 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       setNodes([]);
       setEdges([]);
       setLoaded(false);
+      setLoadedCanvasId(null);
       histReset();
       return;
     }
+    const requestedCanvasId = activeId;
     setLoaded(false);
+    setLoadedCanvasId(null);
+    let cancelled = false;
     api
-      .getCanvasData(activeId)
+      .getCanvasData(requestedCanvasId)
       .then((data) => {
-        const ns = data.nodes || [];
-        const es = data.edges || [];
+        if (cancelled || useCanvasStore.getState().activeId !== requestedCanvasId) return;
+        const pendingSave = pendingSaveByCanvasRef.current.get(requestedCanvasId);
+        const ns = pendingSave?.nodes || data.nodes || [];
+        const es = pendingSave?.edges || data.edges || [];
         // ⚡ 兑底补丁: 历史画布中可能存在 connectable=false 的旧 groupBox 节点
         // (5656721 事故期间创建的 group), 加载时强制打开可连接以恢复右侧聚合输出口
         const fixedNs = ns.map((n: any) =>
@@ -517,53 +916,122 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         );
         setNodes(fixedNs);
         setEdges(es);
-        lastSavedRef.current = JSON.stringify({ nodes: fixedNs, edges: es });
+        lastSavedByCanvasRef.current.set(requestedCanvasId, JSON.stringify({ nodes: fixedNs, edges: es }));
+        allowEmptySaveCanvasIdsRef.current.delete(requestedCanvasId);
         histReset({ nodes: fixedNs, edges: es });
+        setLoadedCanvasId(requestedCanvasId);
         setLoaded(true);
       })
       .catch((e) => {
+        if (cancelled || useCanvasStore.getState().activeId !== requestedCanvasId) return;
         console.error('加载画布失败', e);
         setNodes([]);
         setEdges([]);
         histReset();
+        setLoadedCanvasId(requestedCanvasId);
         setLoaded(true);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [activeId, histReset]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of saveTimersByCanvasRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      saveTimersByCanvasRef.current.clear();
+      pendingSaveByCanvasRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeId || !loaded || loadedCanvasId !== activeId) return;
+    const pending = pendingSendFocusRef.current;
+    if (!pending || pending.canvasId !== activeId) return;
+    pendingSendFocusRef.current = null;
+    if (pendingSendFocusTimerRef.current) window.clearTimeout(pendingSendFocusTimerRef.current);
+    pendingSendFocusTimerRef.current = window.setTimeout(() => {
+      setCenter(pending.center.x, pending.center.y, {
+        zoom: pending.zoom,
+        duration: 520,
+      });
+      pendingSendFocusTimerRef.current = null;
+    }, 90);
+  }, [activeId, loaded, loadedCanvasId, nodes.length, setCenter]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingSendFocusTimerRef.current) window.clearTimeout(pendingSendFocusTimerRef.current);
+    };
+  }, []);
 
   // nodes/edges 变化后压栈(节流防止拖拽中海量入栈)
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || loadedCanvasId !== activeId) return;
     scheduleCapture({ nodes, edges });
-  }, [nodes, edges, loaded, scheduleCapture]);
+  }, [nodes, edges, activeId, loaded, loadedCanvasId, scheduleCapture]);
 
   // 自动保存(防抖 800ms,防空数据覆盖)
   useEffect(() => {
-    if (!activeId || !loaded) return;
+    if (!activeId || !loaded || loadedCanvasId !== activeId) return;
     // 过滤 SHIFT 批量移线拖拽过程中的 phantom 节点与重定向边(不作为持久化快照)
     const persistNodes = nodes.filter((n) => n.id !== BULK_PHANTOM_ID);
     const persistEdges = edges.filter(
       (ed) => ed.source !== BULK_PHANTOM_ID && ed.target !== BULK_PHANTOM_ID
     );
     const snapshot = JSON.stringify({ nodes: persistNodes, edges: persistEdges });
-    if (snapshot === lastSavedRef.current) return;
-    if (persistNodes.length === 0 && lastSavedRef.current !== '' && JSON.parse(lastSavedRef.current).nodes?.length > 0) {
+    const canvasIdForSave = activeId;
+    const previousSnapshot = lastSavedByCanvasRef.current.get(canvasIdForSave) || '';
+    if (snapshot === previousSnapshot) return;
+    let previousNodeCount = 0;
+    try {
+      previousNodeCount = JSON.parse(previousSnapshot || '{}')?.nodes?.length || 0;
+    } catch {
+      previousNodeCount = 0;
+    }
+    const allowEmptySave = allowEmptySaveCanvasIdsRef.current.has(canvasIdForSave);
+    if (persistNodes.length === 0 && previousNodeCount > 0 && !allowEmptySave) {
       // 防止空数据覆盖
       return;
     }
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(async () => {
+    const previousTimer = saveTimersByCanvasRef.current.get(canvasIdForSave);
+    if (previousTimer) window.clearTimeout(previousTimer);
+    pendingSaveByCanvasRef.current.set(canvasIdForSave, {
+      nodes: persistNodes,
+      edges: persistEdges,
+      snapshot,
+    });
+    const timer = window.setTimeout(async () => {
       const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport() };
       try {
-        await api.saveCanvasData(activeId, payload);
-        api.autoSaveCanvasData(activeId, payload).catch((e) => {
+        await api.saveCanvasData(canvasIdForSave, payload, { allowEmpty: allowEmptySave });
+        api.autoSaveCanvasData(canvasIdForSave, payload).catch((e) => {
           console.warn('画布自动保存到本地路径失败', e);
         });
-        lastSavedRef.current = snapshot;
+        if (allowEmptySave) allowEmptySaveCanvasIdsRef.current.delete(canvasIdForSave);
+        lastSavedByCanvasRef.current.set(canvasIdForSave, snapshot);
+        if (pendingSaveByCanvasRef.current.get(canvasIdForSave)?.snapshot === snapshot) {
+          pendingSaveByCanvasRef.current.delete(canvasIdForSave);
+        }
+        useCanvasStore.setState((state) => ({
+          canvases: state.canvases.map((canvas) =>
+            canvas.id === canvasIdForSave
+              ? { ...canvas, nodeCount: persistNodes.length, updatedAt: Date.now() }
+              : canvas,
+          ),
+        }));
       } catch (e) {
         console.error('保存画布失败', e);
+      } finally {
+        if (saveTimersByCanvasRef.current.get(canvasIdForSave) === timer) {
+          saveTimersByCanvasRef.current.delete(canvasIdForSave);
+        }
       }
     }, 800);
-  }, [nodes, edges, activeId, loaded, getViewport]);
+    saveTimersByCanvasRef.current.set(canvasIdForSave, timer);
+  }, [nodes, edges, activeId, loaded, loadedCanvasId, getViewport]);
 
   // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   // 可选 atScreen 传入屏幕坐标，节点会落在该点(用于右键画布空白区添加)
@@ -829,6 +1297,203 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     [downloadMaterialItem, getDownloadableItemsFromNodes],
   );
 
+  const inferSendModeFromNodes = useCallback((selectedNodes: Node[]): SendTargetMode => {
+    if (selectedNodes.length === 1) {
+      const type = String(selectedNodes[0].type || '');
+      if (type === 'portrait-master') return 'portrait-master';
+      if (type === 'material-set') return 'material-set';
+      if (type === 'upload') return 'upload';
+      if (type === 'output') return 'output';
+    }
+    return 'material-set';
+  }, []);
+
+  const openSendMaterials = useCallback(
+    (ids: string[], atScreen?: { x: number; y: number }) => {
+      const selectedNodes = nodesRef.current.filter((node) => ids.includes(node.id) && node.type !== 'groupBox');
+      const materials = collectSendableMaterialsFromNodes(selectedNodes, activeId);
+      if (materials.length === 0) {
+        logBus.warn('所选节点没有可发送素材', '发送素材');
+        return;
+      }
+      setSendModal({
+        materials,
+        sourceLabel: `选中 ${selectedNodes.length} 个节点`,
+        defaultMode: inferSendModeFromNodes(selectedNodes),
+        atScreen,
+      });
+    },
+    [activeId, inferSendModeFromNodes],
+  );
+
+  const resolveSendMode = useCallback((mode: SendTargetMode): SendTargetMode => {
+    if (mode !== 'auto') return mode;
+    return sendModal?.defaultMode && sendModal.defaultMode !== 'auto' ? sendModal.defaultMode : 'material-set';
+  }, [sendModal?.defaultMode]);
+
+  const basePositionForActiveSend = useCallback(() => {
+    const atScreen = sendModal?.atScreen;
+    if (atScreen) return screenToFlowPosition(atScreen);
+    const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
+    const rect = flowEl?.getBoundingClientRect();
+    return screenToFlowPosition(
+      rect
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    );
+  }, [screenToFlowPosition, sendModal?.atScreen]);
+
+  const handleSendMaterialsToCanvas = useCallback(
+    async (targetCanvasId: string, mode: SendTargetMode, switchAfter: boolean) => {
+      if (!sendModal || sendModal.materials.length === 0) return;
+      const currentSend = {
+        ...sendModal,
+        materials: sendModal.materials.map((item) => ({ ...item })),
+      };
+      const effectiveMode = resolveSendMode(mode);
+      const specs = buildSendNodeSpecs(currentSend.materials, effectiveMode);
+      if (specs.length === 0) {
+        logBus.warn('没有可发送到画布的素材', '发送素材');
+        return;
+      }
+      const bridgeSignature = sendableMaterialSignature(currentSend.materials);
+      const bridgeSourceNodeIds = sourceNodeIdsFromMaterials(currentSend.materials);
+
+      if (targetCanvasId === activeId) {
+        const base = basePositionForActiveSend();
+        const cleaned = removeDuplicateSendBridgeNodes(
+          nodesRef.current,
+          edgesRef.current,
+          currentSend.materials,
+          bridgeSignature,
+          activeId,
+        );
+        const newNodes = materialNodesFromSpecs(specs, cleaned.nodes, base, {
+          signature: bridgeSignature,
+          mode: effectiveMode,
+          sourceCanvasId: activeId,
+          sourceNodeIds: bridgeSourceNodeIds,
+        });
+        const focusCenter = centerOfMaterialNodes(newNodes);
+        if (activeId && focusCenter) {
+          const { zoom } = getViewport();
+          pendingSendFocusRef.current = {
+            canvasId: activeId,
+            center: focusCenter,
+            zoom: Math.min(Math.max(zoom || 0.9, 0.72), 1.05),
+          };
+        }
+        setEdges(cleaned.edges);
+        setNodes([...cleaned.nodes.map((node) => ({ ...node, selected: false })), ...newNodes]);
+        setSendModal(null);
+        logBus.success(
+          `已发送 ${summarizeSendableMaterials(currentSend.materials)} 到当前画布${cleaned.removed ? `，已替换旧批次 ${cleaned.removed} 个节点` : ''}`,
+          '发送素材',
+        );
+        return;
+      }
+
+      const data = await api.getCanvasData(targetCanvasId);
+      const targetNodes = Array.isArray(data.nodes) ? data.nodes : [];
+      const targetEdges = Array.isArray(data.edges) ? data.edges : [];
+      const cleaned = removeDuplicateSendBridgeNodes(
+        targetNodes as Node[],
+        targetEdges as Edge[],
+        currentSend.materials,
+        bridgeSignature,
+        activeId,
+      );
+      const newNodes = materialNodesFromSpecs(specs, cleaned.nodes as Node[], basePositionForAppend(cleaned.nodes as Node[]), {
+        signature: bridgeSignature,
+        mode: effectiveMode,
+        sourceCanvasId: activeId,
+        sourceNodeIds: bridgeSourceNodeIds,
+      });
+      const focusCenter = centerOfMaterialNodes(newNodes);
+      if (switchAfter && focusCenter) {
+        pendingSendFocusRef.current = {
+          canvasId: targetCanvasId,
+          center: focusCenter,
+          zoom: 0.88,
+        };
+      }
+      const payload = {
+        nodes: [...cleaned.nodes, ...newNodes],
+        edges: cleaned.edges,
+        viewport: data.viewport || { x: 0, y: 0, zoom: 1 },
+      };
+      await api.saveCanvasData(targetCanvasId, payload);
+      api.autoSaveCanvasData(targetCanvasId, payload).catch(() => {});
+      await loadCanvases();
+      if (switchAfter) setActive(targetCanvasId);
+      setSendModal(null);
+      logBus.success(
+        `已发送 ${summarizeSendableMaterials(currentSend.materials)} 到目标画布${cleaned.removed ? `，已替换旧批次 ${cleaned.removed} 个节点` : ''}`,
+        '发送素材',
+      );
+    },
+    [activeId, basePositionForActiveSend, getViewport, loadCanvases, resolveSendMode, sendModal, setActive],
+  );
+
+  const handleSaveSendMaterialsToResource = useCallback(async () => {
+    if (!sendModal || sendModal.materials.length === 0) return;
+    const buckets = bucketSendableMaterials(sendModal.materials);
+    let saved = 0;
+    const failures: string[] = [];
+    for (const kind of ['image', 'video', 'audio', 'text'] as MaterialSetKind[]) {
+      const items = buckets[kind];
+      if (items.length === 0) continue;
+      if (kind !== 'text' && items.length === 1 && items[0].url) {
+        const result = await api.addResourceItem({
+          kind: kind as api.ResourceKind,
+          url: items[0].url,
+          title: items[0].name || `${PORT_LABEL[kind]}素材`,
+          tags: ['跨画布发送'],
+          sourceNodeId: items[0].sourceNodeId,
+          sourceCanvasId: items[0].sourceCanvasId || activeId || undefined,
+        });
+        if (result.success) saved += 1;
+        else failures.push(result.error || `${PORT_LABEL[kind]}入库失败`);
+        continue;
+      }
+      const result = await api.addResourceSet({
+        materialSetKind: kind,
+        materialSetItems: items,
+        title: `${PORT_LABEL[kind]}素材集 · ${items.length}项`,
+        tags: ['跨画布发送'],
+        sourceNodeId: items[0]?.sourceNodeId,
+        sourceCanvasId: items[0]?.sourceCanvasId || activeId || undefined,
+      });
+      if (result.success) saved += 1;
+      else failures.push(result.error || `${PORT_LABEL[kind]}素材集入库失败`);
+    }
+    window.dispatchEvent(new CustomEvent('penguin:resources-changed'));
+    if (saved > 0) logBus.success(`已保存 ${saved} 项到资源库`, '发送素材');
+    if (failures.length > 0) logBus.warn(failures.slice(0, 2).join('；'), '发送素材');
+  }, [activeId, sendModal]);
+
+  const handleSendMaterialsToEagle = useCallback(async () => {
+    if (!sendModal || sendModal.materials.length === 0) return;
+    const result = await api.sendToEagle({
+      materials: sendModal.materials.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        url: item.url,
+        text: item.text,
+        name: item.name,
+      })),
+      tags: ['T8', '贞贞画布'],
+    });
+    if (!result.success) {
+      logBus.warn(result.error || '发送到 Eagle 失败，请确认 Eagle 已启动并开启本地 API', 'Eagle');
+      return;
+    }
+    const imported = result.data.imported.length;
+    const failed = result.data.failures.length;
+    if (imported > 0) logBus.success(`已发送 ${imported} 项到 Eagle`, 'Eagle');
+    if (failed > 0) logBus.warn(`${failed} 项发送失败，可检查 Eagle 是否支持该素材类型`, 'Eagle');
+  }, [sendModal]);
+
   const handleCanvasPointerMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     lastCanvasPointerRef.current = { x: e.clientX, y: e.clientY };
   }, []);
@@ -967,13 +1632,14 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     setNodes((prev) => {
       const removeIds = new Set(prev.filter((n) => n.selected).map((n) => n.id));
       if (removeIds.size === 0) return prev;
+      markManualNodeDeletion(removeIds, prev);
       setEdges((eds) =>
         eds.filter((e) => !removeIds.has(e.source) && !removeIds.has(e.target) && !e.selected)
       );
       return prev.filter((n) => !removeIds.has(n.id));
     });
     setEdges((prev) => prev.filter((e) => !e.selected));
-  }, []);
+  }, [markManualNodeDeletion]);
 
   // ===== 导入 / 导出 =====
   const handleExport = useCallback(() => {
@@ -1234,7 +1900,12 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
 
   useEffect(() => {
     if (!deleteReq) return;
-    setNodes((prev) => prev.filter((n) => n.id !== deleteReq.groupId));
+    setNodes((prev) => {
+      if (prev.some((n) => n.id === deleteReq.groupId)) {
+        markManualNodeDeletion([deleteReq.groupId], prev);
+      }
+      return prev.filter((n) => n.id !== deleteReq.groupId);
+    });
     clearDeleteReq();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deleteReq?.ts]);
@@ -1576,6 +2247,12 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   // xyflow 事件
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const removedIds = changes
+        .filter((c) => c.type === 'remove' && typeof (c as any).id === 'string')
+        .map((c) => (c as any).id as string);
+      if (removedIds.length > 0) {
+        markManualNodeDeletion(removedIds, nodesRef.current);
+      }
       // 检测拖拽状态,避免拖拽中频繁压栈
       for (const c of changes) {
         if (c.type === 'position') {
@@ -1594,7 +2271,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         return next;
       });
     },
-    []
+    [markManualNodeDeletion]
   );
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
@@ -2840,6 +3517,27 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     return () => window.removeEventListener('paste', onPaste);
   }, [activeId, createUploadNodesFromFiles]);
 
+  const focusNearestNodeToViewport = useCallback(() => {
+    if (!loaded || loadedCanvasId !== activeId) return;
+    const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
+    if (!flowEl) return;
+    const bounds = flowEl.getBoundingClientRect();
+    const viewportCenter = screenToFlowPosition({
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    });
+    const nearest = findNearestNavigableNode(nodes, viewportCenter);
+    if (!nearest) {
+      logBus.warn('当前画布没有可定位节点', '快捷键 G');
+      return;
+    }
+    const rect = rectOf(nearest);
+    const currentZoom = getViewport().zoom || 1;
+    const zoom = Math.min(Math.max(currentZoom, 0.55), 1.15);
+    setCenter(rect.x + rect.w / 2, rect.y + rect.h / 2, { zoom, duration: 450 });
+    pulseNearestNode(nearest.id);
+  }, [activeId, getViewport, loaded, loadedCanvasId, nodes, screenToFlowPosition, setCenter]);
+
   // ===== 全局快捷键 =====
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2886,6 +3584,38 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           .filter((n) => n.selected && n.type !== 'groupBox')
           .map((n) => n.id);
         if (selIds.length >= 1) handleCreateGroup(selIds);
+      } else if (
+        !ctrl &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.isComposing &&
+        (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'g')
+      ) {
+        const key = e.key.toLowerCase();
+        if (key === 'g' && selectedCount > 0) return;
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (
+          isCanvasOverviewShortcutBlocked(e.target) ||
+          isCanvasOverviewShortcutBlocked(activeEl) ||
+          document.querySelector(
+            [
+              '[data-canvas-floating-ui="image-compare-modal"]',
+              '[data-canvas-floating-ui="portrait-master-editor"]',
+              '[data-canvas-floating-ui="send-materials-modal"]',
+              '[data-canvas-floating-ui="picker-menu"]',
+              '[data-canvas-floating-ui="node-menu"]',
+              '[data-canvas-floating-ui="pane-menu"]',
+            ].join(','),
+          )
+        ) {
+          return;
+        }
+        e.preventDefault();
+        if (key === 'z') {
+          fitView({ padding: 0.18, duration: 420, minZoom: 0.05, maxZoom: 1.15 });
+        } else {
+          focusNearestNodeToViewport();
+        }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         // xyflow 内置 Backspace 删除,但在节点未选中时仍可能删除连线;
         // 我们手动处理仅删除选中,避免输入边缘情况
@@ -2906,7 +3636,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         internalPasteTimerRef.current = null;
       }
     };
-  }, [histUndo, histRedo, handleCopy, handlePaste, handleDuplicate, handleDeleteSelected, handleCreateGroup, nodes, selectedCount]);
+  }, [histUndo, histRedo, handleCopy, handlePaste, handleDuplicate, handleDeleteSelected, handleCreateGroup, nodes, selectedCount, fitView, focusNearestNodeToViewport]);
 
   // 全局滚轮拦截 —— 自动给所有节点内的 input / textarea / select / contenteditable
   // 挂上 wheel.stopPropagation()，让用户在文本框内可用鼠标滚轮滚动文字而不触发画布缩放。
@@ -3129,13 +3859,15 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
             setCenter(position.x, position.y, { zoom, duration: 400 });
           }}
           style={{
-            width: isOp ? 144 : isNaruto ? 182 : isEva ? 258 : undefined,
-            height: isOp ? 144 : isNaruto ? 122 : isEva ? 172 : undefined,
+            width: isOp ? 144 : isNaruto ? 182 : isEva ? 258 : isYyh ? 224 : undefined,
+            height: isOp ? 144 : isNaruto ? 122 : isEva ? 172 : isYyh ? 144 : undefined,
             background: isOp
               ? themeTokens.panelBg
               : isNaruto
                 ? themeTokens.panelBg
               : isEva
+                ? themeTokens.panelBg
+              : isYyh
                 ? themeTokens.panelBg
               : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
             border: isOp
@@ -3144,22 +3876,26 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
                 ? `3px solid ${themeTokens.textMain}`
               : isEva
                   ? `2px solid ${themeTokens.borderStrong}`
+              : isYyh
+                  ? `2px solid ${themeTokens.accent}`
                 : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-            borderRadius: isOp ? 999 : isNaruto ? '18px 18px 12px 12px' : isEva ? 8 : 8,
-            right: isOp ? 24 : isNaruto ? 24 : isEva ? 24 : undefined,
-            bottom: isOp ? 42 : isNaruto ? 40 : isEva ? 24 : undefined,
+            borderRadius: isOp ? 999 : isNaruto ? '18px 18px 12px 12px' : isEva ? 8 : isYyh ? 12 : 8,
+            right: isOp ? 24 : isNaruto ? 24 : isEva ? 24 : isYyh ? 24 : undefined,
+            bottom: isOp ? 42 : isNaruto ? 40 : isEva ? 24 : isYyh ? 28 : undefined,
             boxShadow: isOp
               ? `0 0 0 7px ${themeTokens.warning}, 5px 5px 0 ${themeTokens.textMain}`
               : isNaruto
                 ? themeTokens.shadowPanel
               : isEva
                   ? `0 0 0 4px ${themeTokens.panelBgElevated}, 0 0 0 6px ${themeTokens.borderStrong}, 0 18px 46px rgba(0,0,0,.5), inset 0 0 34px ${themeTokens.accent}22`
+              : isYyh
+                  ? `0 0 0 4px ${themeTokens.panelBgElevated}, 0 0 0 6px ${themeTokens.borderStrong}, 0 18px 46px rgba(0,0,0,.46), inset 0 0 34px ${themeTokens.secondary}22`
               : undefined,
             cursor: 'pointer',
-            overflow: isOp || isNaruto || isEva ? 'hidden' : undefined,
+            overflow: isOp || isNaruto || isEva || isYyh ? 'hidden' : undefined,
           }}
-          maskColor={isOp ? 'rgba(15,124,140,.28)' : isNaruto ? 'rgba(255,91,31,.22)' : isEva ? 'rgba(156,255,0,.18)' : isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
-          nodeColor={() => (isOp ? themeTokens.secondary : isNaruto ? themeTokens.accent : isEva ? themeTokens.danger : isDark ? '#a1a1aa' : '#52525b')}
+          maskColor={isOp ? 'rgba(15,124,140,.28)' : isNaruto ? 'rgba(255,91,31,.22)' : isEva ? 'rgba(156,255,0,.18)' : isYyh ? 'rgba(67,247,255,.16)' : isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
+          nodeColor={() => (isOp ? themeTokens.secondary : isNaruto ? themeTokens.accent : isEva ? themeTokens.danger : isYyh ? themeTokens.success : isDark ? '#a1a1aa' : '#52525b')}
         />
         {/* 选中可执行节点时的浮动操作栏 (执行 / 中止 / 关闭) */}
         <NodeActionBar />
@@ -3261,6 +3997,19 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
         </>
       )}
 
+      <SendMaterialsModal
+        open={!!sendModal}
+        materials={sendModal?.materials || []}
+        sourceLabel={sendModal?.sourceLabel || '素材'}
+        defaultMode={sendModal?.defaultMode || 'auto'}
+        canvases={canvases}
+        activeCanvasId={activeId}
+        onClose={() => setSendModal(null)}
+        onSendToCanvas={handleSendMaterialsToCanvas}
+        onSaveToResource={handleSaveSendMaterialsToResource}
+        onSendToEagle={handleSendMaterialsToEagle}
+      />
+
       {/* 右键菜单(框选 右键 或 节点右键) */}
       {contextMenu && (() => {
         const ids = contextMenu.ids;
@@ -3275,6 +4024,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           ? normalizeMaterialSetItems((materialSetNode?.data as any)?.materialSetItems, materialSetKind)
           : [];
         const downloadableCount = getDownloadableItemsFromNodes(ids).length;
+        const sendableCount = collectSendableMaterialsFromNodes(selNodes, activeId).length;
         const menuItemCls = 't8-context-menu__item';
         return (
           <>
@@ -3369,6 +4119,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
                   <span>保存素材集到资源库</span>
                 </button>
               )}
+              <button
+                className={menuItemCls}
+                disabled={sendableCount === 0}
+                title={sendableCount > 0 ? `把 ${sendableCount} 个素材发送到其他画布、资源库或 Eagle` : '所选节点没有可发送素材'}
+                onClick={() => {
+                  closeContextMenu();
+                  openSendMaterials(ids, { x: contextMenu.x, y: contextMenu.y });
+                }}
+              >
+                <SendIcon size={13} />
+                <span>发送到... ({sendableCount})</span>
+              </button>
               <button
                 className={menuItemCls}
                 disabled={downloadableCount === 0}

@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.6.1",
-  "lastUpdated": "2026-05-28-v1.6.1-global-context-actions",
+  "version": "1.6.8",
+  "lastUpdated": "2026-05-29-v1.6.8-yyh-light-watermark",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,15 +16,15 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.6.1",
-    "semverVersion": "1.6.1",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.6.1：画板节点正式开放为可执行工具节点，支持图层 / 图层组 / 可见与锁定 / 载入图片 / 手绘文字图形箭头 / 缩放旋转 / JSON 导入导出 / PNG 输出；同时将主题音乐按钮与 ReactFlow Controls 合并到 .t8-control-rail，统一修复火影与 EVA 等主题的喇叭/缩放条漂移，并把画布水印固定在背景层，EVA 深色 NERV 水印改为不透明增强。已通过 npm run build；本次未重新打包 Electron。",
+    "version": "1.6.8",
+    "semverVersion": "1.6.8",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.6.8：幽游白书主题浅色水印独立化，深色继续使用终端面板式水印，浅色改用透明底线稿/HUD 水印，并降低浅色雷达线条和组水印压迫感。已通过 npm run build；本次未重新打包 Electron。",
     "installer": "本次未打包 Electron；最近一次安装包为 dist_electron/T8-PenguinCanvas-Setup-1.5.5.exe (NSIS, 108.96 MB)",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
       "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号，以及 backend/src/config.js APP_VERSION 必须与 package.json 同步",
-      "_post_build.cjs 验证 11 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge,resources,themes} + utils/duckPayload",
+      "_post_build.cjs 验证 12 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge,resources,themes,eagle} + utils/duckPayload",
       "_post_build.cjs 验证 resources/frontend/index.html + assets/ 必存在",
       "_post_build.cjs 必须让 src/assets/theme-music/*.mp3 经 Vite 输出到 resources/frontend/assets，主题音乐默认静音且随前端资源一起打包",
       "_post_build.cjs 自动清除任何意外混入的 resources/{app,backend}/src 明文目录",
@@ -44,7 +44,7 @@
     }
   },
   "themes": {
-    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格六套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
+    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格 / 幽游白书风格七套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
     "templateSystem": {
       "schema": "t8-theme-template",
       "version": 2,
@@ -71,8 +71,9 @@
         "自定义模板导入时必须通过 validateTheme/后端 normalizeTemplate，过滤未知枚举、过长字段和非法音乐 URL",
         "ThemeMusicToggle 与 ReactFlow Controls 必须同置于 .t8-control-rail，由全局变量统一定位和堆叠；主题 CSS 只能覆盖尺寸、颜色和视觉样式，不得分别硬编码 left/top/bottom 造成喇叭与缩放条漂移",
         "画布背景水印必须放在 .t8-canvas-shell::before/::after 背景层，z-index:0 且 pointer-events:none；ReactFlow 节点、边、浮层和 GroupBox 内容必须盖住水印，不能让装饰穿透到素材预览或画板内容上方",
+        "强风格官方主题可为 light/dark 分别提供水印资产；若深色水印包含黑底终端、警告面板或厚重贴片，浅色模式必须改用透明底线稿 / 印章 / HUD 版本，避免浅色画布出现突兀深色块",
         "框选/节点右键菜单、空白右键快速添加菜单、拖线候选菜单和选中节点右上角 RUN/关闭浮动条都属于全局主题控件，必须使用 t8-context-menu / t8-node-action-bar 语义类和 visuals.style 作为视觉判断来源，禁止仅按 legacyStyle=像素/科技分支导致 OP、火影、EVA 等主题残留白底或绿色按钮",
-        "全局菜单新增动作时必须检查 light/dark 与六套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大"
+        "全局菜单新增动作时必须检查 light/dark 与七套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大"
       ],
       "music": {
         "defaultMuted": true,
@@ -91,7 +92,8 @@
           "rh-style": "rh-tide.mp3",
           "rh-hidden": "rh-hidden-saya.mp3",
           "naruto-style": "naruto-shinsei-gyakuten.mp3",
-          "eva-style": "eva-decisive-battle.mp3"
+          "eva-style": "eva-decisive-battle.mp3",
+          "yyh-style": "yyh-unbalanced-kiss-piano.mp3"
         },
         "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 主题隐藏模式是唯一例外，会自动切换隐藏音乐并解除静音。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
       }
@@ -188,6 +190,19 @@
           "headerMark": "EVA"
         },
         "music": "eva-decisive-battle.mp3"
+      },
+      "yyh": {
+        "label": "幽游白书风格",
+        "description": "幽游白书灵界侦探视觉模板：暗紫青绿终端、灵丸能量、霓虹灵界地图、战斗卡片、REI MAP 小地图与灵界符号水印；浅色/深色都要保证工具属性、长文本、素材预览和全局菜单可读。",
+        "default": false,
+        "visuals": {
+          "style": "yyh",
+          "iconPack": "yyh",
+          "canvasPattern": "spirit-map",
+          "nodeFrame": "spirit-case",
+          "headerMark": "REI GUN"
+        },
+        "music": "yyh-unbalanced-kiss-piano.mp3"
       }
     },
     "defaultStyle": "pixel",
@@ -203,7 +218,7 @@
     ]
   },
   "repository": "https://github.com/T8mars/T8-penguin-canvas",
-  "totalNodes": 39,
+  "totalNodes": 40,
   "phases": {
     "phase0": {
       "label": "基础设施",
@@ -399,7 +414,7 @@
         "NODE_GROUPS 各分类 filter 补充 && !n.hidden 过滤隐藏节点",
         "Canvas.tsx 端口拖出后的候选选择器(candidateMetas) 首行补充 if (meta.hidden) return [] 过滤",
         "隐藏节点清单(13 个)——特殊节点 5: multi-angle-3d/panorama-720/penguin-portrait/portrait-metadata/storyboard-grid; 工具节点 6: drawing-board/browser/image-compare/frame-extractor/remove-bg/upscale; 辅助节点 2: edit/video-output",
-        "可见节点清单——input(2): upload/output; core(6): text/image/video/seedance/audio/llm; rh(2): runninghub/rh-config; utility(3): resize/combine/grid-crop; auxiliary(3): idea/bp/relay; toolbox(2): cinematic/video-motion —— 合计 18 个可见",
+        "历史可见节点清单记录：该段为 v1.0 隐藏节点阶段的快照；当前权威清单以 features.json categories 与 src/config/nodeRegistry.ts 为准。",
         "左侧侧边栏、右键画布空白区快添加(QUICK_NODES=input+core)、从 Handle 拖出后出现的能力匹配候选菜单三个入口均不再出现隐藏节点",
         "需要重新启用某个节点时,只需在 nodeRegistry.ts 对应行删除 hidden: true 即可,零代码改动"
       ]
@@ -1255,12 +1270,121 @@
         "编辑图片弹窗的宫格切分默认从 2×2 调整为 3×3，并在预设宫格与自定义切线两种模式中给 gap 去缝间距补充滑杆；数字框与滑杆实时互相同步，方便用户快速感知缝隙大小。",
         "公开版本同步到 1.6.1：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 docs/theme-design-guide.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
       ]
+    },
+    "phase81": {
+      "label": "跨画布素材发送与 Eagle 入库 (v1.6.2)",
+      "status": "complete",
+      "items": [
+        "新增 SendMaterialsModal 发送素材弹窗，框选上传素材、输出素材、素材集或从资源库卡片触发时，会汇总图像 / 视频 / 音频 / 文本并显示素材概览。",
+        "发送方式支持智能保持、合并素材集、上传素材、拆成多个上传、输出素材；目标画布支持搜索与明确选中态，底部展示当前选择，发送 / 保存 / Eagle 操作都有忙碌反馈。",
+        "Canvas 跨画布写入目标画布 JSON 后刷新画布列表；勾选发送后切换时，会在目标画布加载完成后自动定位到新建素材节点中心，当前画布发送也会聚焦新节点。",
+        "同批素材发送写入 sendBridgeSignature / sendBridgeMode / sendBridgeSourceCanvasId；重复向同一画布发送相同素材时会先替换旧批次，旧版无签名但由发送功能创建的同素材节点也会被清理，避免 2 个素材多次累计成 8 个节点。",
+        "新增后端 /api/eagle/status 与 /api/eagle/import，本地 Eagle API 只允许 localhost / 127.0.0.1 / ::1，支持本地 input/output 文件、资源库文件、资源库素材集文件与文本临时 txt 入库。",
+        "设置页新增 Eagle 本地接口地址，默认 http://127.0.0.1:41595；_post_build.cjs 增加 routes/eagle.t8c 检查，确保 Electron 打包不会漏掉 Eagle 路由。",
+        "公开版本同步到 1.6.2：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase82": {
+      "label": "跨画布素材发送体验优化 (v1.6.3)",
+      "status": "complete",
+      "items": [
+        "SendMaterialsModal 新增本机发送历史，最多保留 12 条成功发送记录，记录目标画布、发送方式、素材摘要、素材签名与发送时间。",
+        "发送弹窗左侧展示最近 4 条发送历史，点击历史可恢复目标画布与发送方式；目标画布区域新增最近发送画布快捷入口，减少多画布项目中的搜索成本。",
+        "同一批素材再次发送到同一目标画布时，弹窗会显示重复素材提示，提醒用户本次会优先复用既有 sendBridgeSignature 去重替换机制，避免旧发送节点反复堆叠。",
+        "发送目标初始化增加兜底：如果历史中的旧目标画布已不存在，会自动回退到当前画布或第一个可用画布，避免空目标导致用户迷惑。",
+        "公开版本同步到 1.6.3：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase83": {
+      "label": "肖像大师基础可用版 (roadmap phase 1)",
+      "status": "complete",
+      "items": [
+        "新增 roadmap.md，记录肖像大师四阶段开发要求：基础可用版、Avatar 可视预览、角色库与复用、高级随机与批量角色；负面约束暂不开发。",
+        "工具箱分类新增「肖像大师」节点，类型 portrait-master，节点只输出 prompt/text/metadata，不直接生成图片。",
+        "肖像大师内置基础人物、五官、头发、妆容、身体标记、服装、配饰、气质神情、画面控制 9 大类词库，每个小参数自动补齐到 100 个可选词条，支持不选、锁定随机、权重与自定义补充。",
+        "节点默认输出英文 prompt，同时保留中文 UI 摘要；运行按钮复用工具箱输出协议，会创建或更新下游 OutputNode，也可手动连线给图像、视频、SD2.0、LLM、RunningHub 等节点消费。",
+        "UI 使用 t8-node / t8-card / t8-btn / t8-input / t8-mini-icon-button 主题语义类，随现有多主题模板自动适配。"
+      ]
+    },
+    "phase84": {
+      "label": "肖像大师 Avatar 可视预览 (roadmap phase 2)",
+      "status": "complete",
+      "items": [
+        "肖像大师节点的 Avatar 占位预览升级为轻量 SVG 分层预览，显示头发、脸型、肤色、眼睛、眉毛、嘴型、服装、发饰、眼镜/面饰、体表标记和氛围背景。",
+        "portraitMasterOptions 词库新增 previewTag / preview 元数据，并通过 resolvePortraitPreview(selection) 统一汇总预览状态，避免在 UI 里为每个词条写绘图分支。",
+        "配饰大类补充「眼镜/面饰」分组，所有小参数统一扩展为 100 项，既参与 prompt 也驱动 Avatar 可视层。",
+        "Avatar 预览只提供创作方向感，不生成真实图片、不调用后端、不消耗 API；运行输出 metadata 会携带 preview 快照，方便后续角色库阶段复用。"
+      ]
+    },
+    "phase85": {
+      "label": "画布全貌快捷键与文本节点缩放坐标修复 (v1.6.4)",
+      "status": "complete",
+      "items": [
+        "新增画布空白处 Z 快捷键，调用 fitView 缩放到当前画布全貌；快捷键面板和 README 同步展示，输入框、节点、弹窗和侧边栏聚焦时不会误触。",
+        "修复文本节点手动拉大/缩小时输出端口与连线分离：ResizableCorners 透出 onResizeEnd，TextNode 在 resize 中、resize 结束和 DOM 尺寸实际变化后都刷新 ReactFlow node internals。",
+        "TextNode 使用 ResizeObserver + 双 requestAnimationFrame 兜底，确保 ReactFlow 读取的是最终落定后的 handleBounds，避免视觉节点尺寸与内部连线坐标晚一拍。",
+        "公开版本同步到 1.6.4：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase86": {
+      "label": "肖像大师 Avatar 与 LLM 默认模型修复 (v1.6.5)",
+      "status": "complete",
+      "items": [
+        "肖像大师词库扩展为每个小参数 100 个可选词条，README、features 和 roadmap 从“每类百项”统一改为“每个小参数 100 项”。",
+        "Avatar 轻量预览新增发际线遮罩，修复部分发型露出秃顶的问题；预览卡片增高，标签下移，人物主体按身体层与头部/配饰/阴影层分别校正，改善视觉居中。",
+        "肖像大师节点外层从 overflow-hidden 改为 overflow-visible，避免左右 ReactFlow 输入/输出端口被裁成半个。",
+        "LLM/Vision 第一个模型的显示名与实际后端模型 id 统一为 gemini-3.1-flash-lite-preview，减少用户误判。",
+        "公开版本同步到 1.6.5：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase87": {
+      "label": "肖像大师角色库与高级随机批量 (v1.6.6)",
+      "status": "complete",
+      "items": [
+        "肖像大师编辑器完成 roadmap 第三阶段：支持当前角色 JSON 导出、角色库 JSON 导入/导出、本机常用角色收藏、跨画布发送肖像大师配置、跨画布发送输出 prompt，以及一键在当前画布生成文本节点。",
+        "肖像大师可保存到资源库「角色」分类，沿用现有文本素材集协议保存 t8-portrait-master JSON；资源库插入时会识别该 JSON 并直接恢复为肖像大师节点，避免新增后端资源类型造成兼容风险。",
+        "肖像大师编辑器完成 roadmap 第四阶段：支持随机全部、只填空项、只随机当前大类、重随未锁定项，支持随机种子复现和清纯/御姐/赛博/古风/学院/暗黑/偶像/战斗/洛丽塔/职场等风格包。",
+        "高级随机增加基础冲突规则：套装优先覆盖上衣/下装，帽子/头盔/兜帽类头饰会清理刘海，减少 prompt 自相矛盾。",
+        "批量角色支持一次生成 1-24 条 prompt，可输出为多个文本节点，也可输出为一个文本素材集，方便接入循环器、文本分割、图像、视频、LLM 与 RunningHub 链路。",
+        "公开版本同步到 1.6.6：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase88": {
+      "label": "画布最近节点定位快捷键 (v1.6.6-hotfix)",
+      "status": "complete",
+      "items": [
+        "新增画布空白处 G 快捷键：未选中任何节点时，以当前屏幕中心对应的画布坐标为基准，定位到最近的普通节点并居中显示。",
+        "G 快捷键复用 Z 全貌视图的防误触边界：输入框、节点、弹窗、侧边栏、工具栏、右键菜单聚焦时不会触发；Ctrl+G 打组逻辑保持不变。",
+        "定位时保持当前 zoom 的自然感并限制在 0.55-1.15 之间，节点居中后添加一次临时高亮，不写入节点 data，避免触发自动保存或跨画布同步副作用。",
+        "快捷键面板、README 和 features.json shortcuts 同步新增 G 说明。"
+      ]
+    },
+    "phase89": {
+      "label": "幽游白书官方主题 (v1.6.7)",
+      "status": "complete",
+      "items": [
+        "新增第七套官方主题「幽游白书风格」，以灵界侦探、灵丸能量、霓虹灵界地图、暗紫青绿终端和战斗卡片为核心视觉母题。",
+        "主题枚举、内置模板、后端主题白名单、主题编辑器、默认音乐、顶栏品牌、侧栏图标、MiniMap、GroupBox 和全局菜单全部接入 yyh 视觉分支。",
+        "新增 src/styles/theme-yyh.css，覆盖节点外壳、节点标题、输入框、按钮、端口、连线、选中态、资源库、右键菜单、NodeActionBar、SHIFT 灵剑剪线和 light/dark legacy internal controls。",
+        "公开主题设计规范同步补充 yyh / spirit-map / spirit-case / spirit-gun，幽游白书默认音乐改为 yyh-unbalanced-kiss-piano.mp3；后续官方主题必须同步覆盖全局 UI 表面而不是只换颜色。"
+      ]
+    },
+    "phase90": {
+      "label": "幽游白书浅色水印独立化 (v1.6.8)",
+      "status": "complete",
+      "items": [
+        "新增 src/assets/theme-yyh-wordmark-light.svg，作为幽游白书浅色模式专用透明底线稿 / HUD 水印，避免复用深色终端面板导致浅色画布底部出现沉重贴片。",
+        "src/styles/theme-yyh.css 新增 --yyh-wordmark-light-image 与 --yyh-wordmark-active-image，light/dark 自动切换水印；深色继续使用 theme-yyh-wordmark.svg，浅色使用轻量线稿。",
+        "浅色模式下同步降低画布雷达线条、主水印、GroupBox 水印与组内装饰层透明度，让节点和连线保持第一视觉层级。",
+        "README、features.json 与公开主题设计规范同步补充：强风格主题允许浅色 / 深色独立水印，新增主题必须分别检查 light/dark 水印可读性和压迫感。",
+        "公开版本同步到 1.6.8：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 docs/theme-design-guide.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
     }
   },
   "categories": {
     "input": {
       "label": "素材资源",
-      "count": 3,
+      "count": 4,
       "nodes": [
         {
           "type": "upload",
@@ -1481,7 +1605,7 @@
     },
     "toolbox": {
       "label": "工具箱",
-      "count": 3,
+      "count": 4,
       "nodes": [
         {
           "type": "cinematic",
@@ -1497,6 +1621,11 @@
           "type": "multi-angle-visual",
           "label": "可视化多角度",
           "description": "可视化调节方位 / 俯仰 / 远近，支持批量角度、Prompt 模式、EN / 中切换、前后缀、镜头收藏、JSON 导入导出与运行输出到 OutputNode"
+        },
+        {
+          "type": "portrait-master",
+          "label": "肖像大师",
+          "description": "捏人 Prompt 设计器：9 大类词库，每个小参数 100 个可选词条；支持 Avatar 分层预览、不选、锁定、权重、自定义补充、默认英文 prompt、角色库收藏、JSON 导入导出、资源库角色分类、跨画布发送配置/Prompt、高级随机、种子复现、风格包与批量输出文本节点/文本素材集"
         }
       ]
     }
@@ -1911,6 +2040,10 @@
         "GET /api/resources/set/:id — 素材集 JSON manifest",
         "GET /api/resources/set-file/:id/:index — 素材集内第 index 个媒体文件"
       ],
+      "eagle": [
+        "GET /api/eagle/status — 检查本机 Eagle API 可达性，仅允许 127.0.0.1/localhost",
+        "POST /api/eagle/import — 将上传素材、输出素材、素材集或文本发送到本机 Eagle，支持 /files/input、/files/output、资源库文件、素材集文件和 http(s) URL"
+      ],
       "proxy": [
         "POST /api/proxy/image — 图像生成(贞贞工坊,自动转存)",
         "POST /api/proxy/image/fal/submit — FAL Queue 提交(gpt-image-2-fal / nano-banana-pro-fal,同步返 images[] 或异步返 requestId+responseUrl)",
@@ -1969,7 +2102,8 @@
     "drawing-board",
     "cinematic",
     "video-motion",
-    "multi-angle-visual"
+    "multi-angle-visual",
+    "portrait-master"
   ],
   "nonExecutableNodeTypes": {
     "description": "不参与批量运行的节点(纯展示 / 参数记录 / 隐藏配置)",
@@ -2000,6 +2134,8 @@
     "右键点击节点/选区": "弹出菜单(组执行/打组/合并到素材集/复制/删除)",
     "打组后右上角 ▶": "执行组内所有节点",
     "打组后双击标题": "重命名节点组",
+    "Z": "焦点在画布空白处时缩小并查看画布全貌",
+    "G": "焦点在画布空白处且未选中节点时定位当前视野最近节点",
     "中键 / 右键拖动": "平移画布",
     "空格 + 拖拽": "平移画布(备选)",
     "ESC (拖拽素材中)": "取消跨节点拖拽"

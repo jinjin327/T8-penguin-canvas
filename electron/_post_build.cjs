@@ -187,6 +187,7 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'routes', 'recharge.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'resources.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'themes.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'routes', 'eagle.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'utils', 'duckPayload.t8c'));
 
   console.log('\n[2] 前端 dist:');
@@ -199,6 +200,7 @@ function main() {
   checkFrontendAsset('rh-hidden-saya-', '.mp3');
   checkFrontendAsset('naruto-shinsei-gyakuten-', '.mp3');
   checkFrontendAsset('eva-decisive-battle-', '.mp3');
+  checkFrontendAsset('yyh-unbalanced-kiss-piano-', '.mp3');
 
   console.log('\n[3] 清除可能混入的明文后端源码:');
   nukePlainBackend();

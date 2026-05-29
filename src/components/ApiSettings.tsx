@@ -79,6 +79,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [resourceLibraryPathInput, setResourceLibraryPathInput] = useState<string>('');
   // v1.3.6: 主题模板路径输入
   const [themeTemplatePathInput, setThemeTemplatePathInput] = useState<string>('');
+  // 本地 Eagle API 地址
+  const [eagleApiBaseInput, setEagleApiBaseInput] = useState<string>('');
   // 分类独立 Key 区块折叠状态（新手友好：默认折叠，点击展开）
   const [classifiedOpen, setClassifiedOpen] = useState(false);
   // 眼睛预览拉取的明文（仅缓存，不提交）
@@ -101,6 +103,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       setCanvasAutoSavePathInput((settings as any)?.canvasAutoSavePath || '');
       setResourceLibraryPathInput((settings as any)?.resourceLibraryPath || '');
       setThemeTemplatePathInput((settings as any)?.themeTemplatePath || '');
+      setEagleApiBaseInput((settings as any)?.eagleApiBase || '');
     }
   }, [open, settings]);
 
@@ -159,6 +162,11 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     const oldThemeTemplatePath = (settings as any)?.themeTemplatePath || '';
     if (newThemeTemplatePath && newThemeTemplatePath !== oldThemeTemplatePath) {
       (patch as any).themeTemplatePath = newThemeTemplatePath;
+    }
+    const newEagleApiBase = (eagleApiBaseInput || '').trim();
+    const oldEagleApiBase = (settings as any)?.eagleApiBase || '';
+    if (newEagleApiBase && newEagleApiBase !== oldEagleApiBase) {
+      (patch as any).eagleApiBase = newEagleApiBase;
     }
     if (Object.keys(patch).length === 0) {
       onClose();
@@ -533,6 +541,31 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
               <span className="flex items-center gap-1.5">
                 <Lock size={11} /> 内置主题不可删除；自定义主题可导入、导出、编辑和删除。
+              </span>
+            </div>
+          </div>
+
+          {/* 本地 Eagle API */}
+          <div className={`pt-3 border-t ${isPixel ? 'border-[var(--px-ink)]/30' : isDark ? 'border-white/10' : 'border-black/10'}`}>
+            <label className={`text-sm font-medium flex items-center gap-2 flex-wrap ${labelCls}`}>
+              <ExternalLink size={14} className={isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-lime-300' : 'text-lime-700'} />
+              Eagle 本地接口
+              <span className={`text-[11px] font-normal ${hintCls}`}>· 发送素材到本机 Eagle 时使用</span>
+            </label>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={eagleApiBaseInput}
+                onChange={(e) => setEagleApiBaseInput(e.target.value)}
+                placeholder="http://127.0.0.1:41595"
+                className={inputCls}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className={`flex items-center gap-2 flex-wrap text-[11px] mt-1.5 ${hintCls}`}>
+              <span className="flex items-center gap-1.5">
+                <Lock size={11} /> 后端只允许 127.0.0.1 / localhost，避免把本地素材发送到远端代理。
               </span>
             </div>
           </div>
