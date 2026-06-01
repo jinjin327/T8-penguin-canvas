@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.8.4",
-  "lastUpdated": "2026-06-01-v1.8.4-advanced-provider-generation",
+  "version": "1.8.5",
+  "lastUpdated": "2026-06-01-v1.8.5-advanced-provider-settings-guidance",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,10 +16,10 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.8.4",
-    "semverVersion": "1.8.4",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.4：扩展 API 平台真实生成链路落地。OpenAI 兼容支持图像 / 视频 / LLM，ModelScope 支持异步图像，火山引擎支持 Seedream 图像与 Seedance 视频，即梦 CLI 支持图像/视频生成，ComfyUI 支持本地工作流图像高级来源；默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
-    "installer": "已按 npm run dist 重新打包 Electron；最终安装包为 dist_electron/T8-PenguinCanvas-Setup-1.8.4.exe（NSIS，129.35 MB），并通过 win-unpacked 10 秒启动冒烟。",
+    "version": "1.8.5",
+    "semverVersion": "1.8.5",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.5：扩展 API 平台设置页可读性与排版修复。OpenAI 兼容、ModelScope、火山引擎、本地 ComfyUI、即梦 CLI 现在按平台用途、适用节点、连接配置、模型列表和高级项分区说明，避免新手误以为必填或看不懂内部字段；默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
+    "installer": "本次只推送 GitHub 源码新版本，未重新打包 Electron；最近一次安装包仍为 dist_electron/T8-PenguinCanvas-Setup-1.8.4.exe（NSIS，129.35 MB），并已通过 win-unpacked 10 秒启动冒烟。",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
@@ -1698,6 +1698,17 @@
         "新增 /api/proxy/external/image、/api/proxy/external/video、/api/proxy/external/llm，输出统一转存到 /files/output/*，继续兼容 OutputNode、资源库、节点发送、Loop 与自动保存。",
         "验证：node --test tests/*.test.ts 通过 59/59；npm run build 通过（仅保留既有 chunk size 与 react-vendor 空 chunk 警告）；浏览器插件因当前本地 URL 安全策略阻止未做交互冒烟。"
       ]
+    },
+    "phase117": {
+      "label": "扩展 API 平台设置页说明与排版优化 (v1.8.5)",
+      "status": "complete",
+      "items": [
+        "ApiSettings 扩展平台面板新增平台说明卡：解释 OpenAI 兼容、ModelScope、火山引擎、本地 ComfyUI、即梦 CLI 的用途、适用节点、连接方式与模型填写规则。",
+        "扩展平台表单改为分区式信息架构：基础信息、连接密钥/本地 CLI、平台高级项、节点可选模型分开展示，减少 Base URL、Token、AK/SK、workflow JSON 等字段的理解成本。",
+        "扩展平台展开时 API 设置弹窗加宽，左侧平台列表改成清晰的纵向卡片，显示平台名称、启用状态和适用节点，避免像素主题按钮样式导致文字截断或横向挤压。",
+        "顶部摘要简化为已启用数量和密钥数量，详细 ComfyUI/即梦状态移到展开说明里，避免折叠按钮信息过密。",
+        "验证：node --test tests/advancedProviderFrontend.test.ts tests/advancedProviders.test.ts 通过 13/13；npm run build 通过（仅保留既有 chunk size 与 react-vendor 空 chunk 警告）；浏览器截图检查当前灌篮主题下无横向溢出。"
+      ]
     }
   },
   "categories": {
@@ -2334,12 +2345,13 @@
     },
     "advancedProviders": {
       "label": "扩展 API 平台【高级/可选】",
-      "status": "real-generation-routes-enabled",
-      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation / v1.8.2-settings-ui / v1.8.4-generation",
-      "placement": "API 设置页中位于「分类独立 API Key【可选】」之后、文件自动保存路径之前，默认折叠；未配置时不影响主流程。",
+      "status": "guided-settings-layout-enabled",
+      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation / v1.8.2-settings-ui / v1.8.4-generation / v1.8.5-guided-settings",
+      "placement": "API 设置页中位于「分类独立 API Key【可选】」之后、文件自动保存路径之前，默认折叠；未配置时不影响主流程。展开后左侧是平台卡片，右侧按说明、基础信息、连接配置、模型列表和高级项分区。",
       "principles": [
         "默认不改变贞贞工坊 / RunningHub / LLM 独立 Key 与分类 Key fallback 链路。",
         "只有用户主动展开、配置并在节点里选择扩展平台时才启用。",
+        "设置页必须解释每个平台的用途、适用节点和填写方式，避免把 Base URL、Token、模型列表、AK/SK、ComfyUI JSON 等内部字段直接平铺给用户。",
         "设置保存和节点调用解耦，节点仅保存 providerSource/providerId/providerModel/providerParams。",
         "所有扩展平台输出必须归一化到现有 OutputNode、资源库、自动保存、节点发送和 Loop 可识别的协议。",
         "Key、火山 AK/SK、CLI 路径和本地服务地址必须后端保存、脱敏展示并避免写入日志。"
@@ -2363,7 +2375,7 @@
         "backend/src/routes/externalProviders.js（POST /api/proxy/external/test-provider、/image、/video、/llm，响应只返回脱敏 provider，媒体输出转存 /files/output）"
       ],
       "frontend": [
-        "src/components/ApiSettings.tsx（扩展平台折叠区、平台表单、测试连接、ComfyUI 工作流 JSON/参数映射、设置导入导出）",
+        "src/components/ApiSettings.tsx（扩展平台折叠区、平台说明卡、分区表单、测试连接、ComfyUI 工作流 JSON/参数映射、设置导入导出）",
         "src/components/nodes/{ImageNode,VideoNode,SeedanceNode,LLMNode}.tsx（启用 provider 后显示高级来源，默认仍走主流程）",
         "src/utils/advancedProviders.ts（模型列表文本解析、摘要统计、masked key 状态判断、节点可用 provider 与外部图像尺寸映射）",
         "src/services/generation.ts（generateExternalImage / generateExternalVideo / generateExternalLlm）",
