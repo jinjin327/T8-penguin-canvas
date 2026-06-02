@@ -14,6 +14,11 @@ Accepted shapes:
 - `python/python.exe` with `remove_ai_watermarks` installed
 - `.venv/Scripts/python.exe` with `remove_ai_watermarks` installed
 
+If a Python entry and a CLI entry are both present, T8 probes the Python module
+first with a lightweight import/version check. This keeps the packaged app from
+misreporting "not installed" when the CLI cold-starts slowly in Torch/diffusers
+environments.
+
 Recommended manifest:
 
 `runtime-manifest.json` with upstream commit/version, Python version, torch build,

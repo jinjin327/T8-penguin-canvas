@@ -46,3 +46,11 @@ test('ApiSettings advanced provider fields stay mounted while typing and ModelSc
   assert.match(apiSettingsSource, /获取 Token · 国内/);
   assert.match(apiSettingsSource, /获取 Token · 国外/);
 });
+
+test('ApiSettings Jimeng CLI panel explains install, login, and executable path', () => {
+  assert.match(apiSettingsSource, /如何安装即梦 CLI/);
+  assert.match(apiSettingsSource, /curl -s https:\/\/jimeng\.jianying\.com\/cli \| bash/);
+  assert.match(apiSettingsSource, /dreamina login/);
+  assert.match(apiSettingsSource, /C:\\Users\\&lt;用户名&gt;\\bin\\dreamina\.exe/);
+  assert.match(apiSettingsSource, /测试连接/);
+});

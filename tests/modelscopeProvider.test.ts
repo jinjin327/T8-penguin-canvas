@@ -63,3 +63,30 @@ test('ModelScope image generation submits async task, polls, and normalizes outp
   assert.equal(calls[1].url, 'https://api-inference.modelscope.cn/v1/tasks/task-123');
   assert.equal(calls[1].init.headers['X-ModelScope-Task-Type'], 'image_generation');
 });
+
+test('ModelScope chat uses /v1 chat endpoint, strips Bearer prefix, and keeps long-call timeout', async () => {
+  const calls: any[] = [];
+  const provider = {
+    id: 'modelscope',
+    protocol: 'modelscope',
+    baseUrl: 'https://api-inference.modelscope.cn',
+    apiKey: 'Bearer ms-secret',
+    chatModels: [],
+  };
+
+  const result = await modelscope.generateChat(provider, {
+    messages: [{ role: 'user', content: 'hello' }],
+  }, {
+    fetchImpl: async (url: string, init: any) => {
+      calls.push({ url, init, body: JSON.parse(init.body) });
+      return jsonResponse({ choices: [{ message: { content: 'modelscope hello' } }] });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'modelscope hello');
+  assert.equal(result.model, 'Qwen/Qwen3-235B-A22B');
+  assert.equal(calls[0].url, 'https://api-inference.modelscope.cn/v1/chat/completions');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer ms-secret');
+  assert.equal(calls[0].body.model, 'Qwen/Qwen3-235B-A22B');
+});

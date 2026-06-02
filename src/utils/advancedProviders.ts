@@ -63,18 +63,34 @@ const LLM_PROTOCOLS = new Set(['openai-compatible', 'modelscope', 'volcengine'])
 const FALLBACK_MODELS: Record<AdvancedProviderNodeKind, Partial<Record<string, string[]>>> = {
   image: {
     'openai-compatible': ['gpt-image-1'],
-    modelscope: ['MusePublic/489_ckpt_FLUX_1'],
+    modelscope: [
+      'Tongyi-MAI/Z-Image-Turbo',
+      'Qwen/Qwen-Image-2512',
+      'Qwen/Qwen-Image-Edit-2511',
+      'black-forest-labs/FLUX.2-klein-9B',
+    ],
     volcengine: ['doubao-seedream-4-0-250828'],
     'jimeng-cli': ['jimeng-image-2k'],
   },
   video: {
     'openai-compatible': [],
-    volcengine: ['doubao-seedance-2-0-pro-250528'],
+    volcengine: [
+      'doubao-seedance-2-0-260128',
+      'doubao-seedance-2-0-fast-260128',
+      'doubao-seedance-1-5-pro-251215',
+      'doubao-seedance-1-0-pro-250528',
+      'doubao-seedance-1-0-lite-t2v-250428',
+      'doubao-seedance-1-0-lite-i2v-250428',
+    ],
     'jimeng-cli': ['seedance2.0fast_vip'],
   },
   llm: {
     'openai-compatible': ['gpt-4o-mini'],
-    modelscope: ['Qwen/Qwen3-Coder-480B-A35B-Instruct'],
+    modelscope: [
+      'Qwen/Qwen3-235B-A22B',
+      'Qwen/Qwen3-VL-235B-A22B-Instruct',
+      'MiniMax/MiniMax-M2.7:MiniMax',
+    ],
     volcengine: ['doubao-seed-1-6-250615'],
   },
 };

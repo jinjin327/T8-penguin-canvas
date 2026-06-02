@@ -1,6 +1,36 @@
 const DEFAULT_MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
+const DEFAULT_MODELSCOPE_IMAGE_MODELS = [
+  'Tongyi-MAI/Z-Image-Turbo',
+  'Qwen/Qwen-Image-2512',
+  'Qwen/Qwen-Image-Edit-2511',
+  'black-forest-labs/FLUX.2-klein-9B',
+];
+
+const DEFAULT_MODELSCOPE_CHAT_MODELS = [
+  'Qwen/Qwen3-235B-A22B',
+  'Qwen/Qwen3-VL-235B-A22B-Instruct',
+  'MiniMax/MiniMax-M2.7:MiniMax',
+];
+
+const DEFAULT_VOLCENGINE_IMAGE_MODELS = [
+  'doubao-seedream-4-0-250828',
+];
+
+const DEFAULT_VOLCENGINE_VIDEO_MODELS = [
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-1-5-pro-251215',
+  'doubao-seedance-1-0-pro-250528',
+  'doubao-seedance-1-0-lite-t2v-250428',
+  'doubao-seedance-1-0-lite-i2v-250428',
+];
+
+const DEFAULT_VOLCENGINE_CHAT_MODELS = [
+  'doubao-seed-1-6-250615',
+];
+
 const SUPPORTED_PROTOCOLS = new Set([
   'openai-compatible',
   'modelscope',
@@ -30,10 +60,13 @@ const DEFAULT_ADVANCED_PROVIDERS = [
     protocol: 'modelscope',
     baseUrl: DEFAULT_MODELSCOPE_BASE_URL,
     enabled: false,
-    imageModels: [],
+    imageModels: DEFAULT_MODELSCOPE_IMAGE_MODELS,
     videoModels: [],
-    chatModels: [],
-    defaults: {},
+    chatModels: DEFAULT_MODELSCOPE_CHAT_MODELS,
+    defaults: {
+      imageModel: DEFAULT_MODELSCOPE_IMAGE_MODELS[0],
+      chatModel: DEFAULT_MODELSCOPE_CHAT_MODELS[0],
+    },
   },
   {
     id: 'volcengine',
@@ -41,10 +74,14 @@ const DEFAULT_ADVANCED_PROVIDERS = [
     protocol: 'volcengine',
     baseUrl: DEFAULT_VOLCENGINE_BASE_URL,
     enabled: false,
-    imageModels: [],
-    videoModels: [],
-    chatModels: [],
-    defaults: {},
+    imageModels: DEFAULT_VOLCENGINE_IMAGE_MODELS,
+    videoModels: DEFAULT_VOLCENGINE_VIDEO_MODELS,
+    chatModels: DEFAULT_VOLCENGINE_CHAT_MODELS,
+    defaults: {
+      imageModel: DEFAULT_VOLCENGINE_IMAGE_MODELS[0],
+      videoModel: DEFAULT_VOLCENGINE_VIDEO_MODELS[1],
+      chatModel: DEFAULT_VOLCENGINE_CHAT_MODELS[0],
+    },
     volcengineConfig: {
       project: 'default',
       region: 'cn-beijing',
@@ -133,6 +170,10 @@ function normalizeModelList(values) {
     if (!out.includes(item)) out.push(item);
   }
   return out;
+}
+
+function mergeModelLists(defaults, values) {
+  return normalizeModelList([...(Array.isArray(defaults) ? defaults : []), ...(Array.isArray(values) ? values : [])]);
 }
 
 function normalizeUrl(value) {
@@ -294,6 +335,28 @@ function normalizeProvider(raw, previous = null) {
     defaults: normalizePlainObject(raw.defaults),
   };
 
+  if (id === 'modelscope' && protocol === 'modelscope') {
+    provider.imageModels = mergeModelLists(DEFAULT_MODELSCOPE_IMAGE_MODELS, provider.imageModels);
+    provider.chatModels = mergeModelLists(DEFAULT_MODELSCOPE_CHAT_MODELS, provider.chatModels);
+    provider.defaults = {
+      imageModel: DEFAULT_MODELSCOPE_IMAGE_MODELS[0],
+      chatModel: DEFAULT_MODELSCOPE_CHAT_MODELS[0],
+      ...provider.defaults,
+    };
+  }
+
+  if (id === 'volcengine' && protocol === 'volcengine') {
+    provider.imageModels = mergeModelLists(DEFAULT_VOLCENGINE_IMAGE_MODELS, provider.imageModels);
+    provider.videoModels = mergeModelLists(DEFAULT_VOLCENGINE_VIDEO_MODELS, provider.videoModels);
+    provider.chatModels = mergeModelLists(DEFAULT_VOLCENGINE_CHAT_MODELS, provider.chatModels);
+    provider.defaults = {
+      imageModel: DEFAULT_VOLCENGINE_IMAGE_MODELS[0],
+      videoModel: DEFAULT_VOLCENGINE_VIDEO_MODELS[1],
+      chatModel: DEFAULT_VOLCENGINE_CHAT_MODELS[0],
+      ...provider.defaults,
+    };
+  }
+
   if (protocol === 'volcengine') {
     provider.volcengineConfig = normalizeVolcengineConfig(raw.volcengineConfig || raw.volcengine_config, previousConfig.volcengineConfig);
   }
@@ -381,7 +444,12 @@ function getEnabledAdvancedProviders(providers) {
 module.exports = {
   DEFAULT_ADVANCED_PROVIDERS,
   DEFAULT_ADVANCED_PROVIDER_IDS,
+  DEFAULT_MODELSCOPE_CHAT_MODELS,
+  DEFAULT_MODELSCOPE_IMAGE_MODELS,
   DEFAULT_MODELSCOPE_BASE_URL,
+  DEFAULT_VOLCENGINE_CHAT_MODELS,
+  DEFAULT_VOLCENGINE_IMAGE_MODELS,
+  DEFAULT_VOLCENGINE_VIDEO_MODELS,
   DEFAULT_VOLCENGINE_BASE_URL,
   SUPPORTED_PROTOCOLS,
   getEnabledAdvancedProviders,

@@ -2,7 +2,32 @@ const openaiCompatible = require('./openaiCompatible');
 const { resolveMediaRef } = require('./mediaResolver');
 
 const DEFAULT_MODEL = 'Tongyi-MAI/Z-Image-Turbo';
+const DEFAULT_CHAT_MODEL = 'Qwen/Qwen3-235B-A22B';
+const DEFAULT_CHAT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 1500;
+
+function stripBearer(value) {
+  return String(value || '').trim().replace(/^Bearer\s+/i, '');
+}
+
+function modelscopeApiRoot(value) {
+  const base = String(value || 'https://api-inference.modelscope.cn/v1').trim().replace(/\/+$/, '');
+  if (!base) return 'https://api-inference.modelscope.cn/v1';
+  return base.endsWith('/v1') ? base : `${base}/v1`;
+}
+
+function chatProvider(provider) {
+  return {
+    ...provider,
+    protocol: 'modelscope',
+    baseUrl: modelscopeApiRoot(provider?.baseUrl),
+    apiKey: stripBearer(provider?.apiKey),
+    defaults: {
+      chatModel: DEFAULT_CHAT_MODEL,
+      ...(provider?.defaults || {}),
+    },
+  };
+}
 
 function parseSize(size) {
   const text = String(size || '1024x1024').trim().toLowerCase().replace('*', 'x');
@@ -42,7 +67,7 @@ async function responseJson(res) {
 }
 
 async function testProvider(provider, options = {}) {
-  const result = await openaiCompatible.testProvider(provider, options);
+  const result = await openaiCompatible.testProvider(chatProvider(provider), options);
   return {
     ...result,
     providerId: provider.id,
@@ -52,9 +77,9 @@ async function testProvider(provider, options = {}) {
 
 async function generateChat(provider, input = {}, options = {}) {
   const result = await openaiCompatible.generateChat(
-    { ...provider, protocol: 'modelscope' },
+    chatProvider(provider),
     input,
-    options,
+    { ...options, timeoutMs: Number(options.timeoutMs) || DEFAULT_CHAT_TIMEOUT_MS },
   );
   return {
     ...result,
@@ -78,7 +103,12 @@ async function resolveReferenceImages(refs, options = {}) {
 }
 
 async function generateImage(provider, input = {}, options = {}) {
-  const validation = openaiCompatible.validateProvider(provider, { apiKeyRequired: true });
+  const cleanProvider = {
+    ...provider,
+    baseUrl: modelscopeApiRoot(provider?.baseUrl),
+    apiKey: stripBearer(provider?.apiKey),
+  };
+  const validation = openaiCompatible.validateProvider(cleanProvider, { apiKeyRequired: true });
   if (!validation.ok) return { ...validation, providerId: provider?.id, protocol: 'modelscope' };
 
   const prompt = String(input.prompt || '').trim();
@@ -108,7 +138,7 @@ async function generateImage(provider, input = {}, options = {}) {
   }
 
   const headers = {
-    Authorization: `Bearer ${provider.apiKey}`,
+    Authorization: `Bearer ${cleanProvider.apiKey}`,
     'Content-Type': 'application/json',
     'X-ModelScope-Async-Mode': 'true',
   };

@@ -133,6 +133,8 @@ const MODELSCOPE_TOKEN_URLS = {
   intl: 'https://www.modelscope.ai/my/access/token',
 } as const;
 
+const JIMENG_CLI_INSTALL_COMMAND = 'curl -s https://jimeng.jianying.com/cli | bash';
+
 interface AdvancedProviderFormBlockProps {
   title: string;
   note?: string;
@@ -882,6 +884,23 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             title="2. 本地 CLI"
             note={guide?.connectionHint}
           >
+            <div className={guideBoxCls}>
+              <div className="flex items-start gap-2">
+                <Info size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 space-y-2">
+                  <div className={`font-bold ${labelCls}`}>如何安装即梦 CLI？</div>
+                  <p className={hintCls}>
+                    在 PowerShell 7、Git Bash 或 WSL 终端执行安装命令；安装完成后运行 <code className="font-mono">dreamina login</code> 登录，再回到这里点击“测试连接”。
+                  </p>
+                  <code className="block w-full overflow-x-auto rounded border px-2 py-1.5 font-mono text-[11px] leading-relaxed">
+                    {JIMENG_CLI_INSTALL_COMMAND}
+                  </code>
+                  <p className={hintCls}>
+                    Windows 常见路径是 <code className="font-mono">C:\Users\&lt;用户名&gt;\bin\dreamina.exe</code>；如果命令已加入 PATH，可直接填写 <code className="font-mono">dreamina</code>。装在 WSL 里时，勾选下面的 WSL 选项并填写发行版名称。
+                  </p>
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <label className="space-y-1 lg:col-span-2">
                 <span className={`text-[11px] ${labelCls}`}>dreamina 可执行路径</span>

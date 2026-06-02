@@ -98,7 +98,22 @@ test('advancedProviderModelOptions uses explicit lists before safe provider defa
   );
   assert.deepEqual(
     advancedProviderModelOptions({ id: 'modelscope', protocol: 'modelscope' } as any, 'llm'),
-    ['Qwen/Qwen3-Coder-480B-A35B-Instruct'],
+    [
+      'Qwen/Qwen3-235B-A22B',
+      'Qwen/Qwen3-VL-235B-A22B-Instruct',
+      'MiniMax/MiniMax-M2.7:MiniMax',
+    ],
+  );
+  assert.deepEqual(
+    advancedProviderModelOptions({ id: 'volcengine', protocol: 'volcengine' } as any, 'video'),
+    [
+      'doubao-seedance-2-0-260128',
+      'doubao-seedance-2-0-fast-260128',
+      'doubao-seedance-1-5-pro-251215',
+      'doubao-seedance-1-0-pro-250528',
+      'doubao-seedance-1-0-lite-t2v-250428',
+      'doubao-seedance-1-0-lite-i2v-250428',
+    ],
   );
 });
 

@@ -13,6 +13,7 @@ const {
   commandCandidates,
   normalizeMode,
   normalizeRegions,
+  redactCommandArgs,
   visibleArgs,
 } = require('../backend/src/tools/aiWatermark/runner.js');
 
@@ -114,6 +115,13 @@ test('non-image media is limited to metadata operations', () => {
   assert.throws(() => assertModeSupportsKind('visible', 'video'), /视频 \/ 音频当前仅支持元数据/);
 });
 
+test('redactCommandArgs hides sensitive invisible watermark tokens in logs', () => {
+  assert.deepEqual(
+    redactCommandArgs(['invisible', 'source.png', '--hf-token', 'hf_secret_123', '--steps', '50']),
+    ['invisible', 'source.png', '--hf-token', '***', '--steps', '50'],
+  );
+});
+
 test('commandCandidates prefers explicit packaged sidecar runtime before generic PATH', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 't8-aiw-runtime-'));
   const scripts = path.join(root, 'Scripts');
@@ -126,8 +134,13 @@ test('commandCandidates prefers explicit packaged sidecar runtime before generic
   try {
     const labels = commandCandidates().map((item: any) => item.label);
     const runtimeIndex = labels.findIndex((label: string) => label.includes('T8_REMOVE_AI_WATERMARKS_RUNTIME'));
+    const runtimePythonIndex = labels.findIndex((label: string) => label.includes('T8_REMOVE_AI_WATERMARKS_RUNTIME python'));
+    const runtimeCliIndex = labels.findIndex((label: string) => label.includes('T8_REMOVE_AI_WATERMARKS_RUNTIME CLI'));
     const pathIndex = labels.findIndex((label: string) => label.includes('PATH remove-ai-watermarks'));
     assert.ok(runtimeIndex >= 0);
+    assert.ok(runtimePythonIndex >= 0);
+    assert.ok(runtimeCliIndex >= 0);
+    assert.ok(runtimePythonIndex < runtimeCliIndex);
     assert.ok(pathIndex < 0 || runtimeIndex < pathIndex);
   } finally {
     if (previous === undefined) delete process.env.T8_REMOVE_AI_WATERMARKS_RUNTIME;

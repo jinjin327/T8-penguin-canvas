@@ -21,6 +21,35 @@ test('normalizeAdvancedProviders migrates missing settings to disabled default p
   assert.ok(providers.every((provider: any) => provider.enabled === false));
   assert.equal(providers.find((provider: any) => provider.id === 'modelscope')?.baseUrl, 'https://api-inference.modelscope.cn/v1');
   assert.equal(providers.find((provider: any) => provider.id === 'volcengine')?.baseUrl, 'https://ark.cn-beijing.volces.com/api/v3');
+  assert.deepEqual(providers.find((provider: any) => provider.id === 'modelscope')?.chatModels, [
+    'Qwen/Qwen3-235B-A22B',
+    'Qwen/Qwen3-VL-235B-A22B-Instruct',
+    'MiniMax/MiniMax-M2.7:MiniMax',
+  ]);
+  assert.deepEqual(providers.find((provider: any) => provider.id === 'volcengine')?.videoModels, [
+    'doubao-seedance-2-0-260128',
+    'doubao-seedance-2-0-fast-260128',
+    'doubao-seedance-1-5-pro-251215',
+    'doubao-seedance-1-0-pro-250528',
+    'doubao-seedance-1-0-lite-t2v-250428',
+    'doubao-seedance-1-0-lite-i2v-250428',
+  ]);
+});
+
+test('normalizeAdvancedProviders merges built-in provider model defaults into old empty settings', () => {
+  const providers = normalizeAdvancedProviders([
+    { id: 'modelscope', protocol: 'modelscope', imageModels: [], chatModels: [], enabled: true },
+    { id: 'volcengine', protocol: 'volcengine', imageModels: [], videoModels: [], chatModels: [], enabled: true },
+  ]);
+
+  const modelscope = providers.find((provider: any) => provider.id === 'modelscope');
+  const volcengine = providers.find((provider: any) => provider.id === 'volcengine');
+
+  assert.equal(modelscope?.imageModels[0], 'Tongyi-MAI/Z-Image-Turbo');
+  assert.equal(modelscope?.chatModels[0], 'Qwen/Qwen3-235B-A22B');
+  assert.equal(volcengine?.imageModels[0], 'doubao-seedream-4-0-250828');
+  assert.equal(volcengine?.videoModels[1], 'doubao-seedance-2-0-fast-260128');
+  assert.equal(volcengine?.chatModels[0], 'doubao-seed-1-6-250615');
 });
 
 test('normalizeAdvancedProviders filters invalid providers and clamps unsafe fields', () => {
