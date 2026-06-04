@@ -33,6 +33,8 @@ import {
   normalizeExcludedMaterialIds,
 } from '../../utils/materialExclusion';
 import MaterialPreviewSection from './MaterialPreviewSection';
+import SmartImage from '../SmartImage';
+import PromptTextarea from '../PromptTextarea';
 import ResizableCorners from './ResizableCorners';
 import { useOrderedMaterials } from './useOrderedMaterials';
 import { useUpdateNodeData } from './useUpdateNodeData';
@@ -564,9 +566,10 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                 <label key={param.key} className="block space-y-1">
                   <span className="text-[11px] font-bold" style={{ color: sub }}>{param.label}</span>
                   {param.kind === 'textarea' ? (
-                    <textarea
+                    <PromptTextarea
+                      title={`ComfyUI 参数 · ${param.label}`}
                       value={String(paramValues[param.key] ?? '')}
-                      onChange={(e) => setParam(param.key, e.target.value)}
+                      onValueChange={(value) => setParam(param.key, value)}
                       rows={param.rows || 4}
                       className={`${inputCls} resize-y`}
                       style={inputStyle}
@@ -608,7 +611,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
             {imageUrls.length > 0 && (
               <div className="grid grid-cols-2 gap-1.5">
                 {imageUrls.slice(0, 4).map((url, index) => (
-                  <img key={`${url}-${index}`} src={url} alt="ComfyUI 输出" className="w-full rounded object-contain" />
+                  <SmartImage key={`${url}-${index}`} src={url} alt="ComfyUI 输出" className="w-full rounded object-contain" thumbSize={420} />
                 ))}
               </div>
             )}

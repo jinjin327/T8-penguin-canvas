@@ -10,13 +10,13 @@ https://www.runninghub.cn/?inviteCode=rh-v1121
 My favorite girl Go YounJung
 # 🐧 贞贞的无限画布（企鹅共创版） · T8-penguin-canvas
 
-> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.9.7
+> AI 节点画布工作流工具 · Web + Electron 桌面端｜v2.0.2
 >
 > GitHub：<https://github.com/T8mars/T8-penguin-canvas>
 
 一个面向 AI 创作的 **节点式画布**：拖拽节点、连线编排、生成图像 / 视频 / 音频、调用 LLM、串接 RunningHub 工作流，叠加批量执行、智能对齐、打组、主题模板与终端日志。Web 浏览器即可使用，亦可一键打包为 Windows 桌面端（NSIS 安装包）。
 
-![status](https://img.shields.io/badge/version-v1.9.7-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![status](https://img.shields.io/badge/version-v2.0.2-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
 
 ---
 
@@ -35,7 +35,7 @@ My favorite girl Go YounJung
 
 ## ✨ 功能亮点
 
-- 🎨 **42 个节点**，覆盖文本 / 图像 / 视频 / 音频 / LLM / RunningHub / 工具 / 辅助 / 工具箱 / 输出预览 / 上传素材 / 素材集
+- 🎨 **48 个节点**，覆盖文本 / 图像 / 视频 / 音频 / LLM / RunningHub / ComfyUI / 3D / 工具 / 辅助 / 工具箱 / 输出预览 / 上传素材 / 素材集
 - 🧺 **画布级批量导入 + 素材合集打散**：上传节点支持一次选择多张图 / 多个视频 / 多段音频；也可直接把剪贴板或文件拖到画布，同类型多素材自动形成合集，上传和输出合集都可一键打散为多个独立素材节点
 - 👁️ **上传 / 输出图像原图悬停预览**（v1.8.7）：上传素材与输出素材的图像卡片在 hover 时显示小眼睛按钮，鼠标停在按钮上可按 100% 原尺寸预览，超出视口时自动等比收进可见区域，输出素材入口位于图像对比按钮下方
 - 🧹 **生成节点上游素材单项排除**（v1.8.8）：图像 / 视频 / SD2.0 / 音频 / LLM / RunningHub / RH 工具节点的上游素材缩略图右下角可点 X，从当前节点排除单个传入素材但不切断连线，并可用“恢复N”一键恢复
@@ -45,7 +45,7 @@ My favorite girl Go YounJung
 - ⌨️ **自定义快捷键设置**（v1.9.1）：顶部工具栏 `?` 打开快捷键设置，可录制组合键、清空单项、单项 / 全部恢复默认；撤销、重做、复制粘贴、打组、画布定位、资源库和连线导航都走统一配置并本地持久化，冲突与浏览器保留键会即时提示
 - 🔔 **任务完成提示音**：顶部工具条可独立开关，默认开启；图像 / 视频 / SD2.0 / 音频 / LLM 任务成功完成后播放轻提示音，5 秒内最多响一次，和主题音乐通道分开，主题音乐静音时仍可提示
 - 📁 **跨平台本地路径默认值**：Windows 继续默认 `D:\zhenzhen`，macOS / Linux 默认 `~/zhenzhen`；旧版非 Windows 配置若仍是硬编码默认值会自动迁移，自定义路径不会被覆盖
-- 🏷️ **生成提示词 @ 素材提及**：图像 / 视频 / SD2.0 / 音频 / LLM / RunningHub / RH 钱包应用 / RH 超市文本参数可输入 `@` 选择当前上游素材，输入框内显示小预览图，提交时稳定解析为 `@image1` / `@video1` / `@audio1`
+- 🏷️ **生成提示词 @ 素材提及 + 大编辑器**：图像 / 视频 / SD2.0 / 音频 / LLM / RunningHub / RH 钱包应用 / RH 超市文本参数可输入 `@` 选择当前上游素材，输入框内显示统一对齐的小预览 chip，提交时稳定解析为 `@image1` / `@video1` / `@audio1`；聚焦提示词框按 `Alt+Enter` 或点击放大按钮可打开全局大编辑器，`Ctrl+Enter` 完成、`Esc` 取消。
 - 📝 **文本节点自由缩放**：文本节点四角拖拽可独立调整宽高，输出端口固定贴合右侧中点，并在尺寸变化后刷新 ReactFlow internals，避免连线和端口脱离
 - 🔗 **RH 文本 NodeID 绑定**（v1.9.0）：文本节点可填写 RH 节点序号，RunningHub / RH 钱包应用 / RH 超市会按应用参数里的 RH nodeId 自动匹配上游文本；节点内也能手动选择绑定文本，冲突和错误序号会保留清晰状态提示
 - 🧩 **xyflow 12** 画布引擎：缩放、平移、连线、迷你地图、控制条、SPA 兜底
@@ -57,6 +57,8 @@ My favorite girl Go YounJung
 - 🧱 **宫格编辑拼版节点**（v1.9.2）：工具节点新增宫格编辑，可接收上游图像或本地上传，按 2×2 / 3×3 / 3×4 / 4×3 / 1×4 / 4×1 与自定义宽高生成分镜拼版图；支持 adaptive 完整显示、拖拽排序、单格删除、序号叠加、拆分输出和 `/api/image/grid-compose` 生成 PNG
 - 🎬 **电影感组合器**：电影感节点支持成片风格、镜头、光影、调色、质感各 50 项，带中英文 prompt、强度控制、收藏复用、JSON 导入/导出和一键运行输出
 - 🎥 **视频运镜组合器**：视频运镜节点支持成片场景、运镜动作、路径、节奏、稳定和主体约束各 50 项，带可响应 50 项动作 / 50 项路径的路线示意、中英文 prompt、收藏复用、JSON 导入/导出和一键运行输出
+- 🌐 **3D 全景节点**：新增 3D 分类与全景预览节点，使用项目依赖按需加载 Three.js，支持全景贴图拖拽旋转、FOV、缩放、比例控制和当前视角导出；图片预览采用 lazy loading 与 async decoding，降低大画布首屏压力
+- 🔗 **聚合解析节点**：工具箱新增聚合解析，基于 ParseHub bridge 支持 17+ 社媒分享短链 / 分享码解析，前端强制合规确认，后端同样校验 `acceptedCompliance`，默认只解析远端媒体地址，用户显式选择后才下载到本地输出目录
 - 🧍 **肖像大师**：工具箱新增捏人 Prompt 设计器，内置 9 大类词库，每个小参数 100 个可选词条，支持不选、锁定、权重、自定义补充、Avatar 分层方向预览、角色库收藏、JSON 导入导出、资源库角色分类、跨画布发送配置 / Prompt、高级随机、风格随机包、种子复现和批量输出文本节点 / 文本素材集
 - 🧍‍♂️ **姿势大师**：支持 100 种常用姿势、多人骨架、MediaPipe 识别、手部控制、A/B 关键帧、姿势库、批量分镜，并可在节点内切换线稿 / OpenPose / COCO 预览与运行输出；OpenPose/COCO keypoints JSON 可单独导出给 ComfyUI / ControlNet 复用
 - 🧪 **Grok Image / Sora2 FAL / Grok Video FAL / 即梦 CLI Seedance**：图像节点新增 Grok Image TAB；视频节点模型类型默认 `Grok Video → Veo 3.1 → Sora2`，Grok Video TAB 默认 `Grok Video 1.5 (FAL)`，图像传入默认 base64，最多 1 张参考图且不发送比例参数；选择即梦 CLI Seedance 时支持 9 张图像、3 个视频、3 段音频参考，旧版 Grok FAL / Sora2 FAL 仍保留兼容入口
