@@ -65,6 +65,7 @@ const aiWatermarkRouter = require('./routes/aiWatermark');
 const cloudUploadsRouter = require('./routes/cloudUploads');
 const parseHubRouter = require('./routes/parseHub');
 const achievementsRouter = require('./routes/achievements');
+const topazRouter = require('./routes/topaz');
 
 app.use('/api/canvas', canvasRouter);
 app.use('/api/settings', settingsRouter);
@@ -79,6 +80,7 @@ app.use('/api/ai-watermark', aiWatermarkRouter);
 app.use('/api/cloud-uploads', cloudUploadsRouter);
 app.use('/api/parsehub', parseHubRouter);
 app.use('/api/achievements', achievementsRouter);
+app.use('/api/topaz', topazRouter);
 
 // ========== 前端静态资源托管 (Electron 生产模式) ==========
 const FRONTEND_DIST = process.env.T8PC_FRONTEND_DIST;

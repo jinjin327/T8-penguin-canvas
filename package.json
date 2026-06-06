@@ -1,7 +1,7 @@
 {
   "name": "t8-penguin-canvas",
   "private": false,
-  "version": "2.0.4",
+  "version": "2.0.8",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "T8-penguin-canvas — AI 节点画布工作流工具（Web + Electron 桌面端）",
@@ -46,21 +46,26 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@mediapipe/tasks-vision": "^0.10.35",
     "@xyflow/react": "^12.10.0",
     "bytenode": "^1.5.7",
     "cors": "^2.8.5",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.3",
     "express": "^4.21.0",
     "lucide-react": "^0.468.0",
     "multer": "^2.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sharp": "^0.34.5",
+    "three": "^0.184.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
     "concurrently": "^9.0.0",
@@ -110,14 +115,18 @@
       {
         "from": "dist",
         "to": "frontend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}"
@@ -126,7 +135,9 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.developer-tools",
