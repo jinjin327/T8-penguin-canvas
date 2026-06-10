@@ -1450,6 +1450,8 @@ const MODEL_USAGE_HELP_TEXT = `特别注意事项：
 gpt-image-2-all模型（default分组）只能出1K图，速度最快，最稳定，审核最松
 gpt-image-2模型（default分组）可以出1K，2K，4K图，2K，4K不一定稳定，如果提示系统错误，降低分辨率重试，超过1K，需要选择分辨率， auto不支持1K以上
 gpt-image-2-fal模型，兜底模型，支持2K，4K，价格较贵
+gpt-image-2-2k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）
+gpt-image-2-4k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）
 nano-banana-2和nano-banana-pro模型，需要用gemini优质分组，default分组不稳定（尤其4K）
 nano-banana-2-fal和nano-banana-pro-fal模型，兜底模型，支持4K，价格较贵
 grok-4.2-image模型（Default分组），审核最松，可以做各种姿势，支持多图编辑，保持一致性需要单独写保证脸部100%一致性不变

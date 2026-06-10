@@ -22,6 +22,7 @@ import {
   DEFAULT_MJ_VERSION,
   DEFAULT_MJ_RATIO,
   DEFAULT_MJ_SPEED,
+  gptImage2ZhenzhenVariantSize,
 } from '../../providers/models';
 import {
   submitImageAsync,
@@ -449,6 +450,11 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
       if (!newDef.sizes.includes(sizeLevel)) patch.sizeLevel = newDef.defaultSize;
     }
     update(patch);
+  };
+
+  const switchApiModel = (nextApiModel: string) => {
+    const nextSize = gptImage2ZhenzhenVariantSize(nextApiModel);
+    update(nextSize ? { apiModel: nextApiModel, sizeLevel: nextSize } : { apiModel: nextApiModel });
   };
 
   // 从上游节点 + 本地上传按用户排序后的顺序聚合 prompt + 参考图
@@ -1365,7 +1371,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
             <label className="text-[10px] text-white/50 block mb-1">具体模型</label>
             <select
               value={apiModel}
-              onChange={(e) => update({ apiModel: e.target.value })}
+              onChange={(e) => switchApiModel(e.target.value)}
               style={{ background: '#18181b', color: '#ffffff' }}
               className="w-full rounded border border-white/10 px-2 py-1 text-xs outline-none focus:border-white/30"
             >

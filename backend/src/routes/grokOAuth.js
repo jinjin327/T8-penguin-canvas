@@ -162,6 +162,145 @@ function sendHookJson(res, hookResult, fallbackStatus = 501, fallbackExtra = {})
   });
 }
 
+function beginSse(res) {
+  if (res.headersSent) return;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+}
+
+function sendSse(res, event, payload = {}) {
+  if (res.writableEnded) return;
+  beginSse(res);
+  const data = {
+    type: event,
+    event,
+    ...payload,
+  };
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function endSse(res, result = {}) {
+  if (res.writableEnded) return;
+  sendSse(res, 'done', { done: true, result });
+  res.end();
+}
+
+function agentMeta(body = {}, mode = '') {
+  const sourceArtifactIds = Array.isArray(body.sourceArtifactIds)
+    ? body.sourceArtifactIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  return {
+    mode,
+    turnId: String(body.turnId || ''),
+    command: String(body.command || body.slashCommand || mode || ''),
+    sourceArtifactIds,
+    parentArtifactId: String(body.parentArtifactId || sourceArtifactIds[0] || ''),
+  };
+}
+
+function decorateAgentArtifact(artifact = {}, meta = {}) {
+  return {
+    ...artifact,
+    turnId: meta.turnId || artifact.turnId || '',
+    command: meta.command || artifact.command || '',
+    sourceArtifactIds: artifact.sourceArtifactIds || meta.sourceArtifactIds || [],
+    parentId: artifact.parentId || meta.parentArtifactId || undefined,
+  };
+}
+
+function endAgentSse(res, result = {}, meta = {}) {
+  if (res.writableEnded) return;
+  sendSse(res, 'turn.completed', {
+    ...meta,
+    message: result?.message || 'Grok OAuth Agent 任务完成',
+    progress: typeof result?.progress === 'number' ? result.progress : 100,
+    result,
+  });
+  return endSse(res, result);
+}
+
+function sleep(ms, req) {
+  return new Promise((resolve, reject) => {
+    if (req.destroyed || req.aborted) {
+      reject(new Error('client_disconnected'));
+      return;
+    }
+    let settled = false;
+    const cleanup = () => {
+      req.off?.('close', onClose);
+      req.removeListener?.('close', onClose);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error('client_disconnected'));
+    };
+    const timer = setTimeout(finish, ms);
+    req.once('close', onClose);
+  });
+}
+
+function cleanHookData(result = {}) {
+  const data = result.data && typeof result.data === 'object' ? { ...result.data } : { ...result };
+  delete data.handled;
+  delete data.config;
+  delete data.action;
+  delete data.statusCode;
+  return data;
+}
+
+function artifactFromResult(kind, data = {}) {
+  const artifact = {
+    kind,
+    status: data.status || 'completed',
+    progress: typeof data.progress === 'number' ? data.progress : 100,
+    message: data.message || '',
+    requestId: data.requestId || data.id || data.taskId || data.generationId || '',
+  };
+  if (data.text || data.reply || data.prompt) {
+    artifact.text = data.text || data.reply || data.prompt;
+  }
+  if (data.imageUrl || data.imageUrls) {
+    artifact.imageUrl = data.imageUrl || (Array.isArray(data.imageUrls) ? data.imageUrls[0] : '');
+    artifact.imageUrls = arrayOf(data.imageUrls || data.imageUrl);
+    artifact.url = artifact.imageUrl;
+    artifact.urls = artifact.imageUrls;
+  }
+  if (data.videoUrl || data.videoUrls) {
+    artifact.videoUrl = data.videoUrl || (Array.isArray(data.videoUrls) ? data.videoUrls[0] : '');
+    artifact.videoUrls = arrayOf(data.videoUrls || data.videoUrl);
+    artifact.url = artifact.videoUrl;
+    artifact.urls = artifact.videoUrls;
+  }
+  if (data.audioUrl || data.audioUrls) {
+    artifact.audioUrl = data.audioUrl || (Array.isArray(data.audioUrls) ? data.audioUrls[0] : '');
+    artifact.audioUrls = arrayOf(data.audioUrls || data.audioUrl);
+    artifact.url = artifact.audioUrl;
+    artifact.urls = artifact.audioUrls;
+  }
+  return artifact;
+}
+
+function modeFromBody(body = {}) {
+  const mode = String(body.mode || '').toLowerCase();
+  if (['chat', 'image', 'video', 'tts', 'stt'].includes(mode)) return mode;
+  if (body.audioUrl && !body.prompt) return 'stt';
+  return 'chat';
+}
+
 router.get('/status', async (_req, res) => {
   try {
     const result = await runGrokHook('status');
@@ -240,6 +379,128 @@ router.post('/chat/stream', async (req, res) => {
     } catch {
       // response may already be closed
     }
+    return undefined;
+  }
+});
+
+router.post('/agent/stream', async (req, res) => {
+  const body = req.body || {};
+  const mode = modeFromBody(body);
+  const meta = agentMeta(body, mode);
+  try {
+    const custom = await runGrokHook('agentStream', { req, res, body });
+    if (custom?.handled) return undefined;
+
+    if (mode === 'chat') {
+      const result = await runGrokHook('chatStream', { req, res, body });
+      if (result?.handled) return undefined;
+      return res.status(501).json(disabledPayload({ mode: 'chat' }));
+    }
+
+    beginSse(res);
+    sendSse(res, 'turn.started', {
+      ...meta,
+      message: `已开始 Grok OAuth ${mode} 任务`,
+      progress: 1,
+    });
+    sendSse(res, 'tool.started', {
+      ...meta,
+      mode,
+      message:
+        mode === 'image' ? '正在生成 Grok 图像...'
+          : mode === 'video' ? '正在提交 Grok 视频任务...'
+            : mode === 'tts' ? '正在生成 Grok 语音...'
+              : '正在转写 Grok 音频...',
+      progress: 2,
+    });
+
+    if (mode === 'image') {
+      const hookResult = await runGrokHook('image', { body });
+      if (!hookResult?.handled) throw new Error(PRIVATE_DISABLED_MESSAGE);
+      const data = cleanHookData(hookResult);
+      Object.assign(data, await normalizeMediaOutputs(data));
+      const artifact = decorateAgentArtifact(artifactFromResult('image', data), meta);
+      sendSse(res, 'artifact.completed', { ...meta, mode, artifact, result: data, progress: 100 });
+      return endAgentSse(res, data, meta);
+    }
+
+    if (mode === 'tts') {
+      const hookResult = await runGrokHook('tts', { body });
+      if (!hookResult?.handled) throw new Error(PRIVATE_DISABLED_MESSAGE);
+      const data = cleanHookData(hookResult);
+      Object.assign(data, await normalizeMediaOutputs(data));
+      const artifact = decorateAgentArtifact(artifactFromResult('audio', data), meta);
+      sendSse(res, 'artifact.completed', { ...meta, mode, artifact, result: data, progress: 100 });
+      return endAgentSse(res, data, meta);
+    }
+
+    if (mode === 'stt') {
+      const hookResult = await runGrokHook('stt', { body });
+      if (!hookResult?.handled) throw new Error(PRIVATE_DISABLED_MESSAGE);
+      const data = cleanHookData(hookResult);
+      const artifact = decorateAgentArtifact(artifactFromResult('transcript', data), meta);
+      sendSse(res, 'message.completed', { ...meta, mode, text: artifact.text || data.text || '', result: data, progress: 100 });
+      sendSse(res, 'artifact.completed', { ...meta, mode, artifact, result: data, progress: 100 });
+      return endAgentSse(res, data, meta);
+    }
+
+    if (mode === 'video') {
+      const firstHook = await runGrokHook('videoSubmit', { body });
+      if (!firstHook?.handled) throw new Error(PRIVATE_DISABLED_MESSAGE);
+      const first = cleanHookData(firstHook);
+      Object.assign(first, await normalizeMediaOutputs(first));
+      const requestId = first.requestId || first.id || first.taskId || first.generationId;
+      if (first.videoUrl || (Array.isArray(first.videoUrls) && first.videoUrls.length > 0)) {
+        const artifact = decorateAgentArtifact(artifactFromResult('video', first), meta);
+        sendSse(res, 'artifact.completed', { ...meta, mode, artifact, result: first, progress: 100 });
+        return endAgentSse(res, first, meta);
+      }
+      if (!requestId) {
+        sendSse(res, 'tool.progress', { ...meta, mode, message: first.message || '视频任务已提交，等待上游返回结果...', progress: first.progress || 10, result: first });
+        return endAgentSse(res, first, meta);
+      }
+      sendSse(res, 'tool.progress', {
+        ...meta,
+        mode,
+        requestId,
+        message: first.message || '视频任务已提交，正在轮询...',
+        progress: first.progress || 8,
+        result: first,
+      });
+      for (let i = 0; i < 120; i += 1) {
+        await sleep(3500, req);
+        const poll = await runGrokHook('videoStatus', { body: { ...body, requestId } });
+        if (!poll?.handled) throw new Error(PRIVATE_DISABLED_MESSAGE);
+        const data = cleanHookData(poll);
+        Object.assign(data, await normalizeMediaOutputs(data));
+        const progress = typeof data.progress === 'number' ? data.progress : Math.min(95, 10 + i);
+        sendSse(res, 'tool.progress', {
+          ...meta,
+          mode,
+          requestId,
+          message: data.message || `视频生成中 ${i + 1}/120`,
+          progress,
+          result: data,
+        });
+        if (data.status === 'failed' || data.error) throw new Error(data.error || data.message || 'Grok OAuth 视频生成失败');
+        if (data.videoUrl || (Array.isArray(data.videoUrls) && data.videoUrls.length > 0) || data.status === 'completed' || data.status === 'succeeded') {
+          const artifact = decorateAgentArtifact(artifactFromResult('video', data), meta);
+          sendSse(res, 'artifact.completed', { ...meta, mode, artifact, result: data, progress: 100 });
+          return endAgentSse(res, data, meta);
+        }
+      }
+      throw new Error('Grok OAuth 视频生成超时，请稍后到异步任务中查看。');
+    }
+
+    throw new Error(`不支持的 Grok OAuth Agent 模式：${mode}`);
+  } catch (e) {
+    const message = e?.message || String(e);
+    if (message === 'client_disconnected') return undefined;
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, code: 'grok_oauth_agent_stream_failed', error: message });
+    }
+    sendSse(res, 'artifact.failed', { ...meta, mode, error: message, message });
+    if (!res.writableEnded) res.end();
     return undefined;
   }
 });

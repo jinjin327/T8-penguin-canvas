@@ -89,7 +89,15 @@ function pickApiKey(settings, hint = '') {
 function normalizeImageApiModel(model) {
   const raw = String(model || '').trim();
   if (raw === 'nano-banana-2') return 'gemini-3.1-flash-image-preview';
+  if (gptImage2ZhenzhenVariantSize(raw)) return 'gpt-image-2';
   return raw;
+}
+
+function gptImage2ZhenzhenVariantSize(model) {
+  const raw = String(model || '').trim().toLowerCase();
+  if (raw === 'gpt-image-2-2k') return '2K';
+  if (raw === 'gpt-image-2-4k') return '4K';
+  return '';
 }
 
 function isBananaImageModel(model) {
@@ -691,6 +699,7 @@ router.post('/image', async (req, res) => {
   if (!ensureKeyOrSelectedGroup(settings, res, apiModel || model || '', '图像', providerParams)) return;
   if (!prompt) return res.status(400).json({ success: false, error: 'prompt 必填' });
   const originalApiModel = String(apiModel || model || '');
+  const gptImage2ForcedSize = gptImage2ZhenzhenVariantSize(originalApiModel);
   const finalApiModel = normalizeImageApiModel(originalApiModel);
   const ml = `${originalApiModel} ${finalApiModel}`.toLowerCase();
   const paramKind = paramKindIn || (ml.includes('grok') && ml.includes('image') ? 'grok-image' : (isBananaImageModel(ml) ? 'banana-ratio' : 'gpt-size'));
@@ -708,7 +717,7 @@ router.post('/image', async (req, res) => {
     });
     const r = await callImageUpstreamAsync({
       apiKey: settings.zhenzhenApiKey, finalApiModel, paramKind,
-      prompt, n, aspect_ratio, image_size, refs, size, quality,
+      prompt, n, aspect_ratio, image_size: gptImage2ForcedSize || image_size, refs, size: gptImage2ForcedSize ? undefined : size, quality,
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch {
@@ -757,6 +766,7 @@ router.post('/image/submit', async (req, res) => {
     if (!ensureKeyOrSelectedGroup(settings, res, apiModel || model || '', '图像', providerParams)) return;
     if (!prompt) return res.status(400).json({ success: false, error: 'prompt 不得为空' });
     const originalApiModel = String(apiModel || model || '');
+    const gptImage2ForcedSize = gptImage2ZhenzhenVariantSize(originalApiModel);
     const finalApiModel = normalizeImageApiModel(originalApiModel);
     const ml = `${originalApiModel} ${finalApiModel}`.toLowerCase();
     const paramKind = paramKindIn || (ml.includes('grok') && ml.includes('image') ? 'grok-image' : (isBananaImageModel(ml) ? 'banana-ratio' : 'gpt-size'));
@@ -774,7 +784,7 @@ router.post('/image/submit', async (req, res) => {
     });
     const r = await callImageUpstreamAsync({
       apiKey: settings.zhenzhenApiKey, finalApiModel, paramKind,
-      prompt, n, aspect_ratio, image_size, refs, size, quality,
+      prompt, n, aspect_ratio, image_size: gptImage2ForcedSize || image_size, refs, size: gptImage2ForcedSize ? undefined : size, quality,
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch { data = { _raw: text }; }

@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
   "version": "2.1.5",
-  "lastUpdated": "2026-06-10-saint-seiya-achievement-stage",
+  "lastUpdated": "2026-06-10-grok-agent-prompt-context",
   "sourceReleaseV215": {
     "version": "2.1.5",
     "status": "source-only",
@@ -28,6 +28,25 @@
       "npm run type-check",
       "npm run build",
       "npm run public:check"
+    ]
+  },
+  "gptImage2ZhenzhenSizeVariants": {
+    "status": "implemented",
+    "date": "2026-06-10",
+    "description": "GPT Image 2 节点新增 gpt-image-2-2K 与 gpt-image-2-4K 两个贞贞 API 尺寸快捷模型，不走 FAL，其他用法与 gpt-image-2 保持一致。",
+    "paths": [
+      "src/providers/models.ts",
+      "src/components/nodes/ImageNode.tsx",
+      "backend/src/routes/proxy.js",
+      "tests/imageModelMapping.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "GPT2 具体模型下拉新增 gpt-image-2-2K 和 gpt-image-2-4K。",
+      "选择 gpt-image-2-2K / gpt-image-2-4K 时，前端自动把尺寸切换为 2K / 4K。",
+      "后端提交时把这两个别名归一为上游真实模型 gpt-image-2，并强制对应 image_size，避免误传别名给贞贞 API。",
+      "两个新选项不注册到 FAL_REGISTRY，不会走 gpt-image-2-fal 的 FAL 队列协议。",
+      "分类独立 API Key 和 New API 分组令牌仍按 gpt-image 系列匹配。"
     ]
   },
   "rhToolboxMakerUsability": {
@@ -172,9 +191,9 @@
     ]
   },
   "grokOAuthAgentPublicShell": {
-    "status": "implemented-public-shell",
-    "date": "2026-06-09",
-    "description": "新增独立 GROK OAuth 分类与 Grok OAuth Agent 节点外壳，形态为 Agent 工作台；公开版只包含节点 UI、类型、端口、后端 hook 路由和友好错误，真实 OAuth 登录、token 刷新及 xAI/Grok 调用必须由 local-private 私有扩展提供。",
+    "status": "implemented-agent-studio",
+    "date": "2026-06-10",
+    "description": "新增独立 GROK OAuth 分类与 Grok OAuth Agent 节点，并升级为“画布小节点 + Grok 创作台”形态；公开版只包含节点 UI、类型、端口、统一事件协议、后端 hook 路由和友好错误，真实 OAuth 登录、token 刷新及 xAI/Grok 调用必须由 local-private 私有扩展提供。",
     "paths": [
       "backend/src/routes/grokOAuth.js",
       "backend/src/server.js",
@@ -190,9 +209,21 @@
     ],
     "capabilities": [
       "侧边栏新增 GROK OAuth 分类，包含 Grok OAuth Agent 主节点，不混入现有图像/视频/LLM/音频节点。",
-      "节点支持流式聊天、图像、视频、TTS、STT 五种模式，读取上游 text/image/video/audio 与节点内 Prompt，并输出 text/image/video/audio 字段给下游节点。",
-      "后端新增 /api/grok-oauth/status、login/start、login/poll、logout、chat/stream、image、video/submit、video/status、audio/tts、audio/stt 公共路由。",
-      "chat/stream 兼容 SSE 增量；图像/视频/音频生成结果若由私有模块返回远程 URL 或 data URL，公共路由会统一保存到输出目录后返回 /files/output 路径。"
+      "节点支持流式聊天、图像、视频、TTS、STT 五种模式，读取上游 text/image/video/audio 与节点内 Prompt；产物默认进入 Grok 创作台产物库，不再自动把所有结果写入 outputText/imageUrls/videoUrls/audioUrls。",
+      "画布上的节点保持小巧，只显示登录状态、素材数、消息数、产物数、打开创作台、快速运行和发布最新；完整对话、参数、素材预览和产物卡放在 createPortal 打开的 Grok 创作台中。",
+      "产物卡支持图像/视频/音频/文本预览、下载、复制 Prompt 和“发布到画布输出”；只有发布后才写入标准 text/image/video/audio 输出字段并触发下游 OutputNode。",
+      "Grok 创作台 Prompt 支持 Enter 直接运行、Shift+Enter 换行；运行时会使用输入框最新文本，避免刚输入后回车跑旧 prompt。",
+      "Grok 创作台新增“提示词持久化”开关，默认关闭：任务验证通过并发送后自动清空 Prompt 和 @ 引用；开启后保留输入，方便连续微调。",
+      "对话上下文默认从 12 条提升到 30 条，最大可调到 80 条；超过上下文条数的旧对话会压缩进 grokContextSummary，并作为 system 长期记忆注入后续聊天，避免硬切历史导致突然失忆。",
+      "新对话和清空全部会同步重置 grokContextSummary / grokContextCompressedCount，防止跨会话带入旧记忆。",
+      "Grok 创作台支持本地上传图片、视频、音频作为 Agent 输入，并可在素材池删除本地上传素材。",
+      "发布产物时只写入主产物 URL，同时清空 urls/generatedImages/direct* 等旧输出通道，并锁定已发布产物卡，避免点击“发布最新”后一次生成多个相同 OutputNode。",
+      "旧版本节点中已经存在的 outputText/imageUrls/videoUrls/audioUrls 会在首次打开时迁移为 agentArtifacts，并清空旧标准输出，避免老画布继续输出爆炸。",
+      "后端新增 /api/grok-oauth/status、login/start、login/poll、login/complete、logout、agent/stream、chat/stream、image、video/submit、video/status、audio/tts、audio/stt 公共路由。",
+      "agent/stream 统一输出 message.delta、tool.started、tool.progress、artifact.completed、artifact.failed、done 事件；图像、视频、TTS、STT 即使底层是一次性或轮询，也会包装为统一 Agent 事件流。",
+      "chat/stream 兼容 SSE 增量；图像/视频/音频生成结果若由私有模块返回远程 URL 或 data URL，公共路由会统一保存到输出目录后返回 /files/output 路径。",
+      "视频模式对齐 Hermes xAI 规则：默认 grok-imagine-video 走文生视频，grok-imagine-video-1.5-preview 标注为图生视频专用，缺少上游图片时前端直接给出友好提示。",
+      "修复状态刷新 effect 在清空旧错误时误 abort 视频轮询的问题，避免图生视频刚提交就显示“已中止 Grok OAuth 任务”。"
     ],
     "privateBoundary": [
       "公开仓库不得加入 Grok OAuth client secret、token、cookie、会员调用细节和真实 xAI 请求代码。",
