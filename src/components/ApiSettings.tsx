@@ -17,8 +17,10 @@ import {
   analyzeComfyWorkflow,
   buildComfyWorkflowImportChecklist,
   canonicalizeComfyFieldsByWorkflow,
+  createComfyFieldExcludeRulesBackup,
   filterComfyFieldsByExcludeRules,
   parseComfyFieldExcludeRules,
+  parseComfyFieldExcludeRulesBackup,
   stringifyBasicComfyTextToImageWorkflow,
   type ComfyFieldMapping,
 } from '../utils/comfyuiWorkflow';
@@ -175,14 +177,14 @@ const CLOUD_UPLOAD_GUIDES: Record<CloudUploadProvider, {
     status: '已支持上传',
   },
   'baidu-netdisk': {
-    subtitle: '保留百度网盘配置位，等待稳定 OAuth / PCS 上传方案接入。',
-    description: '后续会优先接入正式授权流程，避免让用户手填不稳定 Cookie 或抓包字段。',
-    status: '规划中',
+    subtitle: '通过 WebDAV 网关上传到百度网盘，适合 Alist / CloudDrive2 / rclone 等挂载方案。',
+    description: '填写 WebDAV 地址、用户名和密码/令牌；配置检查会创建临时目录并上传小文件，确认账号和写入权限真实可用。',
+    status: '已支持上传',
   },
   'quark-netdisk': {
-    subtitle: '保留夸克网盘配置位，等待稳定 CLI / 授权方案接入。',
-    description: '后续若接入外部 CLI，会在这里填写命令路径并统一走同一个右键上传入口。',
-    status: '实验位',
+    subtitle: '通过 WebDAV 网关上传到夸克网盘，避免依赖不稳定 Cookie 抓包接口。',
+    description: '填写 WebDAV 地址、用户名和密码/令牌；推荐先在 WebDAV 客户端确认可写，再在这里点配置检查。',
+    status: '已支持上传',
   },
 };
 
@@ -196,10 +198,10 @@ function summarizeCloudUploadForm(targets: CloudUploadTargetConfig[]) {
       return !!(target.aliyunOss?.bucket && target.aliyunOss?.endpoint && (target.aliyunOss?.accessKeyId || target.aliyunOss?.hasAccessKeyId) && (target.aliyunOss?.accessKeySecret || target.aliyunOss?.hasAccessKeySecret));
     }
     if (target.provider === 'baidu-netdisk') {
-      return !!(target.baiduNetdisk?.accessToken || target.baiduNetdisk?.hasAccessToken || target.baiduNetdisk?.refreshToken || target.baiduNetdisk?.hasRefreshToken);
+      return !!target.baiduNetdisk?.webdavUrl;
     }
     if (target.provider === 'quark-netdisk') {
-      return !!(target.quarkNetdisk?.commandPath || target.quarkNetdisk?.cookie || target.quarkNetdisk?.hasCookie);
+      return !!target.quarkNetdisk?.webdavUrl;
     }
     return false;
   }).length;
@@ -811,7 +813,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     const smallPillCls = isPixel
       ? 't8-api-settings-pill inline-flex items-center px-1.5 py-0.5 border text-[10px] font-bold'
       : 't8-api-settings-pill inline-flex items-center rounded px-1.5 py-0.5 border text-[10px] font-semibold';
-    const supported = target.provider === 'tencent-cos' || target.provider === 'aliyun-oss';
+    const supported = true;
     const test = cloudTestStatus[target.id];
     return (
       <div className={sectionCls}>
@@ -905,17 +907,19 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                 placeholder="t8-canvas/{kind}/{yyyy-mm}"
               />
             </label>
-            {supported && (
-              <label className="space-y-1 lg:col-span-2">
-                <span className={`text-[11px] ${labelCls}`}>公共域名（可选）</span>
-                <input
-                  value={target.publicBaseUrl || ''}
-                  onChange={(e) => updateCloudTarget(target.id, { publicBaseUrl: e.target.value })}
-                  className={fieldInputCls}
-                  placeholder="https://cdn.example.com/path · 留空返回默认对象 URL"
-                />
-              </label>
-            )}
+            <label className="space-y-1 lg:col-span-2">
+              <span className={`text-[11px] ${labelCls}`}>公共域名（可选）</span>
+              <input
+                value={target.publicBaseUrl || ''}
+                onChange={(e) => updateCloudTarget(target.id, { publicBaseUrl: e.target.value })}
+                className={fieldInputCls}
+                placeholder={
+                  target.provider === 'tencent-cos' || target.provider === 'aliyun-oss'
+                    ? 'https://cdn.example.com/path · 留空返回默认对象 URL'
+                    : 'https://cdn.example.com/path · 留空返回 WebDAV 文件地址'
+                }
+              />
+            </label>
           </div>
         </AdvancedProviderFormBlock>
 
@@ -1070,39 +1074,50 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             className={formBlockCls}
             labelClassName={labelCls}
             hintClassName={hintCls}
-            title="2. 百度网盘（预留）"
-            note="第一版不执行真实上传，字段用于后续 OAuth / PCS 接入时平滑迁移。"
+            title="2. 百度网盘 WebDAV"
+            note="百度网盘官方直传需要开放平台授权；当前推荐用 Alist / CloudDrive2 / rclone 把百度网盘挂成 WebDAV 后上传。"
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="space-y-1 lg:col-span-2">
+                <span className={`text-[11px] ${labelCls}`}>WebDAV 地址</span>
+                <input
+                  value={target.baiduNetdisk?.webdavUrl || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { webdavUrl: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="http://127.0.0.1:5244/dav/百度网盘"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>用户名</span>
+                <input
+                  value={target.baiduNetdisk?.username || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { username: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="WebDAV 用户名，可留空"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>密码 / 令牌</span>
+                <input
+                  type="password"
+                  value={target.baiduNetdisk?.password || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { password: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder={target.baiduNetdisk?.hasPassword ? '留空保持不变' : 'WebDAV 密码或访问令牌'}
+                />
+              </label>
               <label className="space-y-1 lg:col-span-2">
                 <span className={`text-[11px] ${labelCls}`}>网盘目录</span>
                 <input
                   value={target.baiduNetdisk?.folder || ''}
                   onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { folder: e.target.value })}
                   className={fieldInputCls}
-                  placeholder="/apps/T8PenguinCanvas"
+                  placeholder="/T8PenguinCanvas"
                 />
               </label>
-              <label className="space-y-1">
-                <span className={`text-[11px] ${labelCls}`}>Access Token</span>
-                <input
-                  type="password"
-                  value={target.baiduNetdisk?.accessToken || ''}
-                  onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { accessToken: e.target.value })}
-                  className={fieldInputCls}
-                  placeholder={target.baiduNetdisk?.hasAccessToken ? '留空保持不变' : '后续接入时使用'}
-                />
-              </label>
-              <label className="space-y-1">
-                <span className={`text-[11px] ${labelCls}`}>Refresh Token</span>
-                <input
-                  type="password"
-                  value={target.baiduNetdisk?.refreshToken || ''}
-                  onChange={(e) => updateCloudTargetNested(target.id, 'baiduNetdisk', { refreshToken: e.target.value })}
-                  className={fieldInputCls}
-                  placeholder={target.baiduNetdisk?.hasRefreshToken ? '留空保持不变' : '后续接入时使用'}
-                />
-              </label>
+            </div>
+            <div className={`text-[11px] leading-relaxed ${hintCls}`}>
+              使用说明：Endpoint 填 WebDAV 根地址，网盘目录填要保存素材的目录。配置检查会创建一个 .t8-upload-check 临时目录，上传 connection.txt 后删除，用来确认真实写入权限。
             </div>
           </AdvancedProviderFormBlock>
         )}
@@ -1112,10 +1127,38 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             className={formBlockCls}
             labelClassName={labelCls}
             hintClassName={hintCls}
-            title="2. 夸克网盘（预留）"
-            note="第一版不执行真实上传，字段用于后续稳定 CLI / 授权方案接入。"
+            title="2. 夸克网盘 WebDAV"
+            note="夸克网盘没有稳定公开直传接口；当前推荐用 Alist / CloudDrive2 / rclone 把夸克挂成 WebDAV 后上传。"
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="space-y-1 lg:col-span-2">
+                <span className={`text-[11px] ${labelCls}`}>WebDAV 地址</span>
+                <input
+                  value={target.quarkNetdisk?.webdavUrl || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'quarkNetdisk', { webdavUrl: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="http://127.0.0.1:5244/dav/夸克网盘"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>用户名</span>
+                <input
+                  value={target.quarkNetdisk?.username || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'quarkNetdisk', { username: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="WebDAV 用户名，可留空"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>密码 / 令牌</span>
+                <input
+                  type="password"
+                  value={target.quarkNetdisk?.password || ''}
+                  onChange={(e) => updateCloudTargetNested(target.id, 'quarkNetdisk', { password: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder={target.quarkNetdisk?.hasPassword ? '留空保持不变' : 'WebDAV 密码或访问令牌'}
+                />
+              </label>
               <label className="space-y-1">
                 <span className={`text-[11px] ${labelCls}`}>网盘目录</span>
                 <input
@@ -1125,25 +1168,9 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                   placeholder="/T8PenguinCanvas"
                 />
               </label>
-              <label className="space-y-1">
-                <span className={`text-[11px] ${labelCls}`}>外部命令路径</span>
-                <input
-                  value={target.quarkNetdisk?.commandPath || ''}
-                  onChange={(e) => updateCloudTargetNested(target.id, 'quarkNetdisk', { commandPath: e.target.value })}
-                  className={fieldInputCls}
-                  placeholder="后续 CLI 接入时使用"
-                />
-              </label>
-              <label className="space-y-1 lg:col-span-2">
-                <span className={`text-[11px] ${labelCls}`}>Cookie / 授权信息（不推荐长期依赖）</span>
-                <input
-                  type="password"
-                  value={target.quarkNetdisk?.cookie || ''}
-                  onChange={(e) => updateCloudTargetNested(target.id, 'quarkNetdisk', { cookie: e.target.value })}
-                  className={fieldInputCls}
-                  placeholder={target.quarkNetdisk?.hasCookie ? '留空保持不变' : '等待稳定方案后再填写'}
-                />
-              </label>
+            </div>
+            <div className={`text-[11px] leading-relaxed ${hintCls}`}>
+              使用说明：不要在这里粘贴浏览器 Cookie。请先用 WebDAV 网关完成夸克登录，再把网关提供的 WebDAV 地址和账号填到这里。
             </div>
           </AdvancedProviderFormBlock>
         )}
@@ -1250,6 +1277,31 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     };
     const appendComfyExcludeRules = (items: string[]) => {
       updateComfyExcludeRules([...parseComfyFieldExcludeRules(comfyExcludeRulesRaw), ...items].join('\n'));
+    };
+    const exportComfyExcludeRules = () => {
+      const payload = createComfyFieldExcludeRulesBackup(comfyExcludeRulesRaw, `api-settings:${provider.id}`);
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      downloadJson(`t8-comfyui-exclude-rules-${provider.id || 'provider'}-${date}.json`, payload);
+      setAdvancedTestStatus((prev) => ({
+        ...prev,
+        [provider.id]: { ok: true, message: `已导出 ${payload.rules.length} 条 ComfyUI 排除规则` },
+      }));
+    };
+    const handleComfyExcludeRulesFile = (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const rules = parseComfyFieldExcludeRulesBackup(String(reader.result || ''));
+        updateComfyExcludeRules(rules.join('\n'));
+        setAdvancedTestStatus((prev) => ({
+          ...prev,
+          [provider.id]: { ok: true, message: `已导入 ${rules.length} 条 ComfyUI 排除规则` },
+        }));
+      };
+      reader.onerror = () => setAdvancedTestStatus((prev) => ({
+        ...prev,
+        [provider.id]: { ok: false, message: '读取排除规则 JSON 文件失败' },
+      }));
+      reader.readAsText(file, 'utf-8');
     };
     const handleComfyWorkflowFile = (file: File) => {
       const reader = new FileReader();
@@ -1708,8 +1760,36 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
               />
               <p className={`text-[11px] ${hintCls}`}>不是普通前端 workflow 文件，需要在 ComfyUI 开启 dev mode 后导出的 API workflow。</p>
             </label>
-            <label className="space-y-1 block">
-              <span className={`text-[11px] ${labelCls}`}>自动映射排除规则（可选）</span>
+            <div className="space-y-1 block">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className={`text-[11px] ${labelCls}`}>自动映射排除规则（可选）</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={exportComfyExcludeRules}
+                    className={isPixel ? 'px-btn text-[11px] px-2 py-1 inline-flex items-center gap-1' : 'rounded border px-2 py-1 text-[11px] inline-flex items-center gap-1'}
+                    title="导出当前 ComfyUI 自动映射排除规则"
+                  >
+                    <Download size={12} /> 导出规则
+                  </button>
+                  <label
+                    className={isPixel ? 'px-btn text-[11px] px-2 py-1 inline-flex cursor-pointer items-center gap-1' : 'rounded border px-2 py-1 text-[11px] inline-flex cursor-pointer items-center gap-1'}
+                    title="导入 ComfyUI 自动映射排除规则 JSON"
+                  >
+                    <FileUp size={12} /> 导入规则
+                    <input
+                      type="file"
+                      accept="application/json,.json,.txt"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        if (file) handleComfyExcludeRulesFile(file);
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
               <PromptTextarea
                 title="ComfyUI 自动映射排除规则"
                 value={comfyExcludeRulesRaw}
@@ -1748,7 +1828,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
               <p className={`text-[11px] ${hintCls}`}>
                 支持 source/字段名/节点类名/节点编号，例如 source:cfg、field:width、class:KSampler、node:86、#86.width。
               </p>
-            </label>
+            </div>
             <div className={guideBoxCls}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -2415,7 +2495,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             {cloudUploadOpen && (
               <div className="mt-3 space-y-3">
                 <div className={`text-[11px] leading-relaxed ${hintCls}`}>
-                  这里用于外部归档与分享。第一版腾讯云 COS 和阿里云 OSS 支持真实上传；百度网盘和夸克网盘先保留配置位，等稳定授权或 CLI 方案接入后会复用同一个入口。
+                  这里用于外部归档与分享。腾讯云 COS、阿里云 OSS、百度网盘 WebDAV 和夸克网盘 WebDAV 均支持真实上传；网盘目标需要先用 Alist / CloudDrive2 / rclone 等工具提供 WebDAV 地址。
                   {cloudSummary.defaultLabel ? ` 当前默认目标：${cloudSummary.defaultLabel}。` : ''}
                 </div>
                 {cloudUploadTargetsInput.length === 0 ? (

@@ -512,6 +512,18 @@ function getUploadErrorText(error) {
     .join('\n');
 }
 
+function providerDisplayName(provider) {
+  if (provider === 'aliyun-oss') return '阿里云 OSS';
+  if (provider === 'tencent-cos') return '腾讯云 COS';
+  if (provider === 'baidu-netdisk') return '百度网盘 WebDAV';
+  if (provider === 'quark-netdisk') return '夸克网盘 WebDAV';
+  return '云端目标';
+}
+
+function isWebdavProvider(provider) {
+  return provider === 'baidu-netdisk' || provider === 'quark-netdisk';
+}
+
 function classifyCloudUploadError(target, error) {
   const provider = String(target?.provider || '').trim();
   const statusCode = Number(error?.statusCode || error?.status || 0) || undefined;
@@ -559,8 +571,44 @@ function classifyCloudUploadError(target, error) {
   const wrongRegion = ['permanentredirect', 'incorrectendpoint'].includes(codeLower)
     || /permanentredirect|incorrectendpoint|wrong region|region.*not/.test(lower);
 
+  if (isWebdavProvider(provider)) {
+    const name = providerDisplayName(provider);
+    if (statusCode === 401 || statusCode === 403 || /unauthorized|forbidden|permission|access denied|拒绝|无权限/.test(lower)) {
+      return {
+        ...base,
+        code: 'credential',
+        message: `${name} 认证或写入权限不足：请检查 WebDAV 用户名、密码/令牌和目录写权限。`,
+        hint: '如果使用 Alist / CloudDrive2 / rclone，请确认对应存储已登录，WebDAV 账号有上传权限，并且目录不是只读。',
+      };
+    }
+    if (statusCode === 404 || /not found|notfound|找不到/.test(lower)) {
+      return {
+        ...base,
+        code: 'endpoint',
+        message: `${name} 地址或目录不可访问：请确认 WebDAV 地址和网盘目录。`,
+        hint: 'Endpoint 应填写 WebDAV 根地址，例如 http://127.0.0.1:5244/dav/百度网盘；目录可填 /T8PenguinCanvas。先在浏览器或 WebDAV 客户端确认地址可访问。',
+      };
+    }
+    if (statusCode === 409 || /conflict|parent|父目录/.test(lower)) {
+      return {
+        ...base,
+        code: 'path',
+        message: `${name} 目录创建失败：父目录不存在或 WebDAV 网关不允许自动建目录。`,
+        hint: '请先在网盘或 WebDAV 网关里创建基础目录，或把“网盘目录”改成已存在且可写的路径。',
+      };
+    }
+    if (statusCode === 507 || /insufficient storage|quota|空间|容量/.test(lower)) {
+      return {
+        ...base,
+        code: 'quota',
+        message: `${name} 空间不足或触发网盘限制，暂时无法上传。`,
+        hint: '请清理网盘空间，或稍后重试；部分网盘 WebDAV 网关会对大文件或频繁写入限速。',
+      };
+    }
+  }
+
   if (wrongRegion) {
-    const name = provider === 'aliyun-oss' ? '阿里云 OSS' : provider === 'tencent-cos' ? '腾讯云 COS' : '云端目标';
+    const name = providerDisplayName(provider);
     return {
       ...base,
       code: 'region',
@@ -572,7 +620,7 @@ function classifyCloudUploadError(target, error) {
   }
 
   if (signatureMismatch || accessKeyInvalid || timeSkew) {
-    const name = provider === 'aliyun-oss' ? '阿里云 OSS' : provider === 'tencent-cos' ? '腾讯云 COS' : '云端目标';
+    const name = providerDisplayName(provider);
     return {
       ...base,
       code: signatureMismatch ? 'signature' : timeSkew ? 'clock' : 'credential',
@@ -582,7 +630,7 @@ function classifyCloudUploadError(target, error) {
   }
 
   if (noSuchBucket || statusCode === 404) {
-    const name = provider === 'aliyun-oss' ? '阿里云 OSS' : provider === 'tencent-cos' ? '腾讯云 COS' : '云端目标';
+    const name = providerDisplayName(provider);
     return {
       ...base,
       code: 'bucket',
@@ -592,7 +640,7 @@ function classifyCloudUploadError(target, error) {
   }
 
   if (accessDenied || statusCode === 401 || statusCode === 403) {
-    const name = provider === 'aliyun-oss' ? '阿里云 OSS' : provider === 'tencent-cos' ? '腾讯云 COS' : '云端目标';
+    const name = providerDisplayName(provider);
     return {
       ...base,
       code: 'permission',
@@ -614,6 +662,117 @@ function publicUrlForHost(target, host, objectKey) {
   return `https://${host}/${encodeObjectKeyPath(objectKey)}`;
 }
 
+function splitRemotePath(value) {
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function joinRemotePath(...parts) {
+  const segments = parts.flatMap((part) => splitRemotePath(part));
+  return `/${segments.join('/')}`;
+}
+
+function dirnameRemotePath(value) {
+  const segments = splitRemotePath(value);
+  segments.pop();
+  return segments.length ? `/${segments.join('/')}` : '/';
+}
+
+function encodeRemotePath(value) {
+  return splitRemotePath(value).map((part) => strictEncode(part)).join('/');
+}
+
+function buildWebdavUrl(baseUrl, remotePath = '') {
+  const parsed = new URL(String(baseUrl || ''));
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  const base = parsed.href.replace(/\/+$/, '');
+  const suffix = encodeRemotePath(remotePath);
+  return suffix ? `${base}/${suffix}` : base;
+}
+
+function getWebdavConfig(target) {
+  if (target.provider === 'baidu-netdisk') return target.baiduNetdisk || {};
+  if (target.provider === 'quark-netdisk') return target.quarkNetdisk || {};
+  return {};
+}
+
+function webdavAuthHeaders(cfg = {}) {
+  const headers = {};
+  const username = String(cfg.username || '').trim();
+  const password = String(cfg.password || '').trim();
+  if (username || password) {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  }
+  return headers;
+}
+
+function webdavFileUrl(target, cfg, remotePath) {
+  if (target.publicBaseUrl) return `${String(target.publicBaseUrl).replace(/\/+$/, '')}/${encodeRemotePath(remotePath)}`;
+  return buildWebdavUrl(cfg.webdavUrl, remotePath);
+}
+
+async function webdavRequest(url, options = {}, provider = '') {
+  const res = await fetchWithTimeout(url, options);
+  if (!res.ok) {
+    throw await responseToUploadError(res, `${providerDisplayName(provider)} 请求失败 HTTP ${res.status}`, provider);
+  }
+  return res;
+}
+
+async function ensureWebdavDirectory(cfg, directoryPath, provider) {
+  const segments = splitRemotePath(directoryPath);
+  let current = '';
+  for (const segment of segments) {
+    current = joinRemotePath(current, segment);
+    const url = buildWebdavUrl(cfg.webdavUrl, current);
+    const res = await fetchWithTimeout(url, {
+      method: 'MKCOL',
+      headers: webdavAuthHeaders(cfg),
+    });
+    if ([200, 201, 204, 405].includes(res.status)) continue;
+    throw await responseToUploadError(res, `${providerDisplayName(provider)} 创建目录失败 HTTP ${res.status}`, provider);
+  }
+}
+
+async function deleteWebdavPath(cfg, remotePath, provider) {
+  try {
+    const res = await fetchWithTimeout(buildWebdavUrl(cfg.webdavUrl, remotePath), {
+      method: 'DELETE',
+      headers: webdavAuthHeaders(cfg),
+    });
+    if ([200, 202, 204, 404].includes(res.status)) return;
+    throw await responseToUploadError(res, `${providerDisplayName(provider)} 删除测试对象失败 HTTP ${res.status}`, provider);
+  } catch {
+    // 删除临时测试文件失败不影响用户继续保存配置。
+  }
+}
+
+async function putWebdavBuffer(target, cfg, remotePath, buffer, contentType = 'application/octet-stream') {
+  await webdavRequest(buildWebdavUrl(cfg.webdavUrl, remotePath), {
+    method: 'PUT',
+    headers: {
+      ...webdavAuthHeaders(cfg),
+      'Content-Type': contentType,
+      'Content-Length': String(buffer.length),
+    },
+    body: buffer,
+  }, target.provider);
+}
+
+async function putWebdavFile(target, cfg, remotePath, filePath) {
+  await putStream(buildWebdavUrl(cfg.webdavUrl, remotePath), filePath, {
+    ...webdavAuthHeaders(cfg),
+    'Content-Type': mimeFromPath(filePath),
+    __provider: target.provider,
+  });
+}
+
 function validateTargetConfig(target) {
   if (!target || !target.provider) throw new Error('云端目标不存在');
   if (target.provider === 'tencent-cos') {
@@ -631,10 +790,14 @@ function validateTargetConfig(target) {
     return { ok: true, supported: true, message: '阿里云 OSS 配置已填写，可用于上传' };
   }
   if (target.provider === 'baidu-netdisk') {
-    throw new Error('百度网盘真实上传等待 OAuth/PCS 授权方案接入，当前仅保留配置位');
+    const cfg = target.baiduNetdisk || {};
+    if (!cfg.webdavUrl) throw new Error('百度网盘缺少 WebDAV 地址');
+    return { ok: true, supported: true, message: '百度网盘 WebDAV 配置已填写，可用于上传' };
   }
   if (target.provider === 'quark-netdisk') {
-    throw new Error('夸克网盘真实上传等待稳定 CLI/授权方案接入，当前仅保留配置位');
+    const cfg = target.quarkNetdisk || {};
+    if (!cfg.webdavUrl) throw new Error('夸克网盘缺少 WebDAV 地址');
+    return { ok: true, supported: true, message: '夸克网盘 WebDAV 配置已填写，可用于上传' };
   }
   throw new Error(`暂不支持的云端目标：${target.provider}`);
 }
@@ -706,7 +869,29 @@ async function testAliyunOssTarget(target) {
 async function testCloudTargetConnectivity(target) {
   if (target?.provider === 'tencent-cos') return testTencentCosTarget(target);
   if (target?.provider === 'aliyun-oss') return testAliyunOssTarget(target);
+  if (isWebdavProvider(target?.provider)) return testWebdavTarget(target);
   return validateTargetConfig(target);
+}
+
+async function testWebdavTarget(target) {
+  validateTargetConfig(target);
+  const cfg = getWebdavConfig(target);
+  const testRoot = joinRemotePath(cfg.folder, `.t8-upload-check-${randomSuffix()}`);
+  const testFile = joinRemotePath(testRoot, 'connection.txt');
+  const body = Buffer.from(`T8 Penguin Canvas cloud upload check ${new Date().toISOString()}\n`);
+  await ensureWebdavDirectory(cfg, testRoot, target.provider);
+  try {
+    await putWebdavBuffer(target, cfg, testFile, body, 'text/plain; charset=utf-8');
+  } finally {
+    await deleteWebdavPath(cfg, testFile, target.provider);
+    await deleteWebdavPath(cfg, testRoot, target.provider);
+  }
+  return {
+    ok: true,
+    supported: true,
+    message: `${providerDisplayName(target.provider)} 连接可用：WebDAV 地址、账号和写入权限已通过测试`,
+    provider: target.provider,
+  };
 }
 
 async function uploadToTencentCos(target, filePath, payload) {
@@ -758,6 +943,22 @@ async function uploadToAliyunOss(target, filePath, payload) {
   };
 }
 
+async function uploadToWebdav(target, filePath, payload) {
+  const cfg = getWebdavConfig(target);
+  const objectKey = buildObjectKey(target, filePath, payload);
+  const remotePath = joinRemotePath(cfg.folder, objectKey);
+  await ensureWebdavDirectory(cfg, dirnameRemotePath(remotePath), target.provider);
+  await putWebdavFile(target, cfg, remotePath, filePath);
+  return {
+    provider: target.provider,
+    targetId: target.id,
+    label: target.label,
+    objectKey,
+    path: `${target.provider}:${remotePath}`,
+    url: webdavFileUrl(target, cfg, remotePath),
+  };
+}
+
 async function uploadCloudAsset(target, payload = {}) {
   validateTargetConfig(target);
   const filePath = await resolveUploadSource(payload.url || payload.sourceUrl);
@@ -774,6 +975,8 @@ async function uploadCloudAsset(target, payload = {}) {
     uploaded = await uploadToTencentCos(target, filePath, { ...payload, kind });
   } else if (target.provider === 'aliyun-oss') {
     uploaded = await uploadToAliyunOss(target, filePath, { ...payload, kind });
+  } else if (isWebdavProvider(target.provider)) {
+    uploaded = await uploadToWebdav(target, filePath, { ...payload, kind });
   } else {
     validateTargetConfig(target);
   }

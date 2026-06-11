@@ -2,6 +2,14 @@ export type RhToolboxMediaKind = 'text' | 'image' | 'video' | 'audio';
 
 export type RhToolboxUserParamKind = 'text' | 'number' | 'select' | 'boolean';
 export type RhToolboxQuickSurface = 'image' | 'video' | 'text' | 'audio';
+export type RhToolboxMajorCategoryId = 'image' | 'video' | 'audio' | 'model3d' | 'text';
+
+export interface RhToolboxMajorCategory {
+  id: RhToolboxMajorCategoryId;
+  name: string;
+  description: string;
+  order: number;
+}
 
 export type RhToolboxOutputRole =
   | 'append-output'
@@ -12,6 +20,7 @@ export type RhToolboxOutputRole =
 export interface RhToolboxCategory {
   id: string;
   name: string;
+  parentId?: RhToolboxMajorCategoryId;
   description?: string;
   order?: number;
   icon?: string;
@@ -81,13 +90,11 @@ export interface RhToolboxTool {
   };
   ui?: {
     icon?: string;
-    accent?: string;
     showInNode?: boolean;
     showInImageEditor?: boolean;
     showInVideoEditor?: boolean;
     showInTextEditor?: boolean;
     showInAudioEditor?: boolean;
-    quickActionLabel?: string;
   };
   version?: number;
 }
@@ -139,7 +146,6 @@ export interface RhToolboxQuickAction {
   capabilities: string[];
   inputKinds: RhToolboxMediaKind[];
   outputKinds: RhToolboxMediaKind[];
-  accent?: string;
 }
 
 const DEFAULT_CATEGORY_ID = 'general';
@@ -150,6 +156,29 @@ const AUDIO_RE = /\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i;
 const TEXT_RE = /\.(txt|md|json|csv)(\?|$)/i;
 
 export const RH_TOOLBOX_ALL_CATEGORY_ID = 'all';
+
+export const RH_TOOLBOX_MAJOR_CATEGORIES: RhToolboxMajorCategory[] = [
+  { id: 'image', name: '图像', description: '图像生成、编辑、修复和放大工具', order: 10 },
+  { id: 'video', name: '视频', description: '视频生成、放大、插帧和剪辑工具', order: 20 },
+  { id: 'audio', name: '音频', description: '音频生成、克隆、分离和增强工具', order: 30 },
+  { id: 'model3d', name: '3D', description: '3D 模型、空间和模型处理工具', order: 40 },
+  { id: 'text', name: '文本', description: '文本、提示词和结构化内容工具', order: 50 },
+];
+
+export const RH_TOOLBOX_MAJOR_CATEGORY_IDS = RH_TOOLBOX_MAJOR_CATEGORIES.map((category) => category.id);
+
+export const RH_TOOLBOX_BUILTIN_CATEGORY_IDS = [
+  'image-tools',
+  'video-tools',
+  'text-tools',
+  'audio-tools',
+  'model3d-tools',
+] as const;
+
+export function isRhToolboxBuiltinCategoryId(categoryId: unknown): boolean {
+  const id = String(categoryId ?? '').trim();
+  return RH_TOOLBOX_BUILTIN_CATEGORY_IDS.includes(id as any);
+}
 
 export const RH_TOOLBOX_QUICK_SURFACE_LABELS: Record<RhToolboxQuickSurface, string> = {
   image: '图像',
@@ -212,6 +241,36 @@ function cleanText(value: unknown, fallback = ''): string {
   return raw.length > 160 ? raw.slice(0, 160) : raw;
 }
 
+export function normalizeRhToolboxMajorCategoryId(value: unknown): RhToolboxMajorCategoryId | undefined {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'image' || raw === 'images' || raw === 'img' || raw === 'photo' || raw === 'image-tools' || raw === '图像' || raw === '图片') return 'image';
+  if (raw === 'video' || raw === 'videos' || raw === 'movie' || raw === 'video-tools' || raw === '视频') return 'video';
+  if (raw === 'audio' || raw === 'sound' || raw === 'music' || raw === 'voice' || raw === 'audio-tools' || raw === '音频' || raw === '声音') return 'audio';
+  if (raw === '3d' || raw === 'model3d' || raw === 'model-3d' || raw === 'models' || raw === '3d-tools' || raw === 'model3d-tools' || raw === '模型') return 'model3d';
+  if (raw === 'text' || raw === 'texts' || raw === 'prompt' || raw === 'llm' || raw === 'text-tools' || raw === '文本' || raw === '文字') return 'text';
+  return undefined;
+}
+
+function inferMajorCategoryFromText(value: unknown): RhToolboxMajorCategoryId | undefined {
+  const raw = String(value ?? '').toLowerCase();
+  if (!raw) return undefined;
+  if (/3d|model|mesh|glb|gltf|模型|三维/.test(raw)) return 'model3d';
+  if (/video|movie|film|motion|视频|影片|动效/.test(raw)) return 'video';
+  if (/audio|sound|voice|music|tts|stt|音频|声音|音乐|语音/.test(raw)) return 'audio';
+  if (/text|prompt|llm|word|caption|文本|文字|提示词/.test(raw)) return 'text';
+  if (/image|img|photo|picture|visual|图像|图片|照片|视觉/.test(raw)) return 'image';
+  return undefined;
+}
+
+export function getRhToolboxCategoryMajorId(category: Partial<RhToolboxCategory> | null | undefined): RhToolboxMajorCategoryId {
+  return normalizeRhToolboxMajorCategoryId(category?.parentId)
+    || normalizeRhToolboxMajorCategoryId((category as any)?.majorCategoryId)
+    || normalizeRhToolboxMajorCategoryId((category as any)?.surface)
+    || inferMajorCategoryFromText(`${category?.id || ''} ${category?.name || ''} ${category?.description || ''}`)
+    || 'image';
+}
+
 function cleanCapabilities(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -259,6 +318,7 @@ export function normalizeRhToolboxManifest(manifest: Partial<RhToolboxManifest> 
     categories.push({
       id,
       name: cleanText((item as any)?.name, id),
+      parentId: getRhToolboxCategoryMajorId(item as any),
       description: cleanText((item as any)?.description),
       order: Number.isFinite((item as any)?.order) ? Number((item as any).order) : index,
       icon: cleanText((item as any)?.icon),
@@ -267,7 +327,7 @@ export function normalizeRhToolboxManifest(manifest: Partial<RhToolboxManifest> 
 
   if (categories.length === 0) {
     categoryIds.add(DEFAULT_CATEGORY_ID);
-    categories.push({ id: DEFAULT_CATEGORY_ID, name: '通用工具', order: 0, icon: 'Wrench' });
+    categories.push({ id: DEFAULT_CATEGORY_ID, name: '通用工具', parentId: 'image', order: 0, icon: 'Wrench' });
   }
 
   const rawTools = Array.isArray(manifest?.tools) ? manifest!.tools : [];
@@ -389,13 +449,11 @@ export function normalizeRhToolboxManifest(manifest: Partial<RhToolboxManifest> 
       ui: raw?.ui && typeof raw.ui === 'object'
         ? {
             icon: cleanText(raw.ui.icon),
-            accent: cleanText(raw.ui.accent),
             showInNode: raw.ui.showInNode !== false,
             showInImageEditor: raw.ui.showInImageEditor === true,
             showInVideoEditor: raw.ui.showInVideoEditor === true,
             showInTextEditor: raw.ui.showInTextEditor === true,
             showInAudioEditor: raw.ui.showInAudioEditor === true,
-            quickActionLabel: cleanText(raw.ui.quickActionLabel),
           }
         : { showInNode: true },
       version: Number.isFinite(raw?.version) ? Number(raw.version) : 1,
@@ -431,6 +489,7 @@ export function filterRhToolboxTools(
   manifest: Partial<RhToolboxManifest> | null | undefined,
   filters: {
     query?: string;
+    majorCategoryId?: RhToolboxMajorCategoryId | typeof RH_TOOLBOX_ALL_CATEGORY_ID;
     categoryId?: string;
     capability?: string;
     kind?: RhToolboxMediaKind;
@@ -438,7 +497,13 @@ export function filterRhToolboxTools(
   } = {},
 ): RhToolboxTool[] {
   const q = String(filters.query || '').trim().toLowerCase();
-  return listRhToolboxTools(manifest, { includeDisabled: filters.includeDisabled }).filter((tool) => {
+  const normalized = normalizeRhToolboxManifest(manifest);
+  const tools = normalized.tools.filter((tool) => filters.includeDisabled || tool.enabled !== false);
+  return tools.filter((tool) => {
+    const toolMajorCategoryId = getRhToolboxToolMajorCategory(tool, normalized.categories);
+    if (filters.majorCategoryId && filters.majorCategoryId !== RH_TOOLBOX_ALL_CATEGORY_ID && toolMajorCategoryId !== filters.majorCategoryId) {
+      return false;
+    }
     if (filters.categoryId && filters.categoryId !== RH_TOOLBOX_ALL_CATEGORY_ID && tool.categoryId !== filters.categoryId) {
       return false;
     }
@@ -454,6 +519,25 @@ export function filterRhToolboxTools(
     ].join(' ').toLowerCase();
     return haystack.includes(q);
   });
+}
+
+export function getRhToolboxToolMajorCategory(
+  tool: Partial<RhToolboxTool> | null | undefined,
+  categories: RhToolboxCategory[] = [],
+): RhToolboxMajorCategoryId {
+  const category = categories.find((item) => item.id === tool?.categoryId);
+  if (category) return getRhToolboxCategoryMajorId(category);
+  const capabilityMajor = (tool?.capabilities || [])
+    .map((capability) => inferMajorCategoryFromText(capability))
+    .find(Boolean);
+  if (capabilityMajor) return capabilityMajor;
+  const outputKinds = (tool?.outputSchema || []).map((output) => output.kind);
+  const inputKinds = (tool?.inputSchema || []).map((input) => input.kind);
+  const kinds = [...outputKinds, ...inputKinds];
+  if (kinds.includes('video')) return 'video';
+  if (kinds.includes('audio')) return 'audio';
+  if (kinds.includes('text')) return 'text';
+  return 'image';
 }
 
 export function buildRhToolboxQuickActions(
@@ -476,7 +560,7 @@ export function buildRhToolboxQuickActions(
         surface,
         toolId: tool.id,
         title: tool.title,
-        label: tool.ui?.quickActionLabel || tool.capabilities.map((capability) => RH_TOOLBOX_CAPABILITY_LABELS[capability]).find(Boolean) || tool.title,
+        label: tool.title,
         description: tool.description,
         enabled,
         reason: enabled ? undefined : '待维护者配置 WebApp ID 后启用',
@@ -484,7 +568,6 @@ export function buildRhToolboxQuickActions(
         capabilities: tool.capabilities,
         inputKinds: Array.from(new Set(tool.inputSchema.map((input) => input.kind))),
         outputKinds: Array.from(new Set(tool.outputSchema.map((output) => output.kind))),
-        accent: tool.ui?.accent,
       };
     })
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.label.localeCompare(b.label, 'zh-Hans-CN'));

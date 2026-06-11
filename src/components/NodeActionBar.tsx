@@ -28,7 +28,7 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'multi-angle-3d', 'panorama-720', 'penguin-portrait',
   'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
     // v1.2.10.1: RH 工具节点
-    'rh-tools', 'rh-toolbox', 'comfyui-store',
+    'rh-tools', 'rh-toolbox', 'fal-toolbox', 'comfyui-store',
   'resize', 'upscale', 'grid-crop', 'grid-editor', 'remove-bg', 'combine', 'image-compare', 'drawing-board',
   'panorama-3d',
   'frame-extractor', 'frame-pair',
@@ -54,6 +54,7 @@ const ACTION_COLORS: Record<string, { run: string; stop: string; close: string }
   yyh: { run: '#52ff9a', stop: '#ffb84d', close: '#ff4f7b' },
   'soccer-hero': { run: '#1f9f4a', stop: '#f5d550', close: '#d64242' },
   'dragon-ball': { run: '#ffb000', stop: '#38bdf8', close: '#dc2626' },
+  'saint-seiya': { run: '#f8c84a', stop: '#2dd4bf', close: '#b4232f' },
 };
 
 const NodeActionBar = () => {
@@ -82,6 +83,7 @@ const NodeActionBar = () => {
   const rhDuckUploadIds = useHiddenFeatureStore((s) => s.rhDuckUploadIds);
   const yyhPortraitIds = useHiddenFeatureStore((s) => s.yyhPortraitIds);
   const toggleRhDuckUpload = useHiddenFeatureStore((s) => s.toggleRhDuckUpload);
+  const clearRhDuckUpload = useHiddenFeatureStore((s) => s.clearRhDuckUpload);
   const toggleYyhPortrait = useHiddenFeatureStore((s) => s.toggleYyhPortrait);
   const holdTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
@@ -100,17 +102,30 @@ const NodeActionBar = () => {
   }, [nodes]);
 
   const selectedData = (selectedExe?.data || {}) as any;
+  const selectedRhDuckData = selectedExe?.data as any;
+  const rhDuckPersistedMode = Boolean(
+    selectedExe?.type === 'upload' &&
+      (selectedRhDuckData?.rhDuckHiddenUpload === false
+        ? false
+        : selectedRhDuckData?.rhDuckHiddenUpload ||
+          selectedRhDuckData?.rhDuckMode ||
+          selectedRhDuckData?.rhDuckUploadMode),
+  );
   const rhDuckEligible = Boolean(
     isRhVisual &&
       selectedExe?.type === 'upload' &&
       selectedData.uploadType === 'image' &&
       getMediaItemsFromData(selectedData, 'image').length > 0,
   );
-  const rhDuckMode = isRhDuckUploadEnabled(rhDuckUploadIds, selectedExe?.id);
+  const rhDuckMode = Boolean(
+    isRhVisual &&
+      selectedExe?.type === 'upload' &&
+      (rhDuckPersistedMode || isRhDuckUploadEnabled(rhDuckUploadIds, selectedExe?.id)),
+  );
   const yyhPortraitEligible = Boolean(isYyhVisual && selectedExe?.type === 'portrait-master');
   const yyhPortraitMode = isYyhPortraitEnabled(yyhPortraitIds, selectedExe?.id);
-  const hiddenHoldEligible = rhDuckEligible || yyhPortraitEligible;
-  const hiddenModeKind = rhDuckEligible && rhDuckMode
+  const hiddenHoldEligible = rhDuckMode || rhDuckEligible || yyhPortraitEligible;
+  const hiddenModeKind = rhDuckMode
     ? 'rh-duck'
     : yyhPortraitEligible && yyhPortraitMode
       ? 'yyh-portrait'
@@ -185,8 +200,24 @@ const NodeActionBar = () => {
     clearHoldTimer();
     setHoldArmed(true);
     holdTimerRef.current = window.setTimeout(() => {
-      if (rhDuckEligible) {
-        const enabled = toggleRhDuckUpload(selectedExe.id);
+      if (rhDuckMode || rhDuckEligible) {
+        const enabled = !rhDuckMode;
+        if (enabled && !isRhDuckUploadEnabled(rhDuckUploadIds, selectedExe.id)) toggleRhDuckUpload(selectedExe.id);
+        if (!enabled) clearRhDuckUpload(selectedExe.id);
+        setNodes((nds) =>
+          nds.map((node) =>
+            node.id === selectedExe.id
+              ? {
+                  ...node,
+                  data: {
+                    ...(node.data || {}),
+                    rhDuckHiddenUpload: enabled,
+                    uploadType: enabled ? 'image' : (node.data as any)?.uploadType,
+                  },
+                }
+              : node,
+          ),
+        );
         if (enabled) trackAchievementEvent({ type: 'hidden_mode.enabled', theme: visualStyle, kind: 'rh-duck', mode: 'enabled', nodeType: 'upload' });
       } else if (yyhPortraitEligible) {
         const enabled = toggleYyhPortrait(selectedExe.id);
@@ -215,7 +246,7 @@ const NodeActionBar = () => {
     setNodes((nds) => nds.map((n) => (n.id === selectedExe.id ? { ...n, selected: false } : n)));
   };
 
-  const runColor = rhDuckEligible && rhDuckMode
+  const runColor = rhDuckMode
     ? '#ff345f'
     : yyhPortraitEligible && yyhPortraitMode
       ? '#ff4fd8'

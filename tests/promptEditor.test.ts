@@ -141,7 +141,6 @@ test('dynamic RH and ComfyUI text parameters use expanded prompt editing', () =>
 test('configuration JSON and list editors reuse expanded prompt editing', () => {
   const apiSettings = read('../src/components/ApiSettings.tsx');
   const comfyMaker = read('../src/components/nodes/ComfyUIAppMakerNode.tsx');
-  const rhMaker = read('../src/components/nodes/RHToolboxMakerNode.tsx');
   const rhEditor = read('../src/components/nodes/RHToolEditorModal.tsx');
 
   assert.match(apiSettings, /import PromptTextarea from '\.\/PromptTextarea'/);
@@ -154,10 +153,6 @@ test('configuration JSON and list editors reuse expanded prompt editing', () => 
   assert.match(comfyMaker, /import PromptTextarea from '\.\.\/PromptTextarea'/);
   assert.match(comfyMaker, /title="ComfyUI Workflow JSON"/);
   assert.match(comfyMaker, /title="ComfyUI 自动映射排除规则"/);
-
-  assert.match(rhMaker, /title="RH 工具能力标签"/);
-  assert.match(rhMaker, /title="RH 工具 manifest JSON"/);
-  assert.match(rhMaker, /readOnly/);
 
   assert.match(rhEditor, /title="RH 超市应用简介"/);
 });

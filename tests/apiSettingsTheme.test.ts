@@ -127,3 +127,24 @@ test('Dragon Ball theme defaults to bundled mp3 music and packaging validates th
   assert.match(featuresSource, /"dragon-ball-style": "dragonball-makafushigi-adventure\.mp3"/);
   assert.match(featuresSource, /"dragon-ball-shenron-hidden": "dragonball-shenron-cha-la-head-cha-la\.mp3"/);
 });
+
+test('Saint Seiya theme defaults to bundled sanctuary and Hades mp3 music', () => {
+  const postBuild = readFileSync(new URL('../electron/_post_build.cjs', import.meta.url), 'utf8');
+  const musicAsset = new URL('../src/assets/theme-music/saint-seiya-pegasus-fantasy.mp3', import.meta.url);
+  const hiddenMusicAsset = new URL('../src/assets/theme-music/saint-seiya-hades-last-holy-war.mp3', import.meta.url);
+
+  assert.equal(existsSync(musicAsset), true);
+  assert.equal(existsSync(hiddenMusicAsset), true);
+  assert.match(defaultTemplatesSource, /saintSeiyaThemeMusicUrl = new URL\('\.\.\/assets\/theme-music\/saint-seiya-pegasus-fantasy\.mp3'/);
+  assert.match(defaultTemplatesSource, /saintSeiyaHadesThemeMusicUrl = new URL\('\.\.\/assets\/theme-music\/saint-seiya-hades-last-holy-war\.mp3'/);
+  assert.match(defaultTemplatesSource, /id: SAINT_SEIYA_TEMPLATE_ID[\s\S]*source: 'url'[\s\S]*url: saintSeiyaThemeMusicUrl/);
+  assert.match(defaultTemplatesSource, /hiddenUrl: saintSeiyaHadesThemeMusicUrl/);
+  assert.match(themeTemplateManagerSource, /saintSeiyaThemeMusicUrl/);
+  assert.match(themeTemplateManagerSource, /visualStyle === 'saint-seiya'[\s\S]*source: 'url'[\s\S]*url: saintSeiyaThemeMusicUrl/);
+  assert.match(themeTemplateManagerSource, /visualStyle === 'saint-seiya'[\s\S]*hiddenUrl: saintSeiyaHadesThemeMusicUrl/);
+  assert.match(postBuild, /checkFrontendAsset\('saint-seiya-pegasus-fantasy-', '\.mp3'\)/);
+  assert.match(postBuild, /checkFrontendAsset\('saint-seiya-hades-last-holy-war-', '\.mp3'\)/);
+  assert.match(postBuild, /film-saint-seiya-01\.mp4\.t8media/);
+  assert.match(featuresSource, /"saint-seiya-style": "saint-seiya-pegasus-fantasy\.mp3"/);
+  assert.match(featuresSource, /"saint-seiya-hades-hidden": "saint-seiya-hades-last-holy-war\.mp3"/);
+});

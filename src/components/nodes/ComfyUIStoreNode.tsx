@@ -153,7 +153,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
     color: text,
     border: `2px solid ${selected ? accent : border}`,
     borderRadius: isPixel ? 8 : 14,
-    overflow: 'hidden',
+    overflow: 'visible',
     boxShadow: isPixel ? '3px 3px 0 var(--px-ink)' : 'var(--t8-node-shadow, 0 12px 30px rgba(0,0,0,0.28))',
   };
 
@@ -293,7 +293,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   useRunTrigger(id, handleRun, 'image');
 
   return (
-    <div className="relative flex flex-col nowheel" style={rootStyle}>
+    <div className="t8-comfyui-store-node relative flex flex-col nowheel" style={rootStyle}>
       <Handle type="target" position={Position.Left} style={{ ...handleStyle, background: PORT_COLOR.image, left: -6 }} />
       <Handle type="source" position={Position.Right} style={{ ...handleStyle, background: PORT_COLOR.image, right: -6 }} />
       <ResizableCorners
@@ -306,24 +306,25 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
         onResizeEnd={(_, params) => update({ size: { w: Math.round(params.width), h: Math.round(params.height) } })}
       />
 
-      <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: border }}>
-        <div className="flex h-8 w-8 items-center justify-center rounded border" style={{ borderColor: accent, color: accent }}>
-          <Boxes size={17} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-black">ComfyUI超市</div>
-          <div className="truncate text-[11px]" style={{ color: sub }}>
-            {activeApp ? activeApp.title : `${manifest.apps.length} 个应用`} · 本地工作流
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden" style={{ borderRadius: isPixel ? 6 : 12 }}>
+        <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: border }}>
+          <div className="flex h-8 w-8 items-center justify-center rounded border" style={{ borderColor: accent, color: accent }}>
+            <Boxes size={17} />
           </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-base font-black">ComfyUI超市</div>
+            <div className="truncate text-[11px]" style={{ color: sub }}>
+              {activeApp ? activeApp.title : `${manifest.apps.length} 个应用`} · 本地工作流
+            </div>
+          </div>
+          {activeApp && (
+            <button type="button" className={buttonCls} style={inputStyle} onClick={() => update({ comfyuiStoreActiveAppId: '' })}>
+              <ArrowLeft size={12} /> 列表
+            </button>
+          )}
         </div>
-        {activeApp && (
-          <button type="button" className={buttonCls} style={inputStyle} onClick={() => update({ comfyuiStoreActiveAppId: '' })}>
-            <ArrowLeft size={12} /> 列表
-          </button>
-        )}
-      </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3 nowheel">
+        <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3 nowheel">
         <div className="grid grid-cols-1 gap-2">
           <label className="space-y-1">
             <span className="text-[11px] font-bold" style={{ color: sub }}>ComfyUI 实例</span>
@@ -579,7 +580,14 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
               <div className="text-xs font-black">参数</div>
               {activeApp.userParams.map((param) => (
                 <label key={param.key} className="block space-y-1">
-                  <span className="text-[11px] font-bold" style={{ color: sub }}>{param.label}</span>
+                  <span className="flex items-center justify-between gap-2 text-[11px] font-bold" style={{ color: sub }}>
+                    <span className="min-w-0 truncate">{param.label}</span>
+                    {(param.nodeId || param.fieldName) && (
+                      <span className="shrink-0 font-mono text-[10px]" style={{ color: accent }}>
+                        {param.nodeId ? `#${param.nodeId}` : ''}{param.fieldName ? `.${param.fieldName}` : ''}
+                      </span>
+                    )}
+                  </span>
                   {param.kind === 'textarea' ? (
                     <PromptTextarea
                       title={`ComfyUI 参数 · ${param.label}`}
@@ -597,6 +605,19 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                       checked={!!paramValues[param.key]}
                       onChange={(e) => setParam(param.key, e.target.checked)}
                     />
+                  ) : param.kind === 'select' && param.options?.length ? (
+                    <select
+                      value={String(paramValues[param.key] ?? param.defaultValue ?? param.options[0] ?? '')}
+                      onChange={(e) => setParam(param.key, e.target.value)}
+                      className={inputCls}
+                      style={inputStyle}
+                    >
+                      {param.options.map((option) => (
+                        <option key={String(option)} value={String(option)}>
+                          {String(option)}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     <input
                       type={param.kind === 'number' ? 'number' : 'text'}
@@ -637,6 +658,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

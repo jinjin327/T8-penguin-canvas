@@ -8,7 +8,7 @@ import {
   type NodeProps,
   type Node,
 } from '@xyflow/react';
-import { MonitorPlay, Type as TypeIcon, Image as ImageIcon, Video as VideoIcon, Music, Download, Pencil, Check, Edit3, GitCompare } from 'lucide-react';
+import { Box, MonitorPlay, Type as TypeIcon, Image as ImageIcon, Video as VideoIcon, Music, Download, Pencil, Check, Edit3, GitCompare } from 'lucide-react';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import { useThemeStore } from '../../stores/theme';
 import { PORT_COLOR } from '../../config/portTypes';
@@ -25,6 +25,7 @@ import ResizableCorners from './ResizableCorners';
 import { saveAssetToDisk } from '../../services/api';
 import {
   createOutputDataFromItem,
+  fileNameFromUrl,
   type MediaItem,
   type MediaKind,
 } from '../../utils/mediaCollection';
@@ -42,7 +43,7 @@ import { placeBatchNodes, defaultSizeOf, type Rect as PlacementRect } from '../.
  * OutputNode - 通用输出素材节点 (中继展示型)
  *
  * 设计:
- *   1. 输入: 接收上游任意 文本/图像/视频/音频 连入 (target handle, 左侧)
+ *   1. 输入: 接收上游任意 文本/图像/视频/音频/3D模型 连入 (target handle, 左侧)
  *   2. 自动遍历上游节点的 data, 抽取所有可识别的:
  *      - 文本: prompt / reply / text / outputText
  *      - 图像: imageUrl / imageUrls[] / urls[] / generatedImages[]
@@ -51,8 +52,8 @@ import { placeBatchNodes, defaultSizeOf, type Rect as PlacementRect } from '../.
  *   3. 分区显示, 图像/视频按原始宽高比 (object-contain + maxHeight) 不强制裁剪
  *   4. 文本双击进入可编辑状态, 编辑保存到 data.outputText (覆盖上游 live 文本)
  *      置空 outputText 时再次显示上游原文
- *   5. 输出: 收集到的 文本/图像/视频/音频 同时透传到本节点自身 data 的
- *      prompt / imageUrl / imageUrls / urls / videoUrl / audioUrl 字段上,
+ *   5. 输出: 收集到的 文本/图像/视频/音频/3D模型 同时透传到本节点自身 data 的
+ *      prompt / imageUrl / imageUrls / urls / videoUrl / audioUrl / modelUrl 字段上,
  *      下游节点能像读上游一样读到 (source handle, 右侧, any)
  *
  * 渲染联动机制(重要):
@@ -64,6 +65,7 @@ import { placeBatchNodes, defaultSizeOf, type Rect as PlacementRect } from '../.
 
 const isVideoUrl = (u: string) => /\.(mp4|webm|mov|m4v|mkv)(\?|$)/i.test(u);
 const isAudioUrl = (u: string) => /\.(mp3|wav|ogg|m4a|flac)(\?|$)/i.test(u);
+const isModel3DUrl = (u: string) => /\.(glb|gltf|obj|fbx|stl|usdz|zip)(\?|$)/i.test(u) || /^data:model\//i.test(u);
 
 const NODE_INPUT_LABELS: Record<string, string> = {
   upload: '上传图',
@@ -84,6 +86,7 @@ interface Collected {
   images: string[];
   videos: string[];
   audios: string[];
+  models: string[];
 }
 
 const OutputNode = ({ id, data, selected }: NodeProps) => {
@@ -152,6 +155,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         const arr5 = Array.isArray(ud.textSegments) ? ud.textSegments.join('\u241F') : '';
         const arr6 = Array.isArray(ud.segments) ? ud.segments.join('\u241F') : '';
         const arr7 = Array.isArray(ud.texts) ? ud.texts.join('\u241F') : '';
+        const arrModel1 = Array.isArray(ud.modelUrls) ? ud.modelUrls.join(',') : '';
+        const arrModel2 = Array.isArray(ud.directModelUrls) ? ud.directModelUrls.join(',') : '';
         const arr8 = Array.isArray(ud.materialSetItems)
           ? JSON.stringify(ud.materialSetItems.map((item: any) => [item?.kind, item?.url, item?.text, item?.name]))
           : '';
@@ -167,6 +172,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
           ud.videoUrl || '',
           ud.audioUrl || '',
           ud.audioUrl_1 || '', // Suno 双轨副轨; 漏写会导致只显示第 1 首
+          ud.modelUrl || '',
+          ud.directModelUrl || '',
           ud.firstFrameUrl || '', // v1.2.8.4: FramePair 双端口字段
           ud.lastFrameUrl || '',
           ud.__loopAccumulate ? `LA:${ud.__loopAccumulate}` : '', // v1.2.9.1: 循环累积标记 — 进入/退出循环时需重算 collected
@@ -177,6 +184,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
           arr5,
           arr6,
           arr7,
+          arrModel1,
+          arrModel2,
           arr8,
         ].join('§');
       })
@@ -184,7 +193,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
   }, [upstreamNodes]);
 
   const collected = useMemo<Collected>(() => {
-    const out: Collected = { texts: [], images: [], videos: [], audios: [] };
+    const out: Collected = { texts: [], images: [], videos: [], audios: [], models: [] };
 
     // 「被 LLM 消化」文本跳过集: 与 useUpstreamMaterials 保持一致。
     // 场景: TextNode 同时连 LLM 和 OutputNode 时, 避免 原始 prompt + LLM reply 同现 2 条。
@@ -225,6 +234,15 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       if (!s) return;
       if (skipTextSet.has(s)) return;
       arr.push(s);
+    };
+    const pushClassifiedUrl = (value: any) => {
+      if (typeof value !== 'string') return;
+      const url = value.trim();
+      if (!url) return;
+      if (isModel3DUrl(url)) pushUnique(out.models, url);
+      else if (isVideoUrl(url)) pushUnique(out.videos, url);
+      else if (isAudioUrl(url)) pushUnique(out.audios, url);
+      else pushUnique(out.images, url);
     };
 
     const directOnlyOutput = Boolean(d.rhDuckDecoded);
@@ -286,8 +304,14 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         const arrFields = ['imageUrls', 'urls', 'generatedImages'];
         for (const f of arrFields) {
           const v = ud[f];
-          if (Array.isArray(v)) v.forEach((u) => pushUnique(out.images, u));
+          if (Array.isArray(v)) v.forEach((u) => (f === 'urls' ? pushClassifiedUrl(u) : pushUnique(out.images, u)));
         }
+
+      // 3D 模型
+        pushUnique(out.models, ud.modelUrl);
+        pushUnique(out.models, ud.directModelUrl);
+        if (Array.isArray(ud.modelUrls)) ud.modelUrls.forEach((u: any) => pushUnique(out.models, u));
+        if (Array.isArray(ud.directModelUrls)) ud.directModelUrls.forEach((u: any) => pushUnique(out.models, u));
 
       // 视频
         pushUnique(out.videos, ud.videoUrl);
@@ -336,6 +360,12 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     if (Array.isArray(d.directAudioUrls)) {
       d.directAudioUrls.forEach((u: any) => pushUnique(out.audios, u));
     }
+    if (typeof d.directModelUrl === 'string' && d.directModelUrl) {
+      pushUnique(out.models, d.directModelUrl);
+    }
+    if (Array.isArray(d.directModelUrls)) {
+      d.directModelUrls.forEach((u: any) => pushUnique(out.models, u));
+    }
     // v1.2.8.5: 循环器跨轮累积的文本联接作为独立一项加入 (已含 —— 分隔符)
     if (typeof d.directOutputText === 'string' && d.directOutputText) {
       pushUniqueText(out.texts, d.directOutputText);
@@ -346,6 +376,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
 
     // 兜底: 一些节点把视频/音频塞在 imageUrl, 通过扩展名识别再纠正
     out.images = out.images.filter((u) => {
+      if (isModel3DUrl(u)) {
+        if (out.models.indexOf(u) === -1) out.models.push(u);
+        return false;
+      }
       if (isVideoUrl(u)) {
         if (out.videos.indexOf(u) === -1) out.videos.push(u);
         return false;
@@ -359,7 +393,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
 
     // === pickKind / pickIndex 过滤 ===
     // Canvas 自动创建多个 OutputNode 映射上游多项输出时,
-    // 会在 data 里标记 pickKind ('image'/'video'/'audio') + pickIndex,
+    // 会在 data 里标记 pickKind ('text'/'image'/'video'/'audio') + pickIndex,
     // 则本节点只保留对应 kind 的第 pickIndex 项, 避免多图场景下
     // 所有 OutputNode 都重复显示全部输出。
     // 手动连连的 OutputNode 不带 pickKind => 保留原语义 (显示上游全部).
@@ -376,29 +410,44 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       (Array.isArray(d.directImageUrls) && d.directImageUrls.length > 0) ||
       (Array.isArray(d.directVideoUrls) && d.directVideoUrls.length > 0) ||
       (Array.isArray(d.directAudioUrls) && d.directAudioUrls.length > 0) ||
+      (Array.isArray(d.directModelUrls) && d.directModelUrls.length > 0) ||
       (typeof d.directOutputText === 'string' && d.directOutputText.length > 0);
     const pickKind: string | undefined = hasAnyDirectAccumulated ? undefined : d.pickKind;
     const pickIndex: number | undefined =
       typeof d.pickIndex === 'number' ? d.pickIndex : undefined;
     if (pickKind && typeof pickIndex === 'number') {
-      if (pickKind === 'image') {
+      if (pickKind === 'text') {
+        out.texts = out.texts[pickIndex] ? [out.texts[pickIndex]] : [];
+        out.images = [];
+        out.videos = [];
+        out.audios = [];
+        out.models = [];
+      } else if (pickKind === 'image') {
         out.images = out.images[pickIndex] ? [out.images[pickIndex]] : [];
         out.videos = [];
         out.audios = [];
+        out.models = [];
         // 图像项模式下还保留文本 (提示词) 以便下游可读
       } else if (pickKind === 'video') {
         out.videos = out.videos[pickIndex] ? [out.videos[pickIndex]] : [];
         out.images = [];
         out.audios = [];
+        out.models = [];
       } else if (pickKind === 'audio') {
         out.audios = out.audios[pickIndex] ? [out.audios[pickIndex]] : [];
         out.images = [];
         out.videos = [];
+        out.models = [];
+      } else if (pickKind === 'model3d') {
+        out.models = out.models[pickIndex] ? [out.models[pickIndex]] : [];
+        out.images = [];
+        out.videos = [];
+        out.audios = [];
       }
     }
 
     return out;
-  }, [upstreamNodes, upstreamSig, handleMap, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls, d.directVideoUrl, d.directVideoUrls, d.directAudioUrl, d.directAudioUrls, d.directOutputText, d.directTextSegments, d.rhDuckDecoded]);
+  }, [upstreamNodes, upstreamSig, handleMap, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls, d.directVideoUrl, d.directVideoUrls, d.directAudioUrl, d.directAudioUrls, d.directModelUrl, d.directModelUrls, d.modelUrl, d.modelUrls, d.directOutputText, d.directTextSegments, d.rhDuckDecoded]);
 
   // 文本编辑
   const overrideText: string = typeof d.outputText === 'string' ? d.outputText : '';
@@ -435,6 +484,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       add(ud.audioUrl, prompt, negative);
       add(ud.audioUrl_1, prompt, negative);
       addArray(ud.audioUrls, prompt, negative);
+      add(ud.modelUrl, prompt, negative);
+      add(ud.directModelUrl, prompt, negative);
+      addArray(ud.modelUrls, prompt, negative);
+      addArray(ud.directModelUrls, prompt, negative);
     }
 
     const ownPrompt = clean(d.lastPrompt) || clean(d.prompt) || clean(d.directOutputText) || displayText.trim();
@@ -446,9 +499,13 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       addArray(d.directVideoUrls, ownPrompt, ownNegative);
       add(d.directAudioUrl, ownPrompt, ownNegative);
       addArray(d.directAudioUrls, ownPrompt, ownNegative);
+      add(d.directModelUrl, ownPrompt, ownNegative);
+      addArray(d.directModelUrls, ownPrompt, ownNegative);
+      add(d.modelUrl, ownPrompt, ownNegative);
+      addArray(d.modelUrls, ownPrompt, ownNegative);
     }
     return map;
-  }, [d.directAudioUrl, d.directAudioUrls, d.directImageUrl, d.directImageUrls, d.directOutputText, d.directVideoUrl, d.directVideoUrls, d.lastPrompt, d.negative, d.negativePrompt, d.prompt, d.providerParams, displayText, upstreamNodes, upstreamSig]);
+  }, [d.directAudioUrl, d.directAudioUrls, d.directImageUrl, d.directImageUrls, d.directModelUrl, d.directModelUrls, d.directOutputText, d.directVideoUrl, d.directVideoUrls, d.lastPrompt, d.modelUrl, d.modelUrls, d.negative, d.negativePrompt, d.prompt, d.providerParams, displayText, upstreamNodes, upstreamSig]);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -477,7 +534,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
   const effectiveAccent = isRhDuckOutput ? '#ff345f' : isYyhPortraitOutput ? '#ff4fd8' : accent;
   const effectiveHandle = isRhDuckOutput ? '#ff345f' : isYyhPortraitOutput ? '#ff4fd8' : HANDLE;
 
-  const total = collected.texts.length + collected.images.length + collected.videos.length + collected.audios.length;
+  const total = collected.texts.length + collected.images.length + collected.videos.length + collected.audios.length + collected.models.length;
 
   // === 双击图片 → 裁剪/宫格弹窗 ===
   // 仅针对 collected.images 中的单张图生效; 产物“不”修改本节点, 而是
@@ -551,9 +608,11 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     const baseY = me?.position?.y ?? 0;
     const ts = Date.now();
     const COLS = 3;
-    const COL_W = 350;
+    const targetType = kind === 'model3d' ? 'model-3d-preview' : 'output';
+    const targetSize = defaultSizeOf(targetType);
+    const COL_W = targetType === 'model-3d-preview' ? targetSize.w + 40 : 350;
     const ROW_H = Math.max(300, myH);
-    const _sz = defaultSizeOf('output');
+    const _sz = targetSize;
     const items: MediaItem[] = urls.map((url) => ({ kind, url }));
     const _desired: PlacementRect[] = items.map((_, i) => ({
       x: baseX + (i % COLS) * COL_W,
@@ -563,8 +622,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     }));
     const _off = placeBatchNodes(_desired, rf.getNodes(), { source: `placement:split-output:${id}` });
     const newNodes: Node[] = items.map((item, i) => ({
-      id: `output-split-${id}-${ts}-${i}-${Math.random().toString(36).slice(2, 6)}`,
-      type: 'output',
+      id: `${targetType}-split-${id}-${ts}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      type: targetType,
       position: {
         x: baseX + (i % COLS) * COL_W + _off.dx,
         y: baseY + Math.floor(i / COLS) * ROW_H + _off.dy,
@@ -667,7 +726,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     const hasNonText =
       collected.images.length > 0 ||
       collected.videos.length > 0 ||
-      collected.audios.length > 0;
+      collected.audios.length > 0 ||
+      collected.models.length > 0;
     const passText = hasNonText ? '' : (displayText || '');
     const next: any = {
       prompt: passText,
@@ -679,6 +739,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       videoUrl: collected.videos[0] || '',
       audioUrl: collected.audios[0] || '',
       audioUrl_1: collected.audios[1] || '', // 透传 Suno 双轨副轨避免串联丢失
+      modelUrl: collected.models[0] || '',
+      modelUrls: collected.models.slice(),
       textSegments: hasNonText ? [] : collected.texts.slice(),
       segments: hasNonText ? [] : collected.texts.slice(),
     };
@@ -692,6 +754,8 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       videoUrl: d.videoUrl || '',
       audioUrl: d.audioUrl || '',
       audioUrl_1: d.audioUrl_1 || '',
+      modelUrl: d.modelUrl || '',
+      modelUrls: Array.isArray(d.modelUrls) ? d.modelUrls : [],
       textSegments: Array.isArray(d.textSegments) ? d.textSegments : [],
       segments: Array.isArray(d.segments) ? d.segments : [],
     };
@@ -703,8 +767,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       cur.videoUrl !== next.videoUrl ||
       cur.audioUrl !== next.audioUrl ||
       cur.audioUrl_1 !== next.audioUrl_1 ||
+      cur.modelUrl !== next.modelUrl ||
       JSON.stringify(cur.imageUrls) !== JSON.stringify(next.imageUrls) ||
       JSON.stringify(cur.urls) !== JSON.stringify(next.urls) ||
+      JSON.stringify(cur.modelUrls) !== JSON.stringify(next.modelUrls) ||
       JSON.stringify(cur.textSegments) !== JSON.stringify(next.textSegments) ||
       JSON.stringify(cur.segments) !== JSON.stringify(next.segments);
     if (changed) update(next);
@@ -723,6 +789,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       ...collected.images,
       ...collected.videos,
       ...collected.audios,
+      ...collected.models,
     ].filter(Boolean);
     if (all.length === 0) return;
     const fresh = all.filter((u) => !savedUrlsRef.current.has(u));
@@ -808,7 +875,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
           zIndex: 12,
           pointerEvents: 'all',
         }}
-        title="文本 / 图像 / 视频 / 音频 任意类型可连入"
+        title="文本 / 图像 / 视频 / 音频 / 3D模型 任意类型可连入"
       />
       {/* source handle (右侧) - 作为中继节点可继续向下游透传 (any) */}
       <Handle
@@ -827,7 +894,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
           zIndex: 12,
           pointerEvents: 'all',
         }}
-        title="透传 文本 / 图像 / 视频 / 音频 到下游"
+        title="透传 文本 / 图像 / 视频 / 音频 / 3D模型 到下游"
       />
 
       {/* 内层裁切容器: 圆角 + 越界裁切, 不影响外层 handle */}
@@ -886,7 +953,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
           >
             {upstreamHasLoop
               ? '循环器不输出素材 · 请在「循环器 → EXEC 节点 → OutputNode」链路中查看累积结果'
-              : '连入上游 文本 / 图像 / 视频 / 音频 节点'}
+              : '连入上游 文本 / 图像 / 视频 / 音频 / 3D模型 节点'}
           </div>
         )}
 
@@ -1171,6 +1238,61 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 3D 模型区 */}
+        {collected.models.length > 0 && (
+          <div className="group/output-models space-y-1">
+            <div className={`flex items-center gap-1.5 text-[10px] ${isDark ? 'text-white/50' : 'text-zinc-500'}`}>
+              <Box size={11} />
+              <span className="flex-1">3D模型 ({collected.models.length})</span>
+              <CollectionSplitButton
+                count={collected.models.length}
+                kindLabel="3D模型"
+                onSplit={() => splitOutputCollection('model3d', collected.models)}
+                className="opacity-100 transition sm:opacity-0 sm:group-hover/output-models:opacity-100 sm:focus-within:opacity-100"
+              />
+            </div>
+            <div className="space-y-1.5">
+              {collected.models.map((u, i) => (
+                <div
+                  key={i}
+                  className={`rounded border px-2 py-2 ${
+                    isDark ? 'border-white/10 bg-white/[0.04]' : 'border-black/10 bg-black/[0.03]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded"
+                      style={{ color: PORT_COLOR.model3d, background: `${PORT_COLOR.model3d}22`, boxShadow: `inset 0 0 0 1px ${PORT_COLOR.model3d}66` }}
+                    >
+                      <Box size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate text-[11px] font-semibold ${isDark ? 'text-white/80' : 'text-zinc-800'}`} title={u}>
+                        {fileNameFromUrl(u) || `3D模型 ${i + 1}`}
+                      </div>
+                      <div className={`truncate text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-500'}`} title={u}>
+                        连接到 3D模型预览节点查看 · {u}
+                      </div>
+                    </div>
+                    <a
+                      href={u}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      className={`nodrag nopan inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] ${
+                        isDark ? 'hover:bg-white/10 text-white/60' : 'hover:bg-black/10 text-zinc-600'
+                      }`}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <Download size={10} /> 下载
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

@@ -12,6 +12,7 @@ function labelFor(kind: HiddenModeCeremonyKind) {
   if (kind === 'rh-duck') return 'ACCESS GRANTED';
   if (kind === 'yyh-portrait') return 'SPIRIT GATE';
   if (kind === 'dragon-ball-shenron') return 'SHENRON MODE';
+  if (kind === 'saint-seiya-hades') return 'HADES CHAPTER';
   return 'HIDDEN MODE';
 }
 

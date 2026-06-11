@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Library, Palette, Skull, Sailboat, BookOpen } from 'lucide-react';
+import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Library, Palette, Skull, Sailboat, BookOpen, Shield, Crown } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { seedDragonBallRadarForShenronTest, useDragonBallRadarStore } from './stores/dragonBallRadar';
+import { seedSaintSeiyaGoldClothsForHadesTest, useSaintSeiyaSanctuaryStore } from './stores/saintSeiyaSanctuary';
 import { trackAchievementEvent } from './stores/achievements';
 import { useApiKeysStore } from './stores/apiKeys';
 import { useShortcutStore } from './stores/shortcuts';
@@ -148,6 +149,11 @@ const CANVAS_TUTORIALS = [
     title: '教程第九弹（新增3D全景功能及资产库，一键自动更新功能，输入框放大按钮，修复即梦CLI的多参问题，AI去水印节点功能升级，新增聚合解析功能，可获取17个平台无水印视频，优化启动速度，优化画布加载如慢加载，支持自定义快捷键设置）',
     bilibili: 'https://www.bilibili.com/video/BV1gSEA6GEDQ/',
     youtube: 'https://www.youtube.com/watch?v=-nmX9oB-MX',
+  },
+  {
+    title: '教程第十弹（3D全景功能增强，Figma联动，支持阿里云Oss及腾讯云Cos，新增放置栏，修正新香蕉的模型映射，上传素材的上限从10M到20M，新增veo-omni模型，新增提示词模板系统及增强功能，comfyui支持remote模式，新增newapi分组令牌高级模式，LLM/VISIOIN节点支持流式删除，分类独立APIKEY支持删除功能，新增画布教程模块，支持上游文本联动生成节点@模式，即梦CLI模型补全，素材支持直接拖到浏览器外文件夹）',
+    bilibili: 'https://www.bilibili.com/video/BV1N9Eg6QEHs/',
+    youtube: 'https://www.youtube.com/watch?v=zIW7PbEWQAs',
   },
 ];
 
@@ -449,9 +455,13 @@ function App() {
   const isSlamdunk = currentTemplate.visuals?.style === 'slamdunk';
   const isSoccer = currentTemplate.visuals?.style === 'soccer-hero';
   const isDragonBall = currentTemplate.visuals?.style === 'dragon-ball';
+  const isSaintSeiya = currentTemplate.visuals?.style === 'saint-seiya';
   const shenronUnlockedAt = useDragonBallRadarStore((state) => state.shenronUnlockedAt);
   const shenronModeActive = useDragonBallRadarStore((state) => state.shenronModeActive);
   const setShenronModeActive = useDragonBallRadarStore((state) => state.setShenronModeActive);
+  const hadesUnlockedAt = useSaintSeiyaSanctuaryStore((state) => state.hadesUnlockedAt);
+  const hadesModeActive = useSaintSeiyaSanctuaryStore((state) => state.hadesModeActive);
+  const setHadesModeActive = useSaintSeiyaSanctuaryStore((state) => state.setHadesModeActive);
 
   useEffect(() => {
     if (!import.meta.env.DEV || typeof window === 'undefined') return;
@@ -463,6 +473,16 @@ function App() {
     window.history.replaceState(null, document.title, `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   }, []);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('t8SaintSeiya') !== 'hades') return;
+    seedSaintSeiyaGoldClothsForHadesTest();
+    params.delete('t8SaintSeiya');
+    const query = params.toString();
+    window.history.replaceState(null, document.title, `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, []);
+
   const handleDragonBallModeSwitch = (active: boolean) => {
     setShenronModeActive(active);
     if (active && !shenronModeActive) {
@@ -470,6 +490,18 @@ function App() {
         type: 'hidden_mode.enabled',
         theme: 'dragon-ball',
         kind: 'dragon-ball-shenron',
+        mode: 'enabled',
+      });
+    }
+  };
+
+  const handleSaintSeiyaModeSwitch = (active: boolean) => {
+    setHadesModeActive(active);
+    if (active && !hadesModeActive) {
+      trackAchievementEvent({
+        type: 'hidden_mode.enabled',
+        theme: 'saint-seiya',
+        kind: 'saint-seiya-hades',
         mode: 'enabled',
       });
     }
@@ -532,7 +564,7 @@ function App() {
     <div
       className={`t8-app-shell h-screen flex flex-col overflow-hidden ${
         isPixel ? '' : isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900'
-      } ${isOp ? 't8-app-shell--op' : ''} ${isRh ? 't8-app-shell--rh' : ''} ${isNaruto ? 't8-app-shell--naruto' : ''} ${isEva ? 't8-app-shell--eva' : ''} ${isYyh ? 't8-app-shell--yyh' : ''} ${isSlamdunk ? 't8-app-shell--slamdunk' : ''} ${isSoccer ? 't8-app-shell--soccer' : ''} ${isDragonBall ? 't8-app-shell--dragon-ball' : ''}`}
+      } ${isOp ? 't8-app-shell--op' : ''} ${isRh ? 't8-app-shell--rh' : ''} ${isNaruto ? 't8-app-shell--naruto' : ''} ${isEva ? 't8-app-shell--eva' : ''} ${isYyh ? 't8-app-shell--yyh' : ''} ${isSlamdunk ? 't8-app-shell--slamdunk' : ''} ${isSoccer ? 't8-app-shell--soccer' : ''} ${isDragonBall ? 't8-app-shell--dragon-ball' : ''} ${isSaintSeiya ? 't8-app-shell--saint-seiya' : ''}`}
       style={{ background: 'var(--t8-bg-app)', color: 'var(--t8-text-main)' }}
     >
       {/* 头部状态栏 */}
@@ -667,6 +699,25 @@ function App() {
                 <span />
                 <span />
                 <span />
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          ) : isSaintSeiya ? (
+            <div className="t8-saint-brand flex items-center gap-2">
+              <span className="t8-saint-brand__mark" aria-hidden="true">
+                {hadesModeActive ? <Crown size={16} /> : <Shield size={16} />}
+              </span>
+              <div className="min-w-0">
+                <h1 className="t8-saint-brand__title text-[14px] font-black leading-none">
+                  {hadesModeActive ? '冥界篇 · 贞贞的无限画布' : '圣斗士 · 十二宫'}
+                </h1>
+                <div className="t8-saint-brand__sub text-[9px] font-bold tracking-wide leading-none mt-0.5">
+                  {hadesModeActive ? 'HADES CHAPTER / ATHENA RESCUED' : 'SANCTUARY CANVAS / COSMO READY'}
+                </div>
+              </div>
+              <span className="t8-saint-brand__zodiac" aria-hidden="true">
                 <span />
                 <span />
                 <span />
@@ -1507,6 +1558,29 @@ function App() {
               >
                 <Sparkles size={12} />
                 神龙
+              </button>
+            </div>
+          )}
+          {isSaintSeiya && hadesUnlockedAt && (
+            <div className="t8-saint-mode-switch" role="group" aria-label="圣斗士主题模式">
+              <button
+                type="button"
+                className={`t8-saint-mode-switch__option ${!hadesModeActive ? 'is-active' : ''}`}
+                aria-pressed={!hadesModeActive}
+                onClick={() => handleSaintSeiyaModeSwitch(false)}
+                title="切回十二宫模式"
+              >
+                十二宫
+              </button>
+              <button
+                type="button"
+                className={`t8-saint-mode-switch__option ${hadesModeActive ? 'is-active' : ''}`}
+                aria-pressed={hadesModeActive}
+                onClick={() => handleSaintSeiyaModeSwitch(true)}
+                title="切换到冥界篇"
+              >
+                <Sparkles size={12} />
+                冥界篇
               </button>
             </div>
           )}

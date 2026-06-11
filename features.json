@@ -1,7 +1,407 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "2.1.4",
-  "lastUpdated": "2026-06-08-electron-release-figma-cloud-tutorial",
+  "version": "2.1.7",
+  "lastUpdated": "2026-06-11-electron-release-v217",
+  "electronReleaseV217": {
+    "version": "2.1.7",
+    "status": "electron-release",
+    "date": "2026-06-11",
+    "description": "v2.1.7 Electron 自动更新发布：收口 ComfyUI Workflow 识别、排除规则备份、百度/夸克 WebDAV 上传、ComfyUI 超市端口裁切、Grok Video 默认模型显示和圣斗士主题细节修复。",
+    "highlights": [
+      "ComfyUI API Workflow 字段识别增强，前端制作器、图像节点和后端 provider 共享 prompt/image/video/audio/ControlNet/UNet/CLIP Vision/FPS/guidance 等常见字段规则。",
+      "ComfyUI 自动映射排除规则支持 JSON 导入导出，设置页和 ComfyUI 应用制作工具节点都可复用同一份规则备份。",
+      "百度网盘与夸克网盘上传补齐 WebDAV 网关方案，支持配置检查、自动建目录、PUT 上传和更明确的错误提示。",
+      "ComfyUI 超市节点外层不再裁切 React Flow 入口/出口端口，强主题下左右连接点保持可见。",
+      "视频节点 Grok Video 默认模型显示为 grok-video-3（新版1.5），后台模型映射保持 grok-video-3 不变。",
+      "圣斗士主题继续修正冥界雷达、浅/深色可读性和小地图元素位置，避免主题 UI 遮挡创作画布。"
+    ],
+    "releaseFiles": [
+      "package.json",
+      "package-lock.json",
+      "vite.config.ts",
+      "vite.config.js",
+      "electron/main.cjs",
+      "backend/src/config.js",
+      "features.json",
+      "README.md",
+      "release-notes/v2.1.7.md"
+    ],
+    "packaging": {
+      "script": "npm run dist:release",
+      "installer": "dist_electron/T8-PenguinCanvas-Setup-2.1.7.exe",
+      "blockmap": "dist_electron/T8-PenguinCanvas-Setup-2.1.7.exe.blockmap",
+      "latestYml": "dist_electron/latest.yml",
+      "updater": "GitHub Release v2.1.7 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "releaseBoundary": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、hermes-agent/**、Electron 缓存目录和任何私有计费/支付/充值/分组令牌实现进入 GitHub。",
+      "RH 工具箱制作器与 FAL 应用制作工具仍为本地开发工具，不进入公开源码和公开打包产物。",
+      "真实 Grok OAuth 私有调用继续通过本机 ignored local-private 扩展 / 加密链路处理，公开仓库只保留安全外壳。"
+    ],
+    "verification": [
+      "node -c backend\\src\\cloudUploads\\settings.js",
+      "node -c backend\\src\\cloudUploads\\uploader.js",
+      "node -c backend\\src\\providers\\comfyui.js",
+      "node --test tests\\cloudUploads.test.ts tests\\comfyuiProvider.test.ts tests\\comfyuiImageNode.test.ts tests\\comfyuiAppsManifest.test.ts tests\\comfyuiAppNodes.test.ts tests\\grokVideo15.test.ts tests\\modelUsageHelp.test.ts tests\\saintSeiyaBattle.test.ts tests\\achievements.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "npm run dist:release",
+      "npm run release:verify"
+    ]
+  },
+  "comfyuiExcludeRulesBackup": {
+    "status": "implemented",
+    "date": "2026-06-11",
+    "description": "ComfyUI 自动映射排除规则支持 JSON 导入导出，覆盖设置页面扩展 API 的 ComfyUI 设置和 ComfyUI 应用制作工具节点。",
+    "highlights": [
+      "排除采样器参数、排除模型加载、排除尺寸批量等规则可以一键导出为 t8-comfyui-field-exclude-rules JSON。",
+      "导入兼容新 JSON、旧数组、纯文本规则和常见字段名，用户换版本或换设备时不用重新手填。",
+      "导入后会立即重新计算自动映射字段，设置页与制作工具节点使用同一套解析规则。"
+    ],
+    "files": [
+      "src/utils/comfyuiWorkflow.ts",
+      "src/components/ApiSettings.tsx",
+      "src/components/nodes/ComfyUIAppMakerNode.tsx",
+      "tests/comfyuiProvider.test.ts",
+      "tests/comfyuiAppsManifest.test.ts"
+    ],
+    "verification": [
+      "node --test tests\\comfyuiProvider.test.ts tests\\comfyuiAppsManifest.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
+  "comfyuiWorkflowRecognition": {
+    "status": "implemented",
+    "date": "2026-06-11",
+    "description": "本地 ComfyUI API Workflow 自动识别增强：从少数标准节点扩展到通用自定义节点字段，保证制作器、设置页和后端提交使用同一套映射规则。",
+    "highlights": [
+      "自动识别 prompt / positive_prompt / negative_prompt / caption / instruction 等文本字段，仍优先通过 sampler 连接修正正负 Prompt。",
+      "自动识别 image / mask / reference_image / control_image / image_path 等图片输入，并支持 image1 之后的更多编号；视频和音频输入同样支持 videoN / audioN。",
+      "补齐 ControlNet、UNet、CLIP Vision、Style Model、Upscale Model、帧率、帧数、FPS、guidance、shift、strength、weight 等常见自定义节点参数。",
+      "ComfyUI 应用制作器会把新识别到的非媒体参数暴露为可调用户参数；图像节点 ComfyUI 面板同步显示这些字段。",
+      "后端 ComfyUI provider 使用同等识别规则，即使保存的 workflow 没有 fields 映射，也能在提交前自动 patch 自定义字段。"
+    ],
+    "files": [
+      "src/utils/comfyuiWorkflow.ts",
+      "src/utils/comfyuiApps.ts",
+      "src/components/nodes/ImageNode.tsx",
+      "backend/src/providers/comfyui.js",
+      "tests/comfyuiProvider.test.ts",
+      "tests/comfyuiImageNode.test.ts",
+      "tests/comfyuiAppsManifest.test.ts"
+    ],
+    "verification": [
+      "node -c backend\\src\\providers\\comfyui.js",
+      "node --test tests\\comfyuiProvider.test.ts tests\\comfyuiImageNode.test.ts tests\\comfyuiAppsManifest.test.ts",
+      "npm run type-check"
+    ]
+  },
+  "netdiskWebdavUpload": {
+    "status": "implemented",
+    "date": "2026-06-11",
+    "description": "云端上传目标补齐百度网盘与夸克网盘真实上传：公开版走 WebDAV 网关方案，复用素材右键上传入口，不依赖不稳定 Cookie 抓包接口。",
+    "highlights": [
+      "百度网盘 / 夸克网盘设置页从预留字段改为 WebDAV 地址、用户名、密码/令牌、网盘目录和公共域名配置，并补充 Alist / CloudDrive2 / rclone 使用说明。",
+      "后端新增 WebDAV 自动建目录、PUT 文件上传、配置检查临时写入并删除测试文件，保证检查能验证真实写入权限。",
+      "云上传错误分类新增 WebDAV 认证、Endpoint、目录冲突、空间不足等可执行中文提示；右键菜单继续按启用目标显示。",
+      "云端上传摘要将 COS、OSS、百度 WebDAV、夸克 WebDAV 四类目标都计入 supportedUploadCount。"
+    ],
+    "files": [
+      "backend/src/cloudUploads/settings.js",
+      "backend/src/cloudUploads/uploader.js",
+      "src/components/ApiSettings.tsx",
+      "src/types/canvas.ts",
+      "tests/cloudUploads.test.ts"
+    ],
+    "verification": [
+      "node -c backend\\src\\cloudUploads\\settings.js",
+      "node -c backend\\src\\cloudUploads\\uploader.js",
+      "node --test tests\\cloudUploads.test.ts"
+    ]
+  },
+  "electronReleaseV216": {
+    "version": "2.1.6",
+    "status": "electron-release",
+    "date": "2026-06-11",
+    "description": "v2.1.6 Electron 自动更新发布：打包 v2.1.5 源码能力并补齐 Grok OAuth Agent 快捷生成、Fal 超市状态徽章、RH RED 上传模式持久化、圣斗士冥界雷达与 GPT Image 2 尺寸快捷模型等热修。",
+    "highlights": [
+      "Grok OAuth Agent 小节点可在不打开 Grok 创作台的情况下简易生成，文本 / 图像 / 视频 / 音频结果统一写入 OutputNode，不再把大结果堆在节点内部。",
+      "Grok OAuth Agent 左右输入 / 输出端口样式加固，避免被节点外框裁切。",
+      "Fal 超市右上角移除“待命”徽章，超市首页保留模型能力说明和预扣 3.4 币提示。",
+      "RH 隐藏 RED 上传模式改为节点级持久化，删除素材后仍保持 RED 模式，不自动退回普通上传节点。",
+      "圣斗士冥界篇雷达 / 小地图重绘，宝箱和巡查指针固定在主题雷达框内，巡查钟盘保持居中并避免跑出地图。",
+      "GPT Image 2 新增 gpt-image-2-2K 与 gpt-image-2-4K 两个贞贞 API 快捷模型，不走 FAL，保留原 gpt-image-2 使用方式。"
+    ],
+    "releaseFiles": [
+      "package.json",
+      "package-lock.json",
+      "vite.config.ts",
+      "vite.config.js",
+      "electron/main.cjs",
+      "backend/src/config.js",
+      "features.json",
+      "README.md",
+      "release-notes/v2.1.6.md"
+    ],
+    "packaging": {
+      "script": "npm run dist:release",
+      "installer": "dist_electron/T8-PenguinCanvas-Setup-2.1.6.exe",
+      "blockmap": "dist_electron/T8-PenguinCanvas-Setup-2.1.6.exe.blockmap",
+      "latestYml": "dist_electron/latest.yml",
+      "updater": "GitHub Release v2.1.6 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "releaseBoundary": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、hermes-agent/**、Electron 缓存目录和任何私有计费/支付/充值/分组令牌实现进入 GitHub。",
+      "RH 工具箱制作器与 FAL 应用制作工具仍为本地开发工具，不进入公开源码和公开打包产物。",
+      "真实 Grok OAuth 私有调用继续通过本机 ignored local-private 扩展 / 加密链路处理，公开仓库只保留安全外壳。"
+    ],
+    "verification": [
+      "node --test tests\\saintSeiyaBattle.test.ts tests\\grokOAuthAgent.test.ts tests\\achievements.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "npm run dist:release",
+      "npm run release:verify"
+    ]
+  },
+  "sourceReleaseV215": {
+    "version": "2.1.5",
+    "status": "source-only",
+    "date": "2026-06-09",
+    "description": "v2.1.5 只推 GitHub 源码，不打包 Electron，不发布 GitHub Release / latest.yml。重点收口 FAL 超市、3D 模型素材链路、RH 工具箱运行端易用性、圆盘菜单、Grok OAuth Agent 公开外壳和圣斗士主题首版。",
+    "includedPublicScope": [
+      "Fal 超市公开节点与 FAL 通用 manifest / submit / query 链路，保留现有图像、视频等节点内的 FAL 功能不删除。",
+      "3D 素材上传、3D 模型预览、OutputNode 3D 模型分区，以及自动输出到 3D 预览节点的链路。",
+      "RH 工具箱运行端首页轻量按钮、悬停说明区、Prompt/text 默认值直显、inputSchema 字段直显和本地素材输入。",
+      "Grok OAuth Agent 公开外壳和后端 hook 路由；真实 OAuth / xAI 调用仍由 local-private 私有扩展提供。",
+      "长按鼠标中键圆盘菜单与自定义入口，左下角控制栏位置收敛。",
+      "圣斗士主题增强：圣衣收集、宝箱、小地图、20-30 秒自动战斗、经验升级、冥界篇隐藏模式、10 秒过场动画和成就奖励影片大屏播放。",
+      "公开检查脚本新增制作器源码拦截，避免 RH 工具箱制作器 / FAL 应用制作工具误入公开提交。"
+    ],
+    "excludedPrivateDevScope": [
+      "不提交 src/components/nodes/RHToolboxMakerNode.tsx 的本地制作器改动。",
+      "不提交 src/components/nodes/FalToolboxMakerNode.tsx 的本地制作器源码。",
+      "不提交 src/utils/rhToolboxDeveloper.ts 或 src/utils/falToolboxDeveloper.ts 的本地制作器辅助源码；公开运行节点仅保留私有动态加载入口。",
+      "不提交 skill.md、roadmap.md、local-private/**、hermes-agent/** 或 Electron 缓存目录。",
+      "本次不运行 npm run dist:release，不生成安装包、blockmap、latest.yml，也不创建 GitHub Release。"
+    ],
+    "verification": [
+      "node --test tests\\rhToolbox.test.ts tests\\falToolbox.test.ts tests\\grokOAuthAgent.test.ts tests\\radialMenu.test.ts tests\\saintSeiyaBattle.test.ts tests\\achievements.test.ts tests\\updateMdRegressions.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check"
+    ]
+  },
+  "gptImage2ZhenzhenSizeVariants": {
+    "status": "implemented",
+    "date": "2026-06-10",
+    "description": "GPT Image 2 节点新增 gpt-image-2-2K 与 gpt-image-2-4K 两个贞贞 API 尺寸快捷模型，不走 FAL，其他用法与 gpt-image-2 保持一致。",
+    "paths": [
+      "src/providers/models.ts",
+      "src/components/nodes/ImageNode.tsx",
+      "backend/src/routes/proxy.js",
+      "tests/imageModelMapping.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "GPT2 具体模型下拉新增 gpt-image-2-2K 和 gpt-image-2-4K。",
+      "选择 gpt-image-2-2K / gpt-image-2-4K 时，前端自动把尺寸切换为 2K / 4K。",
+      "后端提交时把这两个别名归一为上游真实模型 gpt-image-2，并强制对应 image_size，避免误传别名给贞贞 API。",
+      "两个新选项不注册到 FAL_REGISTRY，不会走 gpt-image-2-fal 的 FAL 队列协议。",
+      "分类独立 API Key 和 New API 分组令牌仍按 gpt-image 系列匹配。"
+    ]
+  },
+  "rhToolboxMakerUsability": {
+    "status": "implemented-dev-tooling",
+    "date": "2026-06-09",
+    "description": "RH工具箱制作器升级为开发态管理台：保存后可直接显示到 RH工具箱，并支持草稿库和自定义分类管理。",
+    "paths": [
+      "src/components/nodes/RHToolboxMakerNode.tsx",
+      "src/components/nodes/RHToolboxNode.tsx",
+      "src/utils/rhToolboxDeveloper.ts",
+      "tests/rhToolbox.test.ts",
+      "features.json",
+      "skill.md"
+    ],
+    "capabilities": [
+      "制作器新增发布检查卡，明确显示是否缺 WebApp ID、启用状态、节点显示、输入映射或输出声明。",
+      "保存按钮改为“保存并显示”，保存成功后 RH工具箱节点会自动清空搜索 / 分类过滤并选中新工具。",
+      "发布检查卡内新增主保存按钮，保存结果直接显示草稿数 / 可见数，避免用户滚到底部才知道是否成功。",
+      "开发草稿事件会携带完整 manifest，并在 localStorage 写入失败时使用当前页面内存兜底，RH工具箱收到事件后优先用事件 manifest 刷新。",
+      "RH工具箱节点在开发环境会定时轻量刷新开发草稿，避免保存事件被 HMR 或旧节点实例吞掉后右侧仍无反应。",
+      "保存运行时判断改为 DEV 或页面存在 RH工具箱制作器根节点即可写入，避免制作器已显示但保存函数误判非开发环境。",
+      "制作器左右两栏改成节点内部滚动，读取 RH 字段后不会把草稿库、保存按钮和 JSON 区挤出节点外。",
+      "制作器内新增草稿库，可编辑、打开或删除已保存 RH 工具草稿。",
+      "制作器内新增自定义分类管理，可新建、重命名、删除分类，分类下拉显示名称和 ID。",
+      "RH工具箱分类改为固定大类 + 可维护小类：大类固定为图像、视频、音频、3D、文本；制作器新建的是大类下的小类。",
+      "RH工具箱首页去掉快捷接入位和 idle 待命徽章，工具改为类似 RH超市的轻量双列按钮，只显示应用名；开发环境下 hover 才显示编辑入口。",
+      "RH工具箱首页补齐和 RH超市一致的悬停说明区：鼠标移到工具按钮上时，底部显示工具名和说明 description，未悬停时显示可用工具数量提示。",
+      "RH工具箱运行页会把 inputSchema 中的 Prompt、图像、视频、音频字段直接渲染出来：文本字段支持提示词模板库、放大编辑和 @ 素材引用，媒体字段支持节点内上传或继续使用左侧上游素材。",
+      "RH工具箱 Prompt/text 字段会把工具模板里的 defaultValue 直接显示为可编辑内容，新选择工具时同步写入本地输入并作为默认发送值，用户无需重新手打默认提示词。",
+      "RH工具箱制作器移除按钮名和强调色配置，新保存工具完全跟随当前主题，不再由单个工具自定义颜色破坏画布主题。",
+      "RH工具箱默认 manifest 和 quick action 协议不再保留 quickActionLabel / ui.accent，按钮文案统一用工具标题，颜色统一由当前画布主题决定。",
+      "根因修复：RH工具箱运行页只显示 inputSchema/userParams 中声明的字段；制作器读取 RH 应用字段时会自动把图片/视频/音频字段补进素材输入，把 Prompt/文本字段补进 Prompt 区，把数字/选择/布尔字段补进用户参数，保存时也会兜底补齐。",
+      "分类管理补齐小类基础维护能力：读取已生成小类、改名、改所属大类、调整顺序、上移/下移、保存和删除。",
+      "内置模板小类 image-tools / video-tools / text-tools / audio-tools / model3d-tools 不进入制作器分类管理和 RH工具箱小类筛选；小类只由维护者手动新建，旧工具仍可在对应大类的“全部”里显示。"
+    ],
+    "devOnly": true
+  },
+  "saintSeiyaTheme": {
+    "status": "implemented-theme-redesign",
+    "date": "2026-06-09",
+    "description": "圣斗士主题重做为完整强视觉：十二宫 / 冥界篇双主题、圣域星图画布、圣衣箱节点、宝箱小地图、战斗面板、经验升级和 12 黄金圣衣解锁冥界篇。",
+    "paths": [
+      "roadmap.md",
+      "src/data/saintSeiyaCloths.ts",
+      "src/utils/saintSeiyaBattle.ts",
+      "src/stores/saintSeiyaSanctuary.ts",
+      "src/components/SaintSeiyaSanctuary.tsx",
+      "src/styles/theme-saintseiya.css",
+      "src/theme/types.ts",
+      "src/theme/defaultTemplates.ts",
+      "src/components/ThemeTemplateManager.tsx",
+      "src/components/ThemeMusicToggle.tsx",
+      "src/App.tsx",
+      "src/components/Canvas.tsx",
+      "src/components/Sidebar.tsx",
+      "shared/achievementManifest.json",
+      "backend/src/achievements/store.js",
+      "tests/saintSeiyaBattle.test.ts",
+      "tests/achievements.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "内置主题 saint-seiya，普通模式显示圣域 / 十二宫视觉，集齐 12 件黄金圣衣后可切换冥界篇隐藏模式。",
+      "主题视觉从小面板扩展到全局：顶部栏、侧栏、画布主体、ReactFlow 背景、节点、输入框、按钮、连线、端口、控制条和小地图都会进入圣域星图 / 圣衣箱风格。",
+      "普通模式使用深蓝圣域星空、金色十二宫罗盘、青色小宇宙光效和大理石圣衣箱节点；冥界模式切换为暗紫黑日蚀、红色冥界能量和金色星座环。",
+      "新增回归测试锁住 Saint Seiya 主题必须覆盖 .t8-app-shell、.t8-sidebar、.t8-canvas-shell、react-flow__pane、react-flow__minimap 和冥界模式。",
+      "大地图每 60 秒刷新一个宝箱，宝箱 10 秒未开启消失；宝箱标记叠加在右下角 ReactFlow 小地图上，避免出现第二张小地图，并支持点击跳转。",
+      "开启宝箱需要画布中心保持 3 秒，随后进入对应青铜 / 白银 / 黄金圣斗士试炼。",
+      "圣域罗盘改成顶部可折叠横向 HUD：不再挡左下角侧栏，显示等级、经验、当前黄金宫、圣衣计数和宝箱状态。",
+      "圣域罗盘新增十二黄金宫独立进度 UI：白羊到双鱼各有独立符号、宫位、图案、特效名和解锁文案，已收集 / 下一宫 / 未解锁状态一眼可见。",
+      "战斗按 Lv1-99、HP/MP/ATK/DEF/SPD、圣衣加成、胜负经验和招式消耗自动结算；开启试炼后系统会优先释放当前最强可用招式，胜利才会获得圣衣。",
+      "战斗结算从一次性字符串升级为结构化事件队列，前端按节奏逐行播放入场、架势、攻击、格挡、反击、胜负和奖励，并同步显示 HP / 小宇宙条。",
+      "战斗数值重做为 20-30 秒自动试炼节奏：青铜 8 回合、白银 9 回合、黄金 10 回合，每回合包含小宇宙交锋和双方行动，伤害按剩余回合节奏控制，避免秒杀或瞬间刷完。",
+      "每个招式会映射独立 effectId、视觉特效家族和 WebAudio 音效 cue，覆盖流星、庐山龙气、冰结、锁链、凤凰、雷光、银河、水晶、巨角、冥界、六道、天秤兵装、赤针、黄金箭、圣剑、玫瑰和护壁。",
+      "战斗日志改为贴右侧快捷栏下方的临时浮层，仅战斗时显示；结算后显示 3、2、1 倒计时并自动隐藏，不再占用顶部圣域罗盘或画布创作空间。",
+      "获得青铜 / 白银 / 黄金圣衣会触发不同等级的解锁演出；黄金圣衣会读取对应十二宫专属视觉配置，突出每件黄金圣衣的差异。",
+      "黄金圣衣按十二宫顺序推进：白羊、金牛、双子、巨蟹、狮子、处女、天秤、天蝎、射手、山羊、水瓶、双鱼，不能跳关随机获得。",
+      "12 黄金圣衣全收集后触发十二星座黄金圣衣集结 / 雅典娜归来过场动画、开启冥界篇，并记录隐藏成就；奖励影片本地以 .t8media 加密保存，解锁后通过成就影片馆解密播放。",
+      "切换进入冥界篇会重新播放十二黄金圣衣集结 / 雅典娜归来过场，过场时长统一为 10 秒。",
+      "主题成就抽屉在圣斗士 / 冥界模式下使用专属高对比 token，修复深色、浅色和冥界浅色模式中灰白字不清楚的问题。",
+      "成就主题详情和影片馆不再内嵌小视频；点击播放会打开圣斗士大屏奖励舞台，带星图、小宇宙背景和大尺寸 video 播放器。",
+      "圣域篇默认音乐为 saint-seiya-pegasus-fantasy.mp3，冥界篇默认音乐为 saint-seiya-hades-last-holy-war.mp3；Hades 浅色模式额外加固节点、输入框、快捷栏和圣域罗盘文字对比度。",
+      "首批数据包含 5 件青铜、12 件白银、12 件黄金圣衣；黄金圣衣包含原作常用招式名。"
+    ],
+    "verification": [
+      "node --test tests\\saintSeiyaBattle.test.ts tests\\achievements.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
+  "falToolboxPromptInputs": {
+    "status": "implemented",
+    "date": "2026-06-09",
+    "description": "修复 Fal 超市详情页只显示 Prompt:text 却没有本地输入框的问题；FAL 工具的文字输入和文字参数统一接入 Prompt 编辑器能力。",
+    "paths": [
+      "src/components/nodes/FalToolboxNode.tsx",
+      "src/services/falToolbox.ts",
+      "src/utils/falToolbox.ts",
+      "tests/falToolbox.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "Fal 超市工具的 text input 会渲染为节点内 Prompt 编辑区，支持提示词模板库、放大编辑和 @ 引用上游图片/视频/音频。",
+      "本地 Prompt 有内容时直接写入对应 FAL payload key；本地为空时继续使用左侧连入的上游文本，不破坏原有文本连线流程。",
+      "text/textarea 类型用户参数也改用同一套 Prompt 编辑器，负向提示词等字段可使用模板和放大编辑。",
+      "运行时保存 lastPrompt/promptResolved，方便后续输出素材右键保存到提示词模板库时带回实际提示词。"
+    ],
+    "verification": [
+      "npm run type-check",
+      "node --test tests\\falToolbox.test.ts"
+    ]
+  },
+  "fal3dMaterialPipeline": {
+    "status": "implemented",
+    "date": "2026-06-09",
+    "description": "修复 Fal 超市 3D 模型产物被输出素材当图片渲染导致图裂的问题，并把 3D 模型作为独立素材类型接入上传、输出、自动外挂和预览链路。",
+    "paths": [
+      "src/utils/mediaCollection.ts",
+      "src/config/nodeRegistry.ts",
+      "src/config/portTypes.ts",
+      "src/types/canvas.ts",
+      "src/components/Canvas.tsx",
+      "src/components/nodes/FalToolboxNode.tsx",
+      "src/components/nodes/Model3DPreviewNode.tsx",
+      "src/components/nodes/OutputNode.tsx",
+      "src/components/nodes/UploadNode.tsx",
+      "src/components/nodes/useHasAutoOutput.ts",
+      "tests/falToolbox.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "新增 model3d 媒体类型，统一使用 modelUrl/modelUrls/directModelUrl/directModelUrls 字段，不再把 .glb/.gltf/.obj/.fbx/.stl/.usdz/.zip 放进图片预览。",
+      "素材资源分类新增 3D素材上传节点；3D模型预览节点也移入素材资源分类，并显示当前模型下载地址。",
+      "Fal 超市和画布自动输出识别 3D 模型后会自动创建 3D模型预览节点，普通图像/视频/音频输出链路保持不变。",
+      "OutputNode 新增 3D模型分区，可下载模型文件，也可拆分为多个 3D模型预览节点。",
+      "Model3DPreviewNode 加固错误处理，Three.js 加载、渲染和释放异常会转成友好错误，不再导致 React 节点崩溃。"
+    ],
+    "verification": [
+      "node --test tests\\falToolbox.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
+  "grokOAuthAgentPublicShell": {
+    "status": "implemented-agent-studio",
+    "date": "2026-06-10",
+    "description": "新增独立 GROK OAuth 分类与 Grok OAuth Agent 节点，并升级为“画布小节点 + Grok 创作台”形态；公开版只包含节点 UI、类型、端口、统一事件协议、后端 hook 路由和友好错误，真实 OAuth 登录、token 刷新及 xAI/Grok 调用必须由 local-private 私有扩展提供。",
+    "paths": [
+      "backend/src/routes/grokOAuth.js",
+      "backend/src/server.js",
+      "src/services/grokOAuth.ts",
+      "src/components/nodes/GrokOAuthAgentNode.tsx",
+      "src/components/Canvas.tsx",
+      "src/components/Sidebar.tsx",
+      "src/config/nodeRegistry.ts",
+      "src/config/portTypes.ts",
+      "src/types/canvas.ts",
+      "tests/grokOAuthAgent.test.ts",
+      "features.json"
+    ],
+    "capabilities": [
+      "侧边栏新增 GROK OAuth 分类，包含 Grok OAuth Agent 主节点，不混入现有图像/视频/LLM/音频节点。",
+      "节点支持流式聊天、图像、视频、TTS、STT 五种模式，读取上游 text/image/video/audio 与节点内 Prompt；产物默认进入 Grok 创作台产物库，不再自动把所有结果写入 outputText/imageUrls/videoUrls/audioUrls。",
+      "画布上的节点保持小巧，只显示登录状态、素材数、消息数、产物数、打开创作台、简易生成和发布最新；完整对话、参数、素材预览和产物卡放在 createPortal 打开的 Grok 创作台中。",
+      "画布小节点新增简易 Prompt 生成区：不进入 Grok 创作台也能填写 Prompt、使用提示词模板库、放大编辑和 @ 引用素材，并支持 /image /video /audio /tts /stt。",
+      "小节点简易生成完成后不会写入 agentMessages / agentArtifacts；文本、图像、视频、音频会直接覆盖标准 outputText/imageUrls/videoUrls/audioUrls 输出字段，由右侧输出素材节点展示。",
+      "产物卡支持图像/视频/音频/文本预览、下载、复制 Prompt 和“发布到画布输出”；只有发布后才写入标准 text/image/video/audio 输出字段并触发下游 OutputNode。",
+      "Grok 创作台 Prompt 支持 Enter 直接运行、Shift+Enter 换行；运行时会使用输入框最新文本，避免刚输入后回车跑旧 prompt。",
+      "Grok 创作台新增“提示词持久化”开关，默认关闭：任务验证通过并发送后自动清空 Prompt 和 @ 引用；开启后保留输入，方便连续微调。",
+      "对话上下文默认从 12 条提升到 30 条，最大可调到 80 条；超过上下文条数的旧对话会压缩进 grokContextSummary，并作为 system 长期记忆注入后续聊天，避免硬切历史导致突然失忆。",
+      "新对话和清空全部会同步重置 grokContextSummary / grokContextCompressedCount，防止跨会话带入旧记忆。",
+      "Grok 创作台支持本地上传图片、视频、音频作为 Agent 输入，并可在素材池删除本地上传素材。",
+      "发布产物时只写入主产物 URL，同时清空 urls/generatedImages/direct* 等旧输出通道，并锁定已发布产物卡，避免点击“发布最新”后一次生成多个相同 OutputNode。",
+      "旧版本节点中已经存在的 outputText/imageUrls/videoUrls/audioUrls 会在首次打开时迁移为 agentArtifacts，并清空旧标准输出，避免老画布继续输出爆炸。",
+      "后端新增 /api/grok-oauth/status、login/start、login/poll、login/complete、logout、agent/stream、chat/stream、image、video/submit、video/status、audio/tts、audio/stt 公共路由。",
+      "agent/stream 统一输出 message.delta、tool.started、tool.progress、artifact.completed、artifact.failed、done 事件；图像、视频、TTS、STT 即使底层是一次性或轮询，也会包装为统一 Agent 事件流。",
+      "chat/stream 兼容 SSE 增量；图像/视频/音频生成结果若由私有模块返回远程 URL 或 data URL，公共路由会统一保存到输出目录后返回 /files/output 路径。",
+      "视频模式对齐 Hermes xAI 规则：默认 grok-imagine-video 走文生视频，grok-imagine-video-1.5-preview 标注为图生视频专用，缺少上游图片时前端直接给出友好提示。",
+      "修复状态刷新 effect 在清空旧错误时误 abort 视频轮询的问题，避免图生视频刚提交就显示“已中止 Grok OAuth 任务”。"
+    ],
+    "privateBoundary": [
+      "公开仓库不得加入 Grok OAuth client secret、token、cookie、会员调用细节和真实 xAI 请求代码。",
+      "真实实现应通过 local-private/extensions/backend/index.cjs 注册 grokOAuth.* hooks；Electron 打包继续沿用现有 ignored local-private 加密扩展方案。",
+      "私有模块缺失时，节点和 API 必须返回：Grok OAuth 私有模块未启用，请使用带私有模块的本地版本。"
+    ],
+    "verification": [
+      "node --test tests\\grokOAuthAgent.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
   "electronReleaseV214": {
     "version": "2.1.4",
     "status": "electron-release",
@@ -46,10 +446,54 @@
       "npm run release:verify"
     ]
   },
+  "falToolboxRoadmapAndPhase1": {
+    "status": "phase-1-to-5-first-pass-implemented",
+    "date": "2026-06-08",
+    "description": "新增 FAL 工具箱分类规划与首轮实现：Fal超市作为独立节点复制现有和已核验的 FAL 模型能力，FAL应用制作工具仅开发环境可见；补 3D模型预览节点承接 model3d 输出；保留原图像/视频等节点内已有 FAL 功能，不做删除或替换。",
+    "paths": [
+      "roadmap.md",
+      "src/config/nodeRegistry.ts",
+      "src/config/portTypes.ts",
+      "src/types/canvas.ts",
+      "src/components/Canvas.tsx",
+      "src/components/NodeActionBar.tsx",
+      "src/components/nodes/FalToolboxNode.tsx",
+      "src/components/nodes/FalToolboxMakerNode.tsx",
+      "src/components/nodes/Model3DPreviewNode.tsx",
+      "src/data/falToolboxManifest.ts",
+      "src/services/falToolbox.ts",
+      "src/utils/falToolbox.ts",
+      "src/utils/falToolboxDeveloper.ts",
+      "backend/src/routes/proxy.js",
+      "electron/_post_build.cjs",
+      "tests/falToolbox.test.ts"
+    ],
+    "constraints": [
+      "现有 /image/fal/* 与 /video/fal/* 路由继续保留。",
+      "Fal超市使用新的 /api/proxy/fal-toolbox/submit 与 /api/proxy/fal-toolbox/query。",
+      "FAL应用制作工具通过 import.meta.env.DEV 注册，并由 electron/_post_build.cjs 检查不进入用户包。",
+      "公开源码不得包含私有计费、分组令牌和不可开源实现。",
+      "Fal超市 3D 工具统一输出 modelUrls / model3d；3D模型预览内置 glb/gltf/obj/stl/fbx/usdz loader，zip 作为打包容器保留下载入口。"
+    ],
+    "capabilities": [
+      "FAL工具箱侧边栏分类包含 Fal超市、3D模型预览，以及开发环境限定的 FAL应用制作工具。",
+      "Fal超市工具目录首轮扩展到 40+ 个已核验 endpoint，覆盖 GPT/Nano/Grok/Sora/Veo、Ideogram、Krea、Recraft、Seedream、Seedance、PixVerse、HeyGen、Topaz、Lyria、Seed Speech、MiniMax Speech、Hyper3D、Hunyuan 3D、Trellis 等。",
+      "工具 manifest 支持 sourceIndex 输入映射、点路径 payload、payloadKey 和 omitValues，可表达第 1 张/第 2 张参考图、嵌套参数、server_default 不发送、自定义字段覆盖等常见 FAL schema。",
+      "Fal超市支持收藏、最近使用、分类/搜索筛选、前端轮询瞬时错误最多 3 次重试。",
+      "FAL应用制作工具支持粘贴 schema/OpenAPI 片段推断 inputSchema 和 userParams，生成开发态 localStorage 草稿，生产包由 post-build 阻止泄漏。",
+      "3D模型预览节点接 model3d 输入，支持 glb/gltf/obj/stl/fbx/usdz Three.js 预览、自动旋转、切换多模型、下载原模型和当前角度快照输出图像。"
+    ],
+    "verification": [
+      "node --test tests\\falToolbox.test.ts",
+      "node --check backend\\src\\routes\\proxy.js",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
   "canvasTutorialTopbarPanel": {
     "status": "implemented",
     "date": "2026-06-08",
-    "description": "顶部栏在“最新应用”左侧新增“画布教程”入口，按第一弹到第九弹整理 T8 画布教程 Bilibili / Youtube 链接；“最新应用 · RunningHub”弹窗移除“获取 RH ApiKey”快捷入口，只保留 RunningHub 国内/海外站和邀请码提示。",
+    "description": "顶部栏在“最新应用”左侧新增“画布教程”入口，按第一弹到第十弹整理 T8 画布教程 Bilibili / Youtube 链接；“最新应用 · RunningHub”弹窗移除“获取 RH ApiKey”快捷入口，只保留 RunningHub 国内/海外站和邀请码提示。",
     "paths": [
       "src/App.tsx",
       "tests/updateMdRegressions.test.ts",
@@ -101,6 +545,11 @@
         "title": "教程第九弹（新增3D全景功能及资产库，一键自动更新功能，输入框放大按钮，修复即梦CLI的多参问题，AI去水印节点功能升级，新增聚合解析功能，可获取17个平台无水印视频，优化启动速度，优化画布加载如慢加载，支持自定义快捷键设置）",
         "bilibili": "https://www.bilibili.com/video/BV1gSEA6GEDQ/",
         "youtube": "https://www.youtube.com/watch?v=-nmX9oB-MX"
+      },
+      {
+        "title": "教程第十弹（3D全景功能增强，Figma联动，支持阿里云Oss及腾讯云Cos，新增放置栏，修正新香蕉的模型映射，上传素材的上限从10M到20M，新增veo-omni模型，新增提示词模板系统及增强功能，comfyui支持remote模式，新增newapi分组令牌高级模式，LLM/VISIOIN节点支持流式删除，分类独立APIKEY支持删除功能，新增画布教程模块，支持上游文本联动生成节点@模式，即梦CLI模型补全，素材支持直接拖到浏览器外文件夹）",
+        "bilibili": "https://www.bilibili.com/video/BV1N9Eg6QEHs/",
+        "youtube": "https://www.youtube.com/watch?v=zIW7PbEWQAs"
       }
     ],
     "verification": [
@@ -872,11 +1321,11 @@
       "T8_RUNTIME_CACHE_DIR": "可选，覆盖运行时归档解压缓存目录；默认打包模式为 %APPDATA%/t8-penguin-canvas/runtime-cache",
       "T8_ENABLE_LOCAL_PRIVATE": "可选，0=强制关闭本机 local-private/extensions 私有扩展；默认只要本机 ignored 私有扩展存在，开发环境和本机打包 release 都会自动带入。GitHub/clean clone 因为没有 local-private 目录，所以不会带充值实现。"
     },
-    "version": "2.1.4",
-    "semverVersion": "2.1.4",
+    "version": "2.1.7",
+    "semverVersion": "2.1.7",
     "versionNumberPolicy": "T8 版本号仍采用 x.y.z 三段，但每一段只允许 0-9；任一段到 9 后下一次发布必须向左进位，禁止任一段出现两位数字。例：1.9.9 的下一版必须是 2.0.0。",
-    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.1.4：集中打包 Figma Bridge 可用化、云端上传连通性、Prompt/@ 媒体引用、放置栏恢复、顶部画布教程入口和 LLM 默认模型调整。本次按规范打包 Electron 并发布 GitHub Release 自动更新资产；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
-    "installer": "v2.1.4 生成 T8-PenguinCanvas-Setup-2.1.4.exe、T8-PenguinCanvas-Setup-2.1.4.exe.blockmap 与 latest.yml；发布必须走 clean public worktree + npm run dist:release + npm run release:verify。",
+    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.1.7：收口 ComfyUI Workflow 识别、排除规则备份、百度/夸克 WebDAV 上传、ComfyUI 超市端口裁切、Grok Video 默认模型显示和圣斗士主题细节修复。本次按规范打包 Electron 并发布 GitHub Release 自动更新资产；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
+    "installer": "v2.1.7 生成 T8-PenguinCanvas-Setup-2.1.7.exe、T8-PenguinCanvas-Setup-2.1.7.exe.blockmap 与 latest.yml；发布必须走 clean public worktree + npm run dist:release + npm run release:verify。",
     "updaterInstallMode": "自动更新下载完成后不得静默安装：main.cjs 必须设置 autoInstallOnAppQuit=false，显式安装调用 quitAndInstall(false,true)；electron/build-resources/installer.nsh 通过 SetSilent normal 让新版 NSIS 安装器即使收到旧客户端传入的 /S 也尽量切回前台安装向导。",
     "installerShortcutPolicy": "安装完成后必须创建桌面和开始菜单快捷方式：package.json build.nsis.createDesktopShortcut 必须为 \"always\"，createStartMenuShortcut 必须为 true；electron/build-resources/installer.nsh 必须保留 customInstall 兜底 CreateShortCut \"$newStartMenuLink\" 与 \"$DESKTOP\\${SHORTCUT_NAME}.lnk\"，防止更新安装/keepShortcuts 路径遗漏入口。",
     "updaterEntryPolicy": "顶栏桌面更新入口不得只因 window.t8pc.updater 缺失就静默消失；Electron UA 或 t8pc.getInfo/openExternal 可用时必须显示诊断入口，提示重新安装完整桌面包，Web/纯浏览器环境才隐藏。状态为 not-available 时按钮仍保留“更新”字样，避免用户误以为自动更新入口被删除。",
@@ -946,7 +1395,8 @@
       "themes": [
         "soccer-hero",
         "slamdunk",
-        "dragon-ball"
+        "dragon-ball",
+        "saint-seiya"
       ],
       "policy": "强主题连线动画统一走 scoped 规范：闲置时写入 data-t8-edge-motion=scoped，普通连线只做静态主题化；只有选中边、悬停边、或与选中节点相连的边会获得 .t8-edge-theme-active 并启用 edge path 动画、运动球 SVG 或气功波流动效果。视口拖动、节点拖动或 prefers-reduced-motion 时写入/遵守 data-t8-edge-motion=reduced，禁用所有无限动画、filter、运动球和 SVG animateMotion；当一次选中导致活跃边超过 DECORATIVE_EDGE_MOTION_LIMIT 时，只保留直接选中/悬停边动效，避免 36+ 条边一起运动。"
     },
@@ -997,7 +1447,7 @@
   "achievementSystem": {
     "version": "2.0.4",
     "status": "first-stage-implemented",
-    "description": "十套系统主题独立成就、有效创作时长、隐藏模式勋章与奖励影片占位系统。奖励影片素材暂未提供，影片馆使用“待解锁 / 影片素材待提供”占位文案。",
+    "description": "十一套系统主题独立成就、有效创作时长、隐藏模式勋章与奖励影片系统。未提供素材的影片仍使用“待解锁 / 影片素材待提供”占位；已接入的圣斗士隐藏奖励以本地加密媒体解锁播放。",
     "manifest": {
       "sharedJson": "shared/achievementManifest.json",
       "frontendWrapper": "src/data/achievementManifest.ts",
@@ -1011,7 +1461,8 @@
         "yyh",
         "slamdunk",
         "soccer-hero",
-        "dragon-ball"
+        "dragon-ball",
+        "saint-seiya"
       ],
       "perThemeRules": "每个主题 5 条时长线(10m/1h/3h/10h/30h) + 3 条首批特色成就；定义由 manifest 展开，前后端共用同一 JSON，避免规则漂移。"
     },
@@ -1077,7 +1528,7 @@
     }
   },
   "themes": {
-    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格 / 幽游白书风格 / 灌篮高手风格 / 足球小将风格 / 七龙珠风格十套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
+    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格 / 幽游白书风格 / 灌篮高手风格 / 足球小将风格 / 七龙珠风格 / 圣斗士风格十一套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
     "templateSystem": {
       "schema": "t8-theme-template",
       "version": 2,
@@ -1110,7 +1561,7 @@
         "画布背景水印必须放在 .t8-canvas-shell::before/::after 背景层，z-index:0 且 pointer-events:none；ReactFlow 节点、边、浮层和 GroupBox 内容必须盖住水印，不能让装饰穿透到素材预览或画板内容上方",
         "强风格官方主题可为 light/dark 分别提供水印资产；若深色水印包含黑底终端、警告面板或厚重贴片，浅色模式必须改用透明底线稿 / 印章 / HUD 版本，避免浅色画布出现突兀深色块",
         "框选/节点右键菜单、空白右键快速添加菜单、拖线候选菜单和选中节点右上角 RUN/关闭浮动条都属于全局主题控件，必须使用 t8-context-menu / t8-node-action-bar 语义类和 visuals.style 作为视觉判断来源，禁止仅按 legacyStyle=像素/科技分支导致 OP、火影、EVA 等主题残留白底或绿色按钮",
-        "全局菜单新增动作时必须检查 light/dark 与十套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大",
+        "全局菜单新增动作时必须检查 light/dark 与十一套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大",
         "主题动效必须接入画布 busy/reduced 状态：当 html[data-t8-edge-motion='reduced']、.t8-viewport-moving、.t8-node-dragging 或 prefers-reduced-motion 生效时，必须关闭无限边动画、filter、drop-shadow、粒子、运动球与 SVG animateMotion",
         "新增强风格主题必须做大画布性能验收：至少 100 个节点、36 条连线、拖动画布、拖动节点、MiniMap 与 Controls 可见场景；不得让装饰层、背景水印、连线动效或媒体预加载造成明显卡顿",
         "主题背景、水印和地图纹理必须优先静态化、轻量化和低成本绘制；禁止对全画布或所有边/节点持续应用高成本 backdrop-filter、blur、drop-shadow、mix-blend-mode 动画",
@@ -1139,9 +1590,11 @@
           "slamdunk-style": "slamdunk-kimi-ga-suki.mp3",
           "soccer-hero-style": "soccer-tsubasa-burning-hero.mid",
           "dragon-ball-style": "dragonball-makafushigi-adventure.mp3",
-          "dragon-ball-shenron-hidden": "dragonball-shenron-cha-la-head-cha-la.mp3"
+          "dragon-ball-shenron-hidden": "dragonball-shenron-cha-la-head-cha-la.mp3",
+          "saint-seiya-style": "saint-seiya-pegasus-fantasy.mp3",
+          "saint-seiya-hades-hidden": "saint-seiya-hades-last-holy-war.mp3"
         },
-        "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 鸭鸭隐藏模式会自动切换 rh-hidden-saya.mp3，幽游白书肖像大师隐藏模式会自动切换 yyh-hidden-tonight.mp3，七龙珠神龙隐藏模式会自动切换 dragonball-shenron-cha-la-head-cha-la.mp3。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
+        "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 鸭鸭隐藏模式会自动切换 rh-hidden-saya.mp3，幽游白书肖像大师隐藏模式会自动切换 yyh-hidden-tonight.mp3，七龙珠神龙隐藏模式会自动切换 dragonball-shenron-cha-la-head-cha-la.mp3，圣斗士冥界篇会切换到 saint-seiya-hades-last-holy-war.mp3。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
       }
     },
     "styles": {
@@ -1288,6 +1741,19 @@
           "headerMark": "DRAGON RADAR"
         },
         "music": "普通模式使用 dragonball-makafushigi-adventure.mp3；神龙隐藏模式使用 dragonball-shenron-cha-la-head-cha-la.mp3；ThemeMusicToggle 以 URL 音频播放，ki-burst / shenron-aura 仅作为合成兜底 preset；默认静音，用户可在主题模板中上传或填写授权音频 URL 替换，公开分发前确认音频授权边界"
+      },
+      "saintSeiya": {
+        "label": "圣斗士风格",
+        "description": "圣斗士十二宫视觉模板：原创圣域星图、黄金圣衣宝箱、星座能量连线、圣域 / 冥界篇双模式、战斗升级与 12 黄金圣衣收集；不使用官方角色图、动画截图或 Logo。",
+        "default": false,
+        "visuals": {
+          "style": "saint-seiya",
+          "iconPack": "saint-seiya",
+          "canvasPattern": "sanctuary-zodiac",
+          "nodeFrame": "cloth-box-card",
+          "headerMark": "SANCTUARY"
+        },
+        "music": "普通模式使用 saint-seiya-pegasus-fantasy.mp3；集齐 12 黄金圣衣后解锁冥界篇并切换 saint-seiya-hades-last-holy-war.mp3；pegasus-cosmos / hades-eclipse 仅作为合成兜底 preset；默认静音，用户可在主题模板中上传或填写授权音频 URL 替换"
       }
     },
     "defaultStyle": "pixel",
@@ -1409,7 +1875,7 @@
   "achievementSystemRoadmap": {
     "status": "planned",
     "reference": "roadmap.md::主题成就 / 勋章 / 加密影片解锁系统路线（规划中，2026-06-04）",
-    "scope": "十套系统主题分别累计有效使用时长、隐藏模式探索、节点运行、资源库沉淀，并解锁主题勋章与影片馆内容。",
+    "scope": "十一套系统主题分别累计有效使用时长、隐藏模式探索、节点运行、资源库沉淀，并解锁主题勋章与影片馆内容。",
     "themeTracks": [
       "tech",
       "pixel",
@@ -1420,7 +1886,8 @@
       "yyh",
       "slamdunk",
       "soccer-hero",
-      "dragon-ball"
+      "dragon-ball",
+      "saint-seiya"
     ],
     "dataModel": {
       "localFile": "data/achievements.json",
@@ -1450,6 +1917,7 @@
     "hiddenModeHooks": [
       "RH 主题 UploadNode 鸭鸭解码隐藏模式：长按 RUN 开启，解码成功后记录 hidden_mode.used。",
       "幽游白书主题肖像大师隐藏模式：长按 RUN 开启，成功输出隐藏肖像 prompt 后记录 hidden_mode.used。",
+      "圣斗士主题集齐 12 黄金圣衣后开启冥界篇隐藏模式：切换进入冥界篇记录 hidden_mode.used。",
       "成就事件只记录类型、主题、计数和节点类型，不记录用户链接、Cookie、完整 prompt 或隐私内容。"
     ],
     "filmUnlockPlan": {
@@ -1467,7 +1935,7 @@
       "本地创作回顾：用户打开成就页时生成周报，展示主题时长、产出数量、常用节点和已获勋章。"
     ],
     "acceptance": [
-      "十套主题分别累计时长，后台/无焦点/无交互不刷时长。",
+      "十一套主题分别累计时长，后台/无焦点/无交互不刷时长。",
       "每个主题至少 5 个时长成就、3 个特色成就、1 个主题大师勋章。",
       "未解锁影片无法播放；解锁后可播放、拖动进度条、继续播放和清缓存。",
       "加密影片原始素材不得进入 git、build 明文目录或 Electron resources。",

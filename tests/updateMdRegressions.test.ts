@@ -32,8 +32,13 @@ test('material context menu lets saved prompt templates choose or create categor
 test('canvas exposes Figma send, placement shelf, and external file drag protocols', () => {
   const canvas = read('../src/components/Canvas.tsx');
   const styles = read('../src/styles/index.css');
+  const radialSettingsModal = read('../src/components/RadialMenuSettingsModal.tsx');
   const modal = read('../src/components/SendMaterialsModal.tsx');
   const api = read('../src/services/api.ts');
+  const preload = read('../electron/preload.cjs');
+  const electronMain = read('../electron/main.cjs');
+  const viteEnv = read('../src/vite-env.d.ts');
+  const materialThumbnail = read('../src/components/nodes/MaterialThumbnail.tsx');
   const server = read('../backend/src/server.js');
   const figma = read('../backend/src/routes/figma.js');
   const figmaBridgeUtil = read('../backend/src/utils/figmaBridge.js');
@@ -74,9 +79,74 @@ test('canvas exposes Figma send, placement shelf, and external file drag protoco
   assert.match(canvas, /暂无素材/);
   assert.doesNotMatch(canvas, /fixed bottom-4 left-4/);
   assert.match(canvas, /t8-control-stack/);
+  assert.match(canvas, /RadialMenuSettingsModal/);
+  assert.match(canvas, /data-canvas-floating-ui="radial-settings-toggle"/);
+  const controlStackIndex = canvas.indexOf('className="t8-control-stack"');
+  assert.ok(
+    canvas.indexOf('data-canvas-floating-ui="radial-settings-toggle"', controlStackIndex) <
+      canvas.indexOf('data-canvas-floating-ui="model-help-toggle"', controlStackIndex),
+  );
   assert.match(styles, /\.t8-control-rail[\s\S]*flex-direction:\s*row/);
   assert.match(styles, /\.t8-placement-shelf/);
+  assert.match(styles, /\.t8-radial-settings-panel/);
+  assert.match(styles, /\.t8-radial-settings-grid/);
+  assert.match(radialSettingsModal, /visibleRadialMenuNodeOptions\(NODE_REGISTRY\)/);
+  assert.match(radialSettingsModal, /setSlotNodeType/);
+  assert.match(radialSettingsModal, /setSlotEnabled/);
+  assert.match(radialSettingsModal, /moveSlot/);
+  assert.match(radialSettingsModal, /draggable/);
+  assert.match(radialSettingsModal, /resetRadialMenu/);
+  assert.match(radialSettingsModal, /setLongPressMs/);
   assert.match(canvas, /DownloadURL/);
+  assert.match(canvas, /canUseNativeDragOut/);
+  assert.match(canvas, /isLeftRightMouseChord/);
+  assert.match(canvas, /FILE_DRAG_OUT_MOVE_TOLERANCE/);
+  assert.match(canvas, /startNativeDragOut/);
+  assert.match(canvas, /canvasPanLocked/);
+  assert.match(canvas, /memoPanOnDrag/);
+  assert.match(canvas, /canvasPanLocked \? false : \[0\]/);
+  assert.match(canvas, /stopRadialPointerEvent/);
+  assert.match(canvas, /window\.addEventListener\('mousemove', onMouseMove, true\)/);
+  assert.match(canvas, /Let the real paste event fire first/);
+  assert.match(canvas, /screenshots\/files must win/);
+  assert.match(canvas, /internalClipboardCopiedAtRef\.current = Date\.now\(\)/);
+  assert.match(canvas, /mediaSignature/);
+  assert.match(canvas, /shouldReleaseConsumedExternalMedia/);
+  assert.match(canvas, /internalClipboardCopiedAtRef\.current > last\.at/);
+  assert.match(canvas, /internalClipboardCopiedAtRef\.current <= lastExternalPaste\.at/);
+  const externalPasteBranch = canvas.slice(
+    canvas.indexOf('const onPaste = (e: ClipboardEvent)'),
+    canvas.indexOf("window.addEventListener('paste', onPaste, true)"),
+  );
+  assert.ok(
+    externalPasteBranch.indexOf('shouldReleaseConsumedExternalMedia') <
+      externalPasteBranch.indexOf('window.clearTimeout(internalPasteTimerRef.current)'),
+    'consumed external clipboard media must release before cancelling internal node paste',
+  );
+  assert.match(canvas, /if \(internalPasteTimerRef\.current\) \{\s*window\.clearTimeout\(internalPasteTimerRef\.current\);/);
+  const pasteShortcutBranch = canvas.slice(
+    canvas.indexOf("matchesAnyShortcut(shortcuts['canvas.paste'], e)"),
+    canvas.indexOf("matchesAnyShortcut(shortcuts['canvas.duplicate'], e)"),
+  );
+  assert.equal(pasteShortcutBranch.includes('e.preventDefault()'), false);
+  assert.match(canvas, /window\.t8pc\?\.dragFileOut/);
+  assert.match(canvas, /file-drag-out-feedback/);
+  assert.match(canvas, /检测到左键\+右键/);
+  assert.match(canvas, /普通浏览器限制/);
+  assert.match(canvas, /Electron 原生拖出桥接/);
+  assert.match(preload, /dragFileOut/);
+  assert.match(preload, /onDragFileOutStatus/);
+  assert.match(preload, /ipcRenderer\.send\('t8pc:drag-file-out'/);
+  assert.match(preload, /t8pc:drag-file-out-status/);
+  assert.match(electronMain, /ipcMain\.on\('t8pc:drag-file-out'/);
+  assert.match(electronMain, /sendDragOutStatus/);
+  assert.match(electronMain, /event\.sender\.startDrag/);
+  assert.match(electronMain, /resolveMountedDragOutFile/);
+  assert.match(styles, /t8-file-drag-out-active/);
+  assert.match(viteEnv, /onDragFileOutStatus\?:/);
+  assert.match(viteEnv, /dragFileOut\?:/);
+  assert.match(materialThumbnail, /data-drag-source/);
+  assert.match(materialThumbnail, /draggable=\{material\.kind !== 'text' && draggable\}/);
   assert.match(canvas, /registerPlacementShelfNodes/);
   assert.match(canvas, /movePlacementShelfNode/);
   assert.match(figma, /DEFAULT_FIGMA_BRIDGE_BASE/);
@@ -158,8 +228,13 @@ test('topbar canvas tutorial panel replaces RH ApiKey shortcut in latest apps', 
   assert.match(app, /V8oCBhemmCQ/);
   assert.match(app, /BV1gSEA6GEDQ/);
   assert.match(app, /-nmX9oB-MX/);
+  assert.match(app, /教程第十弹/);
+  assert.match(app, /BV1N9Eg6QEHs/);
+  assert.match(app, /zIW7PbEWQAs/);
   assert.ok(app.indexOf('画布教程') < app.indexOf('最新应用'));
   assert.doesNotMatch(app, /获取 RH ApiKey/);
   assert.doesNotMatch(app, /enterprise-api\/consumerApi/);
   assert.match(features, /canvasTutorialTopbarPanel/);
+  assert.match(features, /教程第十弹/);
+  assert.match(features, /BV1N9Eg6QEHs/);
 });

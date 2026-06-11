@@ -9,10 +9,51 @@ const {
   buildComfyWorkflowImportChecklist,
   canonicalizeComfyFieldsByWorkflow,
   compactComfyFields,
+  createComfyFieldExcludeRulesBackup,
   createBasicComfyTextToImageWorkflow,
   filterComfyFieldsByExcludeRules,
   parseComfyFieldExcludeRules,
+  parseComfyFieldExcludeRulesBackup,
 } = await import('../src/utils/comfyuiWorkflow.ts');
+const {
+  buildComfyAppFromWorkflow,
+} = await import('../src/utils/comfyuiApps.ts');
+function createCustomComfyWorkflow() {
+  return {
+    '10': {
+      class_type: 'WanVideoTextEncode',
+      inputs: { positive_prompt: 'old prompt', negative_prompt: 'old negative', clip: ['1', 0] },
+    },
+    '11': {
+      class_type: 'LoadImageMask',
+      inputs: { image: 'ref.png', mask: 'mask.png' },
+    },
+    '12': {
+      class_type: 'VHS_LoadVideo',
+      inputs: { video: 'clip.mp4', frame_rate: 24 },
+    },
+    '13': {
+      class_type: 'LoadAudio',
+      inputs: { audio: 'voice.wav' },
+    },
+    '14': {
+      class_type: 'ControlNetLoader',
+      inputs: { control_net_name: 'old-control.safetensors' },
+    },
+    '15': {
+      class_type: 'RandomNoise',
+      inputs: { noise_seed: 111 },
+    },
+    '16': {
+      class_type: 'WanVideoSampler',
+      inputs: { num_frames: 81, fps: 16, guidance: 6, shift: 3 },
+    },
+    '99': {
+      class_type: 'SaveImage',
+      inputs: { filename_prefix: 'ComfyUI', images: ['16', 0] },
+    },
+  };
+}
 
 function jsonResponse(body: any, status = 200) {
   return {
@@ -318,6 +359,86 @@ test('ComfyUI field mappings ignore stale value unless source is fixed', async (
   assert.equal(promptCall.body.prompt['4'].inputs.token, 'keep-fixed-token');
 });
 
+test('ComfyUI image generation infers and patches custom workflow fields on submit', async () => {
+  const calls: any[] = [];
+  let uploadCount = 0;
+  const provider = {
+    id: 'comfyui',
+    protocol: 'comfyui',
+    baseUrl: 'http://127.0.0.1:8188',
+    enabled: true,
+    comfyuiConfig: {
+      workflows: [
+        {
+          id: 'custom-autofields',
+          name: 'Custom auto fields',
+          workflowJson: createCustomComfyWorkflow(),
+        },
+      ],
+    },
+  };
+
+  const result = await comfyui.generateImage(provider, {
+    prompt: 'fresh custom prompt',
+    negativePrompt: 'fresh custom negative',
+    providerModel: 'custom-autofields',
+    size: '832x1216',
+    seed: 999,
+    images: ['/files/input/ref.png', '/files/input/mask.png'],
+    videos: ['/files/input/clip.mp4'],
+    audios: ['/files/input/voice.wav'],
+    providerParams: {
+      control_net_name: 'openpose-control.safetensors',
+      frame_rate: 30,
+      num_frames: 49,
+      fps: 12,
+      guidance: 7,
+      shift: 2,
+    },
+  }, {
+    baseUrl: 'http://127.0.0.1:18766',
+    pollIntervalMs: 1,
+    fetchImpl: async (url: string, init: any = {}) => {
+      if (String(url).includes('/files/input/ref.png') || String(url).includes('/files/input/mask.png')) {
+        calls.push({ url, init });
+        return jsonResponse({}, 200);
+      }
+      if (String(url).endsWith('/upload/image')) {
+        uploadCount += 1;
+        calls.push({ url, init, upload: true });
+        return jsonResponse({ name: uploadCount === 1 ? 'ref-uploaded.png' : 'mask-uploaded.png' });
+      }
+      if (String(url).endsWith('/prompt')) {
+        calls.push({ url, init, body: JSON.parse(init.body) });
+        return jsonResponse({ prompt_id: 'pid-custom' });
+      }
+      return jsonResponse({
+        'pid-custom': {
+          outputs: {
+            '99': { images: [{ filename: 'custom-out.png', type: 'output', subfolder: '' }] },
+          },
+        },
+      });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const promptCall = calls.find((call) => String(call.url).endsWith('/prompt'));
+  assert.equal(promptCall.body.prompt['10'].inputs.positive_prompt, 'fresh custom prompt');
+  assert.equal(promptCall.body.prompt['10'].inputs.negative_prompt, 'fresh custom negative');
+  assert.equal(promptCall.body.prompt['11'].inputs.image, 'ref-uploaded.png');
+  assert.equal(promptCall.body.prompt['11'].inputs.mask, 'mask-uploaded.png');
+  assert.equal(promptCall.body.prompt['12'].inputs.video, '/files/input/clip.mp4');
+  assert.equal(promptCall.body.prompt['12'].inputs.frame_rate, 30);
+  assert.equal(promptCall.body.prompt['13'].inputs.audio, '/files/input/voice.wav');
+  assert.equal(promptCall.body.prompt['14'].inputs.control_net_name, 'openpose-control.safetensors');
+  assert.equal(promptCall.body.prompt['15'].inputs.noise_seed, 999);
+  assert.equal(promptCall.body.prompt['16'].inputs.num_frames, 49);
+  assert.equal(promptCall.body.prompt['16'].inputs.fps, 12);
+  assert.equal(promptCall.body.prompt['16'].inputs.guidance, 7);
+  assert.equal(promptCall.body.prompt['16'].inputs.shift, 2);
+});
+
 test('compactComfyFields keeps fixed values but drops stale runtime-source values', () => {
   assert.deepEqual(
     compactComfyFields([
@@ -362,6 +483,119 @@ test('ComfyUI workflow analyzer creates friendly mappings for common API workflo
       ['5', 'scheduler', 'scheduler'],
     ],
   );
+});
+
+test('ComfyUI workflow analyzer recognizes custom prompt, media, model and timeline fields', () => {
+  const analysis = analyzeComfyWorkflow(createCustomComfyWorkflow());
+  const sourceByNodeField = new Map(analysis.fields.map((field) => [`${field.nodeId}.${field.fieldName}`, field.source]));
+
+  assert.equal(sourceByNodeField.get('10.positive_prompt'), 'prompt');
+  assert.equal(sourceByNodeField.get('10.negative_prompt'), 'negative');
+  assert.equal(sourceByNodeField.get('11.image'), 'image1');
+  assert.equal(sourceByNodeField.get('11.mask'), 'image2');
+  assert.equal(sourceByNodeField.get('12.video'), 'video1');
+  assert.equal(sourceByNodeField.get('12.frame_rate'), 'frame_rate');
+  assert.equal(sourceByNodeField.get('13.audio'), 'audio1');
+  assert.equal(sourceByNodeField.get('14.control_net_name'), 'control_net_name');
+  assert.equal(sourceByNodeField.get('15.noise_seed'), 'seed');
+  assert.equal(sourceByNodeField.get('16.num_frames'), 'num_frames');
+  assert.equal(sourceByNodeField.get('16.fps'), 'fps');
+  assert.equal(sourceByNodeField.get('16.guidance'), 'guidance');
+  assert.equal(sourceByNodeField.get('16.shift'), 'shift');
+  assert.equal(analysis.imageInputCount, 2);
+  assert.equal(analysis.videoInputCount, 1);
+  assert.equal(analysis.audioInputCount, 1);
+  assert.equal(analysis.outputCount, 1);
+});
+
+test('ComfyUI workflow analyzer ignores display-only text outputs when finding positive prompts', () => {
+  const workflow = {
+    '3218': {
+      class_type: 'LoadImage',
+      inputs: { image: 'ComfyUI_00001.png' },
+      _meta: { title: '加载图像' },
+    },
+    '3238': {
+      class_type: 'Comfly_gpt_image_2_official_ratio_stable',
+      inputs: {
+        prompt: '女人在跳舞',
+        aspect_ratio: 'custom',
+        resolution: '2k',
+        api_key: ['3220', 0],
+        model: 'gpt-image-2',
+        n: 1,
+        response_format: 'url',
+        image1: ['3218', 0],
+      },
+      _meta: { title: 'zhenzhen-gpt-image-2-official_ratio_stable' },
+    },
+    '3239': {
+      class_type: 'easy showAnything',
+      inputs: {
+        text: 'https://webstatic.aiproxy.vip/output/example.png',
+        anything: ['3238', 1],
+      },
+      _meta: { title: '展示任何' },
+    },
+    '3240': {
+      class_type: 'easy showAnything',
+      inputs: {
+        text: '**Comfly gpt-image-2**\nPrompt: 女人在跳舞\nImage URL: https://example.test/out.png',
+        anything: ['3238', 2],
+      },
+      _meta: { title: '展示任何' },
+    },
+  };
+
+  const analysis = analyzeComfyWorkflow(workflow);
+  const promptFields = analysis.fields
+    .filter((field) => field.source === 'prompt' || field.source === 'positive')
+    .map((field) => `${field.nodeId}.${field.fieldName}`);
+  const sourceByNodeField = new Map(analysis.fields.map((field) => [`${field.nodeId}.${field.fieldName}`, field.source]));
+
+  assert.deepEqual(promptFields, ['3238.prompt']);
+  assert.equal(sourceByNodeField.has('3239.text'), false);
+  assert.equal(sourceByNodeField.has('3240.text'), false);
+});
+
+test('ComfyUI app builder keeps LIST fields as select params and labels them with node ids', () => {
+  const app = buildComfyAppFromWorkflow({
+    title: 'Comfly GPT Image',
+    workflowJson: {
+      '3238': {
+        class_type: 'Comfly_gpt_image_2_official_ratio_stable',
+        inputs: {
+          prompt: '女人在跳舞',
+          aspect_ratio: 'custom',
+          resolution: '2k',
+          quality: {
+            value: 'auto',
+            options: ['auto', 'low', 'medium', 'high'],
+          },
+          n: 1,
+        },
+        input_types: {
+          required: {
+            aspect_ratio: [['1:1', '16:9', '9:16', 'custom'], { default: 'custom' }],
+            resolution: [['1k', '2k', '4k'], { default: '2k' }],
+          },
+        },
+      },
+    },
+  });
+
+  const resolution = app.userParams.find((param) => param.source === 'resolution');
+  const aspectRatio = app.userParams.find((param) => param.source === 'aspect_ratio');
+  const quality = app.userParams.find((param) => param.source === 'quality');
+
+  assert.equal(resolution?.kind, 'select');
+  assert.deepEqual(resolution?.options, ['1k', '2k', '4k']);
+  assert.equal(resolution?.defaultValue, '2k');
+  assert.match(resolution?.label || '', /#3238/);
+  assert.equal(aspectRatio?.kind, 'select');
+  assert.deepEqual(aspectRatio?.options, ['1:1', '16:9', '9:16', 'custom']);
+  assert.equal(quality?.kind, 'select');
+  assert.deepEqual(quality?.options, ['auto', 'low', 'medium', 'high']);
 });
 
 test('ComfyUI sample workflow and import checklist guide first-time setup', () => {
@@ -430,6 +664,28 @@ test('ComfyUI exclude rules filter auto mapped fields by source, class and node 
       '3.width:width',
       '3.height:height',
     ],
+  );
+});
+
+test('ComfyUI exclude rules backup accepts JSON, arrays and legacy text formats', () => {
+  const backup = createComfyFieldExcludeRulesBackup('seed\nsteps\n#3.batch_size', 'test');
+  assert.equal(backup.schema, 't8-comfyui-field-exclude-rules');
+  assert.deepEqual(backup.rules, ['seed', 'steps', '#3.batch_size']);
+  assert.deepEqual(
+    parseComfyFieldExcludeRulesBackup(JSON.stringify(backup)),
+    ['seed', 'steps', '#3.batch_size'],
+  );
+  assert.deepEqual(
+    parseComfyFieldExcludeRulesBackup({ excludeRules: ['class:KSampler', 'field:width'] }),
+    ['class:KSampler', 'field:width'],
+  );
+  assert.deepEqual(
+    parseComfyFieldExcludeRulesBackup({ payload: { autoMappingExcludeRules: 'cfg; scheduler' } }),
+    ['cfg', 'scheduler'],
+  );
+  assert.deepEqual(
+    parseComfyFieldExcludeRulesBackup('seed, steps\n#3.batch_size'),
+    ['seed', 'steps', '#3.batch_size'],
   );
 });
 

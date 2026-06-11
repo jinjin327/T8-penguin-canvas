@@ -2,6 +2,7 @@ import type { NodeMeta } from '../types/canvas';
 
 const DEV_NODE_REGISTRY: NodeMeta[] = import.meta.env?.DEV ? [
   { type: 'rh-toolbox-maker', label: 'RH工具箱制作器', category: 'rh', description: '维护者专用：在画布内制作 RH工具箱 manifest 模板，开发环境可见，用户包不打入', icon: 'FileJson', color: 'emerald' },
+  { type: 'fal-toolbox-maker', label: 'FAL应用制作工具', category: 'fal', description: '维护者专用：从 fal.ai API 文档生成 Fal超市 manifest 草稿，开发环境可见，用户包不打入', icon: 'FileJson', color: 'violet' },
 ] : [];
 
 /**
@@ -10,10 +11,12 @@ const DEV_NODE_REGISTRY: NodeMeta[] = import.meta.env?.DEV ? [
  * 图标使用 lucide-react 名称(运行时由 Sidebar 动态查找)
  */
 export const NODE_REGISTRY: NodeMeta[] = [
-  // ========== Input 素材资源(3) ==========
+  // ========== Input 素材资源 ==========
   { type: 'upload', label: '上传素材', category: 'input', description: '图像 / 视频 / 音频 三合一上传(自适应输出端口)', icon: 'Upload', color: 'emerald' },
+  { type: 'model-3d-upload', label: '3D素材上传', category: 'input', description: '上传 glb/gltf/obj/stl/fbx/usdz/zip 3D 模型素材，并可一键生成 3D 模型预览节点', icon: 'Box', color: 'blue' },
+  { type: 'model-3d-preview', label: '3D模型预览', category: 'input', description: '预览 glb/gltf/obj/stl/fbx/usdz 3D 模型，显示原始下载地址，并把当前角度快照输出为图像', icon: 'Box', color: 'blue' },
   { type: 'material-set', label: '素材集', category: 'input', description: '把多个同类型文本 / 图像 / 视频 / 音频打包成可排序素材集，可直接传给生成与 RH 节点', icon: 'Images', color: 'teal' },
-  { type: 'output', label: '输出素材', category: 'input', description: '起于上游任意节点的 文本/图像/视频/音频 结果预览(原始宽高比 + 文本双击编辑)', icon: 'MonitorPlay', color: 'teal' },
+  { type: 'output', label: '输出素材', category: 'input', description: '起于上游任意节点的 文本/图像/视频/音频/3D模型 结果预览(原始宽高比 + 文本双击编辑)', icon: 'MonitorPlay', color: 'teal' },
 
   // ========== Core 核心节点(6) ==========
   { type: 'text', label: '文本', category: 'core', description: '提示词文本节点', icon: 'Type', color: 'sky' },
@@ -33,6 +36,12 @@ export const NODE_REGISTRY: NodeMeta[] = [
   { type: 'rh-tools', label: 'RH超市', category: 'rh', description: '启动器式包装多个 RunningHub AI 应用，在节点内分类浏览 / 拼音搜索 / 一键运行', icon: 'Sparkles', color: 'cyan' },
   { type: 'rh-toolbox', label: 'RH工具箱', category: 'rh', description: '维护者精选 RunningHub 工具箱，只读分类运行，可作为图像/视频/文本/音频辅助能力被其他节点复用', icon: 'Wrench', color: 'cyan' },
   ...DEV_NODE_REGISTRY,
+
+  // ========== FAL 工具箱节点 ==========
+  { type: 'fal-toolbox', label: 'Fal超市', category: 'fal', description: '按分类复刻 Fal.ai 模型能力，接上游文本/图像/视频/音频后一键运行，不影响原有图像/视频 FAL 节点', icon: 'Store', color: 'violet' },
+
+  // ========== GROK OAuth Agent ==========
+  { type: 'grok-oauth-agent', label: 'Grok OAuth Agent', category: 'grok', description: '独立 Grok / xAI OAuth Agent 工作台：流式聊天、图像、视频、TTS、STT，多模态输入并输出四类素材', icon: 'Bot', color: 'emerald' },
 
   // ========== ComfyUI 本地工作流节点 ==========
   { type: 'comfyui-store', label: 'ComfyUI超市', category: 'comfyui', description: 'ComfyUI 应用库：导入制作好的工作流应用，接上游素材后一键运行', icon: 'Boxes', color: 'cyan' },
@@ -94,6 +103,8 @@ export const NODE_GROUPS: Record<string, { label: string; nodes: NodeMeta[] }> =
   input: { label: '素材资源', nodes: NODE_REGISTRY.filter((n) => n.category === 'input' && !n.hidden) },
   core: { label: '核心节点', nodes: NODE_REGISTRY.filter((n) => n.category === 'core' && !n.hidden) },
   rh: { label: 'RH', nodes: NODE_REGISTRY.filter((n) => n.category === 'rh' && !n.hidden) },
+  fal: { label: 'FAL工具箱', nodes: NODE_REGISTRY.filter((n) => n.category === 'fal' && !n.hidden) },
+  grok: { label: 'GROK OAuth', nodes: NODE_REGISTRY.filter((n) => n.category === 'grok' && !n.hidden) },
   comfyui: { label: 'ComfyUI', nodes: NODE_REGISTRY.filter((n) => n.category === 'comfyui' && !n.hidden) },
   special: { label: '特殊节点', nodes: NODE_REGISTRY.filter((n) => n.category === 'special' && !n.hidden) },
   utility: { label: '工具节点', nodes: NODE_REGISTRY.filter((n) => n.category === 'utility' && !n.hidden) },

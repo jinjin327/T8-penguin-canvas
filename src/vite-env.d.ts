@@ -47,6 +47,13 @@ interface T8UpdaterResult {
   status?: T8UpdaterStatus;
 }
 
+interface T8DragFileOutStatus {
+  requestId?: string;
+  success: boolean;
+  message?: string;
+  file?: string;
+}
+
 interface T8ParseAuthCookie {
   profileId: string;
   label: string;
@@ -90,6 +97,8 @@ interface Window {
       updater?: T8UpdaterStatus;
     }>;
     openExternal: (url: string) => Promise<{ success: boolean; message?: string }>;
+    dragFileOut?: (payload: { url?: string; path?: string; filename?: string; kind?: string; requestId?: string }) => void;
+    onDragFileOutStatus?: (callback: (status: T8DragFileOutStatus) => void) => () => void;
     parseAuth?: {
       login: (profileId: string) => Promise<T8ParseAuthResult>;
       getCookie: (profileId: string) => Promise<T8ParseAuthResult>;

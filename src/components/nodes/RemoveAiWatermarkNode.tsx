@@ -18,6 +18,8 @@ import { useUpdateNodeData } from './useUpdateNodeData';
 import { useHasAutoOutput } from './useHasAutoOutput';
 import SmartImage from '../SmartImage';
 
+type AiWatermarkMediaKind = Exclude<MediaKind, 'model3d'>;
+
 const MODE_OPTIONS: Array<{ value: AiWatermarkMode; label: string; hint: string }> = [
   { value: 'smart', label: '智能清理', hint: '可见水印 auto + 元数据清理' },
   { value: 'visible', label: '可见水印', hint: 'Gemini / Doubao / Jimeng 等已知标记' },
@@ -67,8 +69,9 @@ function normalizePipeline(value: any): 'default' | 'controlnet' {
 }
 
 function formatMediaSummary(items: MediaItem[]) {
-  const counts = items.reduce<Record<MediaKind, number>>(
+  const counts = items.reduce<Record<AiWatermarkMediaKind, number>>(
     (acc, item) => {
+      if (item.kind === 'model3d') return acc;
       acc[item.kind] += 1;
       return acc;
     },
@@ -188,7 +191,7 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
     for (const sourceId of upstreamIds) {
       const node = nodes.find((item) => item.id === sourceId);
       const nodeData = node?.data || {};
-      for (const kind of ['image', 'video', 'audio'] as MediaKind[]) {
+      for (const kind of ['image', 'video', 'audio'] as AiWatermarkMediaKind[]) {
         for (const item of getMediaItemsFromData(nodeData, kind)) {
           if (!item.url || seen.has(item.url)) continue;
           seen.add(item.url);

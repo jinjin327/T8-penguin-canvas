@@ -14,6 +14,8 @@ export const slamdunkThemeMusicUrl = new URL('../assets/theme-music/slamdunk-kim
 export const soccerThemeMusicUrl = new URL('../assets/theme-music/soccer-tsubasa-burning-hero.mid', import.meta.url).href;
 export const dragonBallThemeMusicUrl = new URL('../assets/theme-music/dragonball-makafushigi-adventure.mp3', import.meta.url).href;
 export const dragonBallShenronHiddenMusicUrl = new URL('../assets/theme-music/dragonball-shenron-cha-la-head-cha-la.mp3', import.meta.url).href;
+export const saintSeiyaThemeMusicUrl = new URL('../assets/theme-music/saint-seiya-pegasus-fantasy.mp3', import.meta.url).href;
+export const saintSeiyaHadesThemeMusicUrl = new URL('../assets/theme-music/saint-seiya-hades-last-holy-war.mp3', import.meta.url).href;
 
 export const DEFAULT_THEME_TEMPLATE_ID = 'pixel-candy';
 export const TECH_TEMPLATE_ID = 'tech-default';
@@ -26,6 +28,7 @@ export const YYH_TEMPLATE_ID = 'yyh-style';
 export const SLAMDUNK_TEMPLATE_ID = 'slamdunk-style';
 export const SOCCER_TEMPLATE_ID = 'soccer-hero-style';
 export const DRAGON_BALL_TEMPLATE_ID = 'dragon-ball-style';
+export const SAINT_SEIYA_TEMPLATE_ID = 'saint-seiya-style';
 
 const techDark: ThemeTokens = {
   appBg: '#09090b',
@@ -759,6 +762,80 @@ const dragonBallDark: ThemeTokens = {
   portAudio: '#c4a7ff',
 };
 
+const saintSeiyaLight: ThemeTokens = {
+  appBg: '#0a1430',
+  canvasBg: '#10264a',
+  panelBg: '#fff0bd',
+  panelBgElevated: '#fff8da',
+  panelBgMuted: '#e8ca75',
+  nodeBg: '#fff2c2',
+  nodeHeaderBg: '#d49a20',
+  textMain: '#211607',
+  textMuted: '#61481b',
+  textDim: '#8a6c2c',
+  border: '#211607',
+  borderStrong: '#a77812',
+  accent: '#d49a20',
+  accentHover: '#ffd867',
+  accentText: '#171006',
+  secondary: '#1fb7c8',
+  warning: '#f8c84a',
+  danger: '#c0323e',
+  success: '#16a36f',
+  shadowPanel: '0 16px 42px rgba(3,7,20,0.32), 4px 4px 0 rgba(33,22,7,0.86)',
+  shadowButton: '3px 3px 0 rgba(33,22,7,0.9)',
+  shadowStrong: '0 24px 72px rgba(3,7,20,0.42), 6px 6px 0 rgba(33,22,7,0.9)',
+  radiusPanel: '10px',
+  radiusButton: '9999px',
+  radiusNode: '12px',
+  gridDot: '#f6d477',
+  edge: '#d9a72c',
+  edgeSelected: '#fff0a8',
+  selectionBg: 'rgba(217,167,44,0.16)',
+  selectionBorder: '#d9a72c',
+  portText: '#1fb7c8',
+  portImage: '#d9a72c',
+  portVideo: '#c0323e',
+  portAudio: '#7c5ac8',
+  fontFamily: "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+  displayFont: "Georgia, 'Noto Serif SC', 'Microsoft YaHei', serif",
+};
+
+const saintSeiyaDark: ThemeTokens = {
+  ...saintSeiyaLight,
+  appBg: '#070812',
+  canvasBg: '#0b0f1f',
+  panelBg: '#121827',
+  panelBgElevated: '#1b2436',
+  panelBgMuted: '#232d42',
+  nodeBg: '#121827',
+  nodeHeaderBg: '#5f4710',
+  textMain: '#fff7db',
+  textMuted: '#d8c896',
+  textDim: '#9e916f',
+  border: '#e7c661',
+  borderStrong: '#f8c84a',
+  accent: '#f8c84a',
+  accentHover: '#ffe68a',
+  accentText: '#111006',
+  secondary: '#2dd4bf',
+  warning: '#f8c84a',
+  danger: '#ff5a68',
+  success: '#67e8a5',
+  shadowPanel: '0 20px 58px rgba(0,0,0,0.58), 5px 5px 0 #030409',
+  shadowButton: '3px 3px 0 #030409',
+  shadowStrong: '0 28px 86px rgba(0,0,0,0.72), 7px 7px 0 #030409',
+  gridDot: '#31405c',
+  edge: '#97a7c4',
+  edgeSelected: '#f8c84a',
+  selectionBg: 'rgba(248,200,74,0.18)',
+  selectionBorder: '#f8c84a',
+  portText: '#67e8f9',
+  portImage: '#f8c84a',
+  portVideo: '#ff6b7a',
+  portAudio: '#c4a7ff',
+};
+
 export const BUILT_IN_THEME_TEMPLATES: ThemeTemplate[] = [
   {
     schema: 't8-theme-template',
@@ -1048,6 +1125,37 @@ export const BUILT_IN_THEME_TEMPLATES: ThemeTemplate[] = [
       copyrightNote: '七龙珠第一部开场曲默认音乐文件；神龙隐藏模式会切换到 CHA-LA HEAD-CHA-LA，可在主题模板中上传替换。公开分发前请确认音乐授权边界。',
     },
     modes: { dark: { tokens: dragonBallDark }, light: { tokens: dragonBallLight } },
+  },
+  {
+    schema: 't8-theme-template',
+    version: THEME_TEMPLATE_VERSION,
+    id: SAINT_SEIYA_TEMPLATE_ID,
+    name: '圣斗士风格',
+    description: '十二宫与冥界篇双主题：大理石圣域、黄金圣衣、星座罗盘、宝箱试炼和小宇宙战斗面板。',
+    author: 'T8',
+    builtIn: true,
+    legacyStyle: 'pixel',
+    visuals: {
+      style: 'saint-seiya',
+      intensity: 'strong',
+      iconPack: 'saint-seiya',
+      canvasPattern: 'sanctuary-zodiac',
+      nodeFrame: 'cloth-box-card',
+      headerMark: 'SANCTUARY',
+    },
+    music: {
+      title: '天马幻想',
+      preset: 'pegasus-cosmos',
+      source: 'url',
+      url: saintSeiyaThemeMusicUrl,
+      hiddenTitle: '冥界篇 · 最后的圣战',
+      hiddenUrl: saintSeiyaHadesThemeMusicUrl,
+      hiddenVolume: 0.2,
+      volume: 0.18,
+      bpm: 148,
+      copyrightNote: '圣域篇默认使用天马幻想；冥界篇开启后切换最后的圣战，可在主题模板中上传替换为已授权音乐。',
+    },
+    modes: { dark: { tokens: saintSeiyaDark }, light: { tokens: saintSeiyaLight } },
   },
 ];
 

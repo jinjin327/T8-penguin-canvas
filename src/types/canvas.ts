@@ -18,6 +18,11 @@ export type NodeType =
   | 'rh-tools'
   | 'rh-toolbox'
   | 'rh-toolbox-maker'
+  | 'fal-toolbox'
+  | 'fal-toolbox-maker'
+  | 'model-3d-preview'
+  | 'model-3d-upload'
+  | 'grok-oauth-agent'
   | 'comfyui-store'
   | 'comfyui-app-maker'
   // Special (5)
@@ -68,6 +73,8 @@ export type NodeType =
 export type NodeCategory =
   | 'core'
   | 'rh'
+  | 'fal'
+  | 'grok'
   | 'comfyui'
   | 'special'
   | 'utility'
@@ -138,7 +145,7 @@ export interface AdvancedProviderConfig {
       id: string;
       name: string;
       workflowJson?: Record<string, any>;
-      fields?: Array<{ nodeId: string; fieldName: string; source?: string; value?: any }>;
+      fields?: Array<{ nodeId: string; fieldName: string; source?: string; value?: any; options?: Array<string | number> }>;
       excludeRules?: string[];
     }>;
   };
@@ -188,22 +195,18 @@ export interface CloudUploadTargetConfig {
     hasAccessKeySecret?: boolean;
   };
   baiduNetdisk?: {
+    webdavUrl?: string;
+    username?: string;
+    password?: string;
     folder?: string;
-    accessToken?: string;
-    refreshToken?: string;
-    appKey?: string;
-    appSecret?: string;
-    hasAccessToken?: boolean;
-    hasRefreshToken?: boolean;
-    hasAppKey?: boolean;
-    hasAppSecret?: boolean;
+    hasPassword?: boolean;
   };
   quarkNetdisk?: {
+    webdavUrl?: string;
+    username?: string;
+    password?: string;
     folder?: string;
-    mode?: 'external-command' | 'cookie';
-    commandPath?: string;
-    cookie?: string;
-    hasCookie?: boolean;
+    hasPassword?: boolean;
   };
 }
 

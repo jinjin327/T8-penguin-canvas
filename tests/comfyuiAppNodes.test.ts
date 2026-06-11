@@ -11,8 +11,11 @@ test('ComfyUI app nodes keep the node shell draggable while controls remain prot
   assert.match(maker, /px-input nodrag nowheel/);
   assert.match(maker, /px-btn nodrag nowheel/);
 
-  assert.match(store, /<div className="relative flex flex-col nowheel" style=\{rootStyle\}>/);
+  assert.match(store, /<div className="t8-comfyui-store-node relative flex flex-col nowheel" style=\{rootStyle\}>/);
+  assert.match(store, /overflow: 'visible'/);
+  assert.match(store, /<div className="flex min-h-0 flex-1 flex-col overflow-hidden" style=\{\{ borderRadius: isPixel \? 6 : 12 \}\}>/);
   assert.doesNotMatch(store, /<div className="relative flex flex-col nodrag nowheel" style=\{rootStyle\}>/);
+  assert.doesNotMatch(store, /overflow: 'hidden',\s*boxShadow/);
   assert.match(store, /px-input nodrag nowheel/);
   assert.match(store, /px-btn nodrag nowheel/);
 });

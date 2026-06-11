@@ -1,10 +1,12 @@
 import type { AdvancedProviderConfig } from '../types/canvas';
 import {
   analyzeComfyWorkflow,
+  comfyFieldInputValue,
+  comfyFieldOptionsForWorkflow,
   compactComfyFields,
   filterComfyFieldsByExcludeRules,
   type ComfyFieldMapping,
-} from './comfyuiWorkflow';
+} from './comfyuiWorkflow.ts';
 
 export type ComfyAppMediaKind = 'text' | 'image' | 'video' | 'audio';
 export type ComfyAppParamKind = 'text' | 'textarea' | 'number' | 'boolean' | 'select';
@@ -22,6 +24,9 @@ export interface ComfyAppUserParam {
   label: string;
   kind: ComfyAppParamKind;
   source: string;
+  nodeId?: string;
+  fieldName?: string;
+  nodeTitle?: string;
   defaultValue?: string | number | boolean;
   placeholder?: string;
   required?: boolean;
@@ -99,8 +104,38 @@ const EXPOSED_SOURCES = new Set([
   'clip_name',
   'vae_name',
   'lora_name',
+  'unet_name',
+  'control_net_name',
+  'clip_vision_name',
+  'style_model_name',
+  'upscale_model',
   'strength_model',
   'strength_clip',
+  'start_at_step',
+  'end_at_step',
+  'guidance',
+  'shift',
+  'fps',
+  'frame_rate',
+  'num_frames',
+  'duration',
+  'strength',
+  'weight',
+  'control_after_generate',
+  'add_noise',
+]);
+const SAFE_CUSTOM_SOURCE_RE = /^[a-z][a-z0-9_:. -]{0,79}$/i;
+const BLOCKED_CUSTOM_SOURCES = new Set([
+  'fixed',
+  'model',
+  'clip',
+  'vae',
+  'latent',
+  'latent_image',
+  'samples',
+  'images',
+  'conditioning',
+  'control_net',
 ]);
 
 export const COMFY_APP_SOURCE_LABELS: Record<string, string> = {
@@ -110,8 +145,15 @@ export const COMFY_APP_SOURCE_LABELS: Record<string, string> = {
   image1: '图片输入 1',
   image2: '图片输入 2',
   image3: '图片输入 3',
+  image4: '图片输入 4',
+  image5: '图片输入 5',
+  image6: '图片输入 6',
   video1: '视频输入 1',
+  video2: '视频输入 2',
+  video3: '视频输入 3',
   audio1: '音频输入 1',
+  audio2: '音频输入 2',
+  audio3: '音频输入 3',
   width: '宽度',
   height: '高度',
   batch_size: '批量数',
@@ -126,8 +168,25 @@ export const COMFY_APP_SOURCE_LABELS: Record<string, string> = {
   clip_name: 'CLIP',
   vae_name: 'VAE',
   lora_name: 'LoRA',
+  unet_name: 'UNet',
+  control_net_name: 'ControlNet',
+  clip_vision_name: 'CLIP Vision',
+  style_model_name: 'Style Model',
+  upscale_model: '放大模型',
   strength_model: 'LoRA 模型强度',
   strength_clip: 'LoRA CLIP 强度',
+  start_at_step: '起始步数',
+  end_at_step: '结束步数',
+  guidance: 'Guidance',
+  shift: 'Shift',
+  fps: 'FPS',
+  frame_rate: '帧率',
+  num_frames: '帧数',
+  duration: '时长',
+  strength: '强度',
+  weight: '权重',
+  control_after_generate: 'Seed 生成策略',
+  add_noise: '添加噪声',
 };
 
 function cleanId(value: unknown, fallback: string): string {
@@ -189,6 +248,9 @@ export function normalizeComfyAppManifest(value: Partial<ComfyAppManifest> | nul
         label: cleanText(param?.label, COMFY_APP_SOURCE_LABELS[source] || source, 80),
         kind,
         source,
+        nodeId: cleanText(param?.nodeId, '', 40),
+        fieldName: cleanText(param?.fieldName, '', 80),
+        nodeTitle: cleanText(param?.nodeTitle, '', 120),
         defaultValue: param?.defaultValue,
         placeholder: cleanText(param?.placeholder, '', 160),
         required: param?.required === true,
@@ -238,12 +300,16 @@ export function normalizeComfyAppManifest(value: Partial<ComfyAppManifest> | nul
 
 export function fieldDefaultValue(workflowJson: Record<string, any> | undefined, field: ComfyFieldMapping): any {
   if (!workflowJson || !field) return undefined;
-  return workflowJson?.[field.nodeId]?.inputs?.[field.fieldName];
+  return comfyFieldInputValue(workflowJson, field);
 }
 
-function paramKindFor(source: string, value: any): ComfyAppParamKind {
+function paramKindFor(source: string, value: any, options?: Array<string | number>): ComfyAppParamKind {
+  if (options?.length) return 'select';
   if (TEXT_SOURCES.has(source)) return 'textarea';
-  if (typeof value === 'number' || ['width', 'height', 'batch_size', 'seed', 'steps', 'cfg', 'denoise', 'strength_model', 'strength_clip'].includes(source)) return 'number';
+  if (
+    typeof value === 'number'
+    || ['width', 'height', 'batch_size', 'seed', 'steps', 'cfg', 'denoise', 'strength_model', 'strength_clip', 'start_at_step', 'end_at_step', 'guidance', 'shift', 'fps', 'frame_rate', 'num_frames', 'duration', 'strength', 'weight'].includes(source)
+  ) return 'number';
   if (typeof value === 'boolean') return 'boolean';
   return 'text';
 }
@@ -257,7 +323,8 @@ function paramKeyFor(field: ComfyFieldMapping): string {
 function shouldExposeParam(field: ComfyFieldMapping): boolean {
   const source = String(field.source || '').trim();
   if (!source || source === 'fixed' || MEDIA_SOURCE_RE.test(source)) return false;
-  return EXPOSED_SOURCES.has(source);
+  if (EXPOSED_SOURCES.has(source)) return true;
+  return SAFE_CUSTOM_SOURCE_RE.test(source) && !BLOCKED_CUSTOM_SOURCES.has(source.toLowerCase());
 }
 
 export function buildComfyAppFromWorkflow(options: {
@@ -276,17 +343,22 @@ export function buildComfyAppFromWorkflow(options: {
     .map((field) => {
       const source = String(field.source || field.fieldName || '').trim();
       const value = fieldDefaultValue(options.workflowJson, field);
-      const kind = paramKindFor(source, value);
+      const fieldOptions = comfyFieldOptionsForWorkflow(options.workflowJson, field);
+      const kind = paramKindFor(source, value, fieldOptions);
       return {
         key: paramKeyFor(field),
-        label: COMFY_APP_SOURCE_LABELS[source] || source,
+        label: field.nodeId ? `${COMFY_APP_SOURCE_LABELS[source] || source} #${field.nodeId}` : (COMFY_APP_SOURCE_LABELS[source] || source),
         kind,
         source,
+        nodeId: field.nodeId,
+        fieldName: field.fieldName,
+        nodeTitle: (field as any).nodeTitle,
         defaultValue: value,
         required: source === 'prompt',
         min: ['width', 'height'].includes(source) ? 64 : source === 'batch_size' ? 1 : undefined,
         max: ['width', 'height'].includes(source) ? 8192 : source === 'batch_size' ? 16 : undefined,
-        step: ['width', 'height'].includes(source) ? 8 : source === 'cfg' || source === 'denoise' ? 0.1 : 1,
+        step: ['width', 'height'].includes(source) ? 8 : ['cfg', 'denoise', 'guidance', 'shift', 'strength', 'weight'].includes(source) || source.startsWith('strength_') ? 0.1 : 1,
+        options: fieldOptions.length ? fieldOptions : undefined,
         rows: TEXT_SOURCES.has(source) ? (source === 'negative' ? 4 : 5) : undefined,
       } as ComfyAppUserParam;
     });

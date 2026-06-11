@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, ChevronRight, Clock3, Download, Eye, FileUp, Film, Lock, Medal, RotateCcw, Sparkles, Trophy, X } from 'lucide-react';
 import {
   achievementManifest,
@@ -10,7 +10,7 @@ import {
   type AchievementThemeManifest,
 } from '../data/achievementManifest';
 import { type AchievementDrawerTab, useAchievementStore } from '../stores/achievements';
-import type { AchievementDailyTask, AchievementDefinitionData, AchievementThemeShowcase } from '../services/api';
+import type { AchievementDailyTask, AchievementDefinitionData, AchievementThemeShowcase, AchievementUnlockedFilm } from '../services/api';
 
 const RARITY_LABEL: Record<string, string> = {
   bronze: '铜',
@@ -88,6 +88,20 @@ function currentValueLabel(stats: any, definition: AchievementDefinition) {
   return '当前进度';
 }
 
+function achievementFilmMediaUrl(film: AchievementFilmReward, unlockedFilm?: AchievementUnlockedFilm) {
+  return unlockedFilm?.mediaUrl || `/api/achievements/films/${encodeURIComponent(film.id)}/media`;
+}
+
+function isPlayableFilm(unlockedFilm?: AchievementUnlockedFilm) {
+  return Boolean(unlockedFilm?.hasMedia && (unlockedFilm.mediaUrl || unlockedFilm.status === 'ready'));
+}
+
+function unlockedFilmStatusText(unlockedFilm?: AchievementUnlockedFilm) {
+  if (!unlockedFilm) return '';
+  if (isPlayableFilm(unlockedFilm)) return '奖励影片已解锁，可播放';
+  return unlockedFilm.unavailableText || '影片素材待提供';
+}
+
 function hiddenModeHint(definition: AchievementDefinition) {
   const kind = String(definition.condition?.kind || '');
   if (kind === 'rh-duck') return '长按 RH 主题下图像上传节点的 RUN 进入隐藏解码。';
@@ -155,6 +169,11 @@ export default function AchievementDrawer() {
   const exportData = useAchievementStore((state) => state.exportData);
   const importData = useAchievementStore((state) => state.importData);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [cinematicFilm, setCinematicFilm] = useState<{
+    film: AchievementFilmReward;
+    unlockedFilm: AchievementUnlockedFilm;
+    mediaUrl: string;
+  } | null>(null);
 
   const definitions = useMemo(
     () => (definitionsFromStore.length > 0 ? definitionsFromStore : buildAchievementDefinitions()).map(normalizeDefinition),
@@ -229,6 +248,10 @@ export default function AchievementDrawer() {
     }
   };
 
+  const openFilmStage = (film: AchievementFilmReward, unlockedFilm: AchievementUnlockedFilm, mediaUrl: string) => {
+    setCinematicFilm({ film, unlockedFilm, mediaUrl });
+  };
+
   const renderTask = (definition: AchievementDefinition) => {
     const isUnlocked = Boolean(unlocked[definition.id]);
     const trackingDisabled = !trackingEnabled && !isUnlocked;
@@ -268,6 +291,8 @@ export default function AchievementDrawer() {
   const renderThemeFilm = (film: AchievementFilmReward) => {
     const unlockedFilm = profile?.unlockedFilms?.[film.id];
     const source = definitionsById.get(film.unlockAchievementId);
+    const playable = isPlayableFilm(unlockedFilm);
+    const mediaUrl = achievementFilmMediaUrl(film, unlockedFilm);
     return (
       <article key={film.id} className={`t8-achievement-theme-film ${unlockedFilm ? 'is-unlocked' : ''}`}>
         <div className="t8-achievement-film__poster">
@@ -276,9 +301,22 @@ export default function AchievementDrawer() {
         <div className="t8-achievement-film__body">
           <div className="t8-achievement-film__title">{film.title}</div>
           <div className="t8-achievement-film__status">
-            {unlockedFilm ? `已解锁 · ${unlockedFilm.unavailableText || '影片素材待提供'}` : film.lockedText || '待解锁'}
+            {unlockedFilm ? `已解锁 · ${unlockedFilmStatusText(unlockedFilm)}` : film.lockedText || '待解锁'}
           </div>
           <div className="t8-achievement-film__condition">解锁条件：{source?.title || film.unlockAchievementId}</div>
+          {playable && unlockedFilm && (
+            <>
+              <button type="button" className="t8-achievement-film__stage-card" onClick={() => openFilmStage(film, unlockedFilm, mediaUrl)}>
+                <Film size={18} />
+                <span>大屏播放奖励影片</span>
+              </button>
+              <div className="t8-achievement-film__actions">
+                <button type="button" className="t8-btn t8-btn-primary" onClick={() => openFilmStage(film, unlockedFilm, mediaUrl)}>
+                  <Film size={14} /> 播放
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </article>
     );
@@ -651,6 +689,8 @@ export default function AchievementDrawer() {
                 const unlockedFilm = profile?.unlockedFilms?.[film.id];
                 const source = definitionsById.get(film.unlockAchievementId);
                 const unlockedSource = Boolean(unlocked[film.unlockAchievementId]);
+                const playable = isPlayableFilm(unlockedFilm);
+                const mediaUrl = achievementFilmMediaUrl(film, unlockedFilm);
                 return (
                   <article key={film.id} className={`t8-achievement-film ${unlockedFilm ? 'is-unlocked' : ''}`}>
                     <div className="t8-achievement-film__poster">
@@ -660,17 +700,29 @@ export default function AchievementDrawer() {
                       <div className="t8-achievement-film__title">{film.title}</div>
                       <div className="t8-achievement-film__status">
                         {unlockedFilm
-                          ? `已解锁 · ${unlockedFilm.unavailableText || '影片素材待提供'}`
+                          ? `已解锁 · ${unlockedFilmStatusText(unlockedFilm)}`
                           : film.lockedText || '待解锁'}
                       </div>
                       <div className="t8-achievement-film__condition">
                         解锁条件：{source?.title || film.unlockAchievementId}
                         {unlockedSource && !unlockedFilm ? ' · 等待刷新' : ''}
                       </div>
+                      {playable && unlockedFilm && (
+                        <button type="button" className="t8-achievement-film__stage-card" onClick={() => openFilmStage(film, unlockedFilm, mediaUrl)}>
+                          <Film size={18} />
+                          <span>点击进入大屏奖励舞台</span>
+                        </button>
+                      )}
                     </div>
-                    <button type="button" className="t8-btn" disabled>
-                      <Film size={14} /> 待提供
-                    </button>
+                    {playable && unlockedFilm ? (
+                      <button type="button" className="t8-btn t8-btn-primary" onClick={() => openFilmStage(film, unlockedFilm, mediaUrl)}>
+                        <Film size={14} /> 播放
+                      </button>
+                    ) : (
+                      <button type="button" className="t8-btn" disabled>
+                        <Film size={14} /> 待提供
+                      </button>
+                    )}
                   </article>
                 );
               })}
@@ -679,6 +731,35 @@ export default function AchievementDrawer() {
         </main>
         <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
       </aside>
+      {cinematicFilm && (
+        <div
+          className="t8-achievement-film-stage"
+          role="dialog"
+          aria-label={`${cinematicFilm.film.title} 奖励影片`}
+          onClick={() => setCinematicFilm(null)}
+        >
+          <div className="t8-achievement-film-stage__panel" onClick={(event) => event.stopPropagation()}>
+            <div className="t8-achievement-film-stage__aura" aria-hidden="true" />
+            <header className="t8-achievement-film-stage__header">
+              <div>
+                <span>{cinematicFilm.film.theme}</span>
+                <strong>{cinematicFilm.film.title}</strong>
+                <em>{unlockedFilmStatusText(cinematicFilm.unlockedFilm)}</em>
+              </div>
+              <button type="button" className="t8-mini-icon-button" onClick={() => setCinematicFilm(null)} title="关闭播放">
+                <X size={18} />
+              </button>
+            </header>
+            <video className="t8-achievement-film-stage__player" controls autoPlay preload="metadata" src={cinematicFilm.mediaUrl} />
+            <footer className="t8-achievement-film-stage__footer">
+              <span>隐藏奖励已解锁</span>
+              <a className="t8-btn" href={cinematicFilm.mediaUrl} target="_blank" rel="noreferrer">
+                <Film size={14} /> 新窗口打开
+              </a>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

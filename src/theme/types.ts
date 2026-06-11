@@ -11,7 +11,8 @@ export type ThemeVisualStyle =
   | 'yyh'
   | 'slamdunk'
   | 'soccer-hero'
-  | 'dragon-ball';
+  | 'dragon-ball'
+  | 'saint-seiya';
 export type ThemeIntensity = 'subtle' | 'medium' | 'strong';
 export type ThemeMusicPreset =
   | 'tech-pulse'
@@ -24,7 +25,9 @@ export type ThemeMusicPreset =
   | 'buzzer-beater'
   | 'golden-goal'
   | 'ki-burst'
-  | 'shenron-aura';
+  | 'shenron-aura'
+  | 'pegasus-cosmos'
+  | 'hades-eclipse';
 export type ThemeMusicSource = 'synth' | 'url' | 'upload';
 
 export interface ThemeTokens {
@@ -73,9 +76,9 @@ export interface ThemeModeDefinition {
 export interface ThemeVisuals {
   style: ThemeVisualStyle;
   intensity?: ThemeIntensity;
-  iconPack?: 'default' | 'op' | 'naruto' | 'eva' | 'yyh' | 'slamdunk' | 'soccer' | 'dragon-ball';
-  canvasPattern?: 'none' | 'dots' | 'map' | 'circuit' | 'confetti' | 'hub' | 'chakra' | 'eva-grid' | 'spirit-map' | 'court' | 'pitch' | 'dragon-radar';
-  nodeFrame?: 'plain' | 'glass' | 'sticker' | 'wanted' | 'hub-card' | 'shinobi-scroll' | 'eva-panel' | 'spirit-case' | 'scoreboard-card' | 'match-card' | 'capsule-card';
+  iconPack?: 'default' | 'op' | 'naruto' | 'eva' | 'yyh' | 'slamdunk' | 'soccer' | 'dragon-ball' | 'saint-seiya';
+  canvasPattern?: 'none' | 'dots' | 'map' | 'circuit' | 'confetti' | 'hub' | 'chakra' | 'eva-grid' | 'spirit-map' | 'court' | 'pitch' | 'dragon-radar' | 'sanctuary-zodiac';
+  nodeFrame?: 'plain' | 'glass' | 'sticker' | 'wanted' | 'hub-card' | 'shinobi-scroll' | 'eva-panel' | 'spirit-case' | 'scoreboard-card' | 'match-card' | 'capsule-card' | 'cloth-box-card';
   headerMark?: string;
 }
 

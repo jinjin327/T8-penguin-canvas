@@ -5,7 +5,7 @@ import { getAchievementTheme, normalizeAchievementTheme, type AchievementThemeSt
 import { useThemeStore } from './theme';
 
 export type AchievementDrawerTab = 'overview' | 'themes' | 'medals' | 'films';
-export type HiddenModeCeremonyKind = 'rh-duck' | 'yyh-portrait' | 'dragon-ball-shenron' | 'generic';
+export type HiddenModeCeremonyKind = 'rh-duck' | 'yyh-portrait' | 'dragon-ball-shenron' | 'saint-seiya-hades' | 'generic';
 
 export interface AchievementNotification {
   id: string;
@@ -73,6 +73,7 @@ function hiddenCeremonyKind(kind?: string | null): HiddenModeCeremonyKind {
   if (raw === 'rh-duck') return 'rh-duck';
   if (raw === 'yyh-portrait') return 'yyh-portrait';
   if (raw === 'dragon-ball-shenron') return 'dragon-ball-shenron';
+  if (raw === 'saint-seiya-hades') return 'saint-seiya-hades';
   return 'generic';
 }
 
@@ -93,6 +94,12 @@ function hiddenCeremonyCopy(kind: HiddenModeCeremonyKind, themeId: AchievementTh
     return {
       title: '神龙模式已开启',
       subtitle: '七星归位，画布进入青色神龙主题。',
+    };
+  }
+  if (kind === 'saint-seiya-hades') {
+    return {
+      title: '冥界篇已开启',
+      subtitle: '十二黄金圣衣点亮，雅典娜归来，圣域通向冥界。',
     };
   }
   const theme = getAchievementTheme(themeId);

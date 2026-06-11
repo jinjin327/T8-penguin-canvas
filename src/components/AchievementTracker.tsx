@@ -5,6 +5,7 @@ import { getCurrentAchievementTheme, trackAchievementEvent, useAchievementStore 
 import { normalizeAchievementTheme } from '../data/achievementManifest';
 import { useHiddenFeatureStore } from '../stores/hiddenFeatures';
 import { useDragonBallRadarStore } from '../stores/dragonBallRadar';
+import { useSaintSeiyaSanctuaryStore } from '../stores/saintSeiyaSanctuary';
 
 const HEARTBEAT_MS = 15_000;
 const IDLE_LIMIT_MS = 90_000;
@@ -18,9 +19,11 @@ export default function AchievementTracker() {
   const yyhPortraitDoorUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['yyh-portrait-door']));
   const dragonBallSevenStarsUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['dragon-ball-seven-stars']));
   const shenronModeUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['dragon-ball-shenron-mode']));
+  const saintSeiyaHadesUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['saint-seiya-athena-return']));
   const rhDuckUploadCount = useHiddenFeatureStore((state) => state.rhDuckUploadIds.length);
   const yyhPortraitCount = useHiddenFeatureStore((state) => state.yyhPortraitIds.length);
   const shenronUnlockedAt = useDragonBallRadarStore((state) => state.shenronUnlockedAt);
+  const hadesUnlockedAt = useSaintSeiyaSanctuaryStore((state) => state.hadesUnlockedAt);
   const currentTheme = useMemo(() => {
     const tpl = resolveThemeTemplate(templateId, customTemplates);
     return normalizeAchievementTheme(tpl.visuals?.style || style);
@@ -97,11 +100,21 @@ export default function AchievementTracker() {
         mode: 'enabled',
       });
     }
+    if (hadesUnlockedAt && !saintSeiyaHadesUnlocked) {
+      syncOnce('saint-seiya-hades-enabled', {
+        type: 'hidden_mode.enabled',
+        theme: 'saint-seiya',
+        kind: 'saint-seiya-hades',
+        mode: 'enabled',
+      });
+    }
   }, [
     dragonBallSevenStarsUnlocked,
     profileLoaded,
     rhDuckDoorUnlocked,
     rhDuckUploadCount,
+    saintSeiyaHadesUnlocked,
+    hadesUnlockedAt,
     shenronModeUnlocked,
     shenronUnlockedAt,
     trackingEnabled,

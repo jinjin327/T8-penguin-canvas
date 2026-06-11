@@ -15,11 +15,13 @@ test('video model type order defaults to Grok Video then Veo then Sora2', () => 
   assert.equal(VIDEO_MODELS[0].kind, 'grok');
 });
 
-test('grok video tab defaults to Grok Video 1.5 FAL model', () => {
+test('grok video tab defaults to grok-video-3 zhenzhen model with the new display name', () => {
   const grok = VIDEO_MODELS.find((model) => model.kind === 'grok');
 
   assert.ok(grok);
-  assert.equal(grok.apiModelOptions[0].value, 'grok-imagine-video-1.5');
+  assert.equal(grok.apiModelOptions[0].value, 'grok-video-3');
+  assert.equal(grok.apiModelOptions[0].label, 'grok-video-3（新版1.5）');
+  assert.ok(grok.apiModelOptions.some((option) => option.value === 'grok-imagine-video-1.5'));
 });
 
 test('Veo category defaults to veo-omni-10s without removing legacy Veo options', () => {

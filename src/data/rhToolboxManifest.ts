@@ -16,6 +16,7 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
     {
       id: 'image-tools',
       name: '图像工具',
+      parentId: 'image',
       description: '抠图、编辑、扩图、放大、修复等图像辅助能力',
       icon: 'Image',
       order: 10,
@@ -23,6 +24,7 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
     {
       id: 'video-tools',
       name: '视频工具',
+      parentId: 'video',
       description: '视频放大、插帧、背景处理、剪辑增强等能力',
       icon: 'Clapperboard',
       order: 20,
@@ -30,6 +32,7 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
     {
       id: 'text-tools',
       name: '文本工具',
+      parentId: 'text',
       description: '扩写、改写、翻译、提示词增强等文本能力',
       icon: 'Text',
       order: 30,
@@ -37,9 +40,18 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
     {
       id: 'audio-tools',
       name: '音频工具',
+      parentId: 'audio',
       description: '音频克隆、TTS、分离、增强、降噪等能力',
       icon: 'AudioLines',
       order: 40,
+    },
+    {
+      id: 'model3d-tools',
+      name: '3D工具',
+      parentId: 'model3d',
+      description: '3D 模型、空间和三维素材处理能力',
+      icon: 'Box',
+      order: 50,
     },
   ],
   tools: [
@@ -74,8 +86,6 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
       runtime: { instanceType: 'default', pollIntervalMs: 5000, maxPolls: 480 },
       ui: {
         icon: 'Scissors',
-        accent: '#22c55e',
-        quickActionLabel: '抠图',
         showInNode: true,
         showInImageEditor: true,
       },
@@ -111,8 +121,6 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
       runtime: { instanceType: 'default', pollIntervalMs: 5000, maxPolls: 480 },
       ui: {
         icon: 'ZoomIn',
-        accent: '#f97316',
-        quickActionLabel: '视频放大',
         showInNode: true,
         showInVideoEditor: true,
       },
@@ -148,8 +156,6 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
       runtime: { instanceType: 'default', pollIntervalMs: 5000, maxPolls: 480 },
       ui: {
         icon: 'Sparkles',
-        accent: '#38bdf8',
-        quickActionLabel: '扩写',
         showInNode: true,
         showInTextEditor: true,
       },
@@ -194,8 +200,6 @@ export const RH_TOOLBOX_MANIFEST: RhToolboxManifest = {
       runtime: { instanceType: 'default', pollIntervalMs: 5000, maxPolls: 480 },
       ui: {
         icon: 'Mic2',
-        accent: '#a78bfa',
-        quickActionLabel: '克隆',
         showInNode: true,
         showInAudioEditor: true,
       },

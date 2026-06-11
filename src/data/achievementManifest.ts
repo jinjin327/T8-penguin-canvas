@@ -10,7 +10,8 @@ export type AchievementThemeStyle =
   | 'yyh'
   | 'slamdunk'
   | 'soccer-hero'
-  | 'dragon-ball';
+  | 'dragon-ball'
+  | 'saint-seiya';
 
 export type AchievementRarity = 'bronze' | 'silver' | 'gold' | 'master' | 'hidden';
 

@@ -12,6 +12,7 @@
  *   - image:    图像 URL (data.imageUrl)
  *   - video:    视频 URL (data.videoUrl)
  *   - audio:    音频 URL (data.audioUrl)
+ *   - model3d:  3D 模型 URL (data.modelUrl/modelUrls)
  *   - metadata: 结构化元数据(肖像/参数包)
  *   - config:   配置参数(rh-config 注入)
  *   - any:      透传(中继)
@@ -23,6 +24,7 @@ export type PortType =
   | 'image'
   | 'video'
   | 'audio'
+  | 'model3d'
   | 'metadata'
   | 'config'
   | 'any';
@@ -37,6 +39,8 @@ export interface NodePorts {
 const DEV_NODE_PORTS: Record<string, NodePorts> = import.meta.env?.DEV ? {
   // RH 工具箱制作器: 维护者开发态节点，只输出生成好的 manifest JSON 文本。
   'rh-toolbox-maker': { inputs: [], outputs: ['text'] },
+  // FAL 应用制作工具: 维护者开发态节点，只输出生成好的 Fal 超市 manifest JSON 文本。
+  'fal-toolbox-maker': { inputs: [], outputs: ['text'] },
 } : {};
 
 /**
@@ -71,6 +75,18 @@ export const NODE_PORTS: Record<string, NodePorts> = {
   // RH 工具箱: 维护者精选工具，可处理/输出四类素材，后续供其他节点按 capability 快捷调用。
   'rh-toolbox': { inputs: ['text', 'image', 'video', 'audio'], outputs: ['text', 'image', 'video', 'audio'] },
   ...DEV_NODE_PORTS,
+
+  // ========== FAL ==========
+  // Fal 超市: 复制 Fal.ai 模型能力到独立超市入口；不替换现有图像/视频 FAL 节点。
+  'fal-toolbox': { inputs: ['text', 'image', 'video', 'audio'], outputs: ['text', 'image', 'video', 'audio', 'model3d'] },
+  // 3D 模型预览: 接收 Fal 超市等 3D 模型 URL，输出当前视角快照图。
+  'model-3d-preview': { inputs: ['model3d'], outputs: ['image'] },
+  // 3D 素材上传: 专门上传本地 glb/gltf/obj/stl/fbx/usdz/zip 模型。
+  'model-3d-upload': { inputs: [], outputs: ['model3d'] },
+
+  // ========== GROK OAuth ==========
+  // 独立 Grok OAuth Agent：不走高级来源/分类 Key；由私有 OAuth 模块统一处理聊天、图像、视频、TTS、STT。
+  'grok-oauth-agent': { inputs: ['text', 'image', 'video', 'audio'], outputs: ['text', 'image', 'video', 'audio'] },
 
   // ========== ComfyUI ==========
   // ComfyUI超市：本地 workflow 应用运行器，可按 manifest 消费/输出四类素材。
@@ -140,7 +156,7 @@ export const NODE_PORTS: Record<string, NodePorts> = {
 
   // ========== 输出素材节点 (NEW) ==========
   // 任意上游节点的 文本/图像/视频/音频 都可连入；同时作为中继节点可继续向下游透传 (any)。
-  output: { inputs: ['text', 'image', 'video', 'audio', 'any'], outputs: ['any'] },
+  output: { inputs: ['text', 'image', 'video', 'audio', 'model3d', 'any'], outputs: ['any'] },
 
   // ========== 组容器 (NEW) ==========
   // groupBox 自身不接收外部输入 (无 target handle),
@@ -169,10 +185,12 @@ export function getNodeOutputs(node: Node | null | undefined): PortType[] {
       | 'image'
       | 'video'
       | 'audio'
+      | 'model3d'
       | undefined;
     if (uploadType === 'image') return ['image'];
     if (uploadType === 'video') return ['video'];
     if (uploadType === 'audio') return ['audio'];
+    if (uploadType === 'model3d') return ['model3d'];
     // 未上传时不暴露任何输出类型
     return [];
   }
@@ -242,6 +260,7 @@ export const PORT_COLOR: Record<PortType, string> = {
   image: '#fcd34d',    // amber-300
   video: '#fda4af',    // rose-300
   audio: '#c4b5fd',    // violet-300
+  model3d: '#93c5fd',  // blue-300
   metadata: '#67e8f9', // cyan-300
   config: '#a5b4fc',   // indigo-300
   any: '#cbd5e1',      // slate-300
@@ -255,6 +274,7 @@ export const PORT_LABEL: Record<PortType, string> = {
   image: '图像',
   video: '视频',
   audio: '音频',
+  model3d: '3D模型',
   metadata: '元数据',
   config: '配置',
   any: '任意',

@@ -15,7 +15,7 @@ function read(rel: string) {
 test('achievement manifest gives every system theme time milestones and featured medals', () => {
   const manifest = JSON.parse(read('../shared/achievementManifest.json'));
   assert.equal(manifest.schema, 't8-achievement-manifest');
-  assert.equal(manifest.themes.length, 10);
+  assert.equal(manifest.themes.length, 11);
   assert.equal(manifest.timeMilestones.length, 5);
   for (const theme of manifest.themes) {
     assert.ok(theme.featured.length >= 3, `${theme.style} should have first-batch featured achievements`);
@@ -26,7 +26,13 @@ test('achievement manifest gives every system theme time milestones and featured
     manifest.films.find((film: any) => film.id === 'film-dragon-ball-01').unlockAchievementId,
     'dragon-ball-shenron-mode',
   );
-  assert.equal(manifest.films.length, 4);
+  const saintSeiya = manifest.themes.find((theme: any) => theme.style === 'saint-seiya');
+  assert.ok(saintSeiya.featured.some((item: any) => item.idSuffix === 'athena-return'));
+  assert.equal(
+    manifest.films.find((film: any) => film.id === 'film-saint-seiya-01').unlockAchievementId,
+    'saint-seiya-athena-return',
+  );
+  assert.equal(manifest.films.length, 5);
   assert.equal(manifest.films.every((film: any) => film.lockedText === '待解锁'), true);
   assert.equal(manifest.films.every((film: any) => film.unavailableText === '影片素材待提供'), true);
 
@@ -34,6 +40,102 @@ test('achievement manifest gives every system theme time milestones and featured
   assert.match(source, /buildAchievementDefinitions/);
   assert.match(source, /\$\{theme\.style\}-time-\$\{milestone\.key\}/);
   assert.match(source, /normalizeAchievementTheme/);
+});
+
+test('Saint Seiya theme is a full-canvas sanctuary skin, not only a floating panel', () => {
+  const css = read('../src/styles/theme-saintseiya.css');
+  const templates = read('../src/theme/defaultTemplates.ts');
+
+  assert.match(css, /Full Sanctuary skin/);
+  assert.match(css, /\.t8-app-shell/);
+  assert.match(css, /\.t8-sidebar/);
+  assert.match(css, /\.t8-canvas-shell/);
+  assert.match(css, /react-flow__pane/);
+  assert.match(css, /react-flow__minimap/);
+  assert.match(css, /CLOTH BOX/);
+  assert.match(css, /data-saint-mode="hades"/);
+  assert.match(css, /ATHENA SANCTUARY/);
+  assert.match(css, /t8-saint-hades-cutscene__hair/);
+  assert.match(css, /t8-saint-hades-cutscene__robe/);
+  assert.match(css, /saint-athena-aura/);
+  assert.match(css, /data-saint-mode="hades"\]:not\(\[data-theme-mode="dark"\]\)[\s\S]*\.t8-toolbar-button/);
+  assert.match(css, /data-saint-mode="hades"\]:not\(\[data-theme-mode="dark"\]\)[\s\S]*\.t8-saint-gold-track/);
+  assert.match(read('../src/styles/index.css'), /data-theme-visual="saint-seiya"[\s\S]*t8-achievement-drawer__panel/);
+  assert.match(read('../src/styles/index.css'), /t8-achievement-film-stage[\s\S]*t8-achievement-saint-cosmo/);
+  assert.match(css, /-webkit-text-fill-color:\s*#211607/);
+  assert.match(templates, /canvasBg:\s*'#10264a'/);
+  assert.doesNotMatch(templates, /const saintSeiyaLight[\s\S]*canvasBg:\s*'#dfe8ee'/);
+});
+
+test('Saint Seiya sanctuary HUD avoids duplicate maps and runs battles automatically', () => {
+  const css = read('../src/styles/theme-saintseiya.css');
+  const component = read('../src/components/SaintSeiyaSanctuary.tsx');
+
+  assert.match(css, /Sanctuary HUD v2/);
+  assert.match(css, /\.t8-saint-sanctuary__map-layer\s*\{[\s\S]*display:\s*none\s*!important/);
+  assert.match(css, /react-flow__minimap\s*\{[\s\S]*overflow:\s*hidden\s*!important/);
+  assert.match(css, /react-flow__minimap svg\s*\{[\s\S]*margin-top:\s*0\s*!important/);
+  assert.match(css, /\.t8-saint-sanctuary__minimap-ping-layer\s*\{[\s\S]*overflow:\s*hidden/);
+  assert.match(css, /\.t8-saint-sanctuary__minimap-ping-layer\s*\{[\s\S]*contain:\s*paint/);
+  assert.match(css, /\.t8-saint-sanctuary__minimap-ping-layer\s*\{[\s\S]*clip-path:\s*inset\(0 round 14px\)/);
+  assert.match(css, /MEIKAI RADAR/);
+  assert.match(css, /data-saint-mode="hades"\] \.react-flow__minimap::after/);
+  assert.match(css, /\.t8-saint-hades-minimap__gate/);
+  assert.match(css, /\.t8-saint-hades-minimap__river/);
+  assert.match(css, /\.t8-saint-hades-minimap__scanner/);
+  assert.match(css, /\.t8-saint-hades-minimap__temples i/);
+  assert.match(css, /\.t8-saint-hades-minimap__gate\s*\{[\s\S]*bottom:\s*9px/);
+  assert.match(css, /\.t8-saint-hades-minimap__gate\s*\{[\s\S]*left:\s*calc\(50%\s*-\s*32px\)/);
+  assert.match(css, /\.t8-saint-hades-minimap__orbit\s*\{[\s\S]*left:\s*calc\(50%\s*-\s*58px\)/);
+  assert.match(css, /\.t8-saint-hades-minimap__temples i\s*\{[\s\S]*translateY\(-49px\)/);
+  assert.match(css, /@keyframes saint-hades-radar-sweep/);
+  assert.match(css, /\.t8-saint-battle--dock\s*\{[\s\S]*right:\s*14px\s*!important/);
+  assert.match(css, /\.t8-saint-battle--dock\s*\{[\s\S]*top:\s*98px\s*!important/);
+  assert.match(css, /\.t8-saint-gold-track/);
+  assert.match(css, /\.t8-saint-gold-card\.is-aries/);
+  assert.match(css, /\.t8-saint-gold-card\.is-pisces/);
+  assert.match(css, /\.t8-saint-battle__bars/);
+  assert.match(css, /\.t8-saint-battle__line/);
+  assert.match(css, /\.t8-saint-battle__log\s*\{[\s\S]*overscroll-behavior:\s*contain/);
+  assert.match(css, /\.t8-saint-battle__log\s*\{[\s\S]*scrollbar-gutter:\s*stable/);
+  assert.match(css, /\.t8-saint-battle__skill-fx/);
+  assert.match(css, /\.t8-saint-battle__skill-fx\.is-meteor/);
+  assert.match(css, /\.t8-saint-battle__skill-fx\.is-dragon/);
+  assert.match(css, /\.t8-saint-battle__skill-fx\.is-aurora/);
+  assert.match(css, /\.t8-saint-battle__skill-fx\.is-rose/);
+  assert.match(css, /@keyframes saint-skill-fx-sweep/);
+  assert.match(css, /\.t8-saint-cloth-unlock--gold/);
+  assert.match(css, /data-gold-cloth="sagittarius"/);
+  assert.match(css, /data-theme-mode="dark"/);
+  assert.match(component, /saint-seiya-minimap-ping/);
+  assert.match(component, /is-hades/);
+  assert.match(component, /activeChest\.mapX \* 0\.64/);
+  assert.match(component, /activeChest\.mapY \* 0\.48/);
+  assert.match(component, /Math\.min\(72,\s*minimapPingTopRaw\)/);
+  assert.match(component, /t8-saint-hades-minimap__gate/);
+  assert.match(component, /t8-saint-hades-minimap__temples/);
+  assert.match(component, /saint-seiya-battle-log/);
+  assert.match(component, /自动战斗中/);
+  assert.match(component, /battleHideRemaining/);
+  assert.match(component, /battleLogRef/);
+  assert.match(component, /visibleBattleEventCount/);
+  assert.match(component, /battlePlaybackComplete/);
+  assert.match(component, /battle\.report\.events/);
+  assert.match(component, /log\.scrollTop\s*=\s*log\.scrollHeight/);
+  assert.match(component, /onWheelCapture=\{stopBattleLogCanvasEvent\}/);
+  assert.match(component, /onPointerDownCapture=\{stopBattleLogCanvasEvent\}/);
+  assert.match(component, /SAINT_BATTLE_EVENT_REVEAL_MS\s*=\s*820/);
+  assert.match(component, /playSaintBattleSound/);
+  assert.match(component, /AudioContext/);
+  assert.match(component, /t8-saint-battle__skill-fx/);
+  assert.match(component, /t8-saint-gold-card/);
+  assert.match(component, /t8-saint-cloth-unlock/);
+  assert.match(component, /SAINT_GOLD_CLOTH_UI/);
+  assert.match(component, /handleResolveBattle\('auto'\)/);
+  assert.match(component, /goldTempleProgress/);
+  assert.doesNotMatch(component, /data-canvas-floating-ui="saint-seiya-sanctuary-map"/);
+  assert.doesNotMatch(component, />攻击<\/button>/);
+  assert.doesNotMatch(component, /收起战报/);
 });
 
 test('achievement backend resolves packaged manifest from Electron resources', (t) => {
@@ -61,6 +163,7 @@ test('achievement backend resolves packaged manifest from Electron resources', (
 
   const store = require('../backend/src/achievements/store.js');
   assert.equal(store.normalizeTheme('dragon-ball'), 'dragon-ball');
+  assert.equal(store.normalizeTheme('saint-seiya'), 'saint-seiya');
 
   const source = read('../backend/src/achievements/store.js');
   assert.match(source, /loadAchievementManifest/);
@@ -172,6 +275,55 @@ test('achievement backend records active time, hidden mode, and film placeholder
   }).then((res) => res.json());
   assert.equal(dragonHidden.success, true);
 
+  const saintBronze = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saint_seiya.cloth_collected', theme: 'saint-seiya', kind: 'bronze' }),
+  }).then((res) => res.json());
+  assert.equal(saintBronze.success, true);
+
+  const saintSilverWin = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saint_seiya.battle_won', theme: 'saint-seiya', kind: 'silver' }),
+  }).then((res) => res.json());
+  assert.equal(saintSilverWin.success, true);
+
+  const saintGoldCloth = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saint_seiya.cloth_collected', theme: 'saint-seiya', kind: 'gold' }),
+  }).then((res) => res.json());
+  assert.equal(saintGoldCloth.success, true);
+
+  const saintCosmo = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saint_seiya.cosmo_burst', theme: 'saint-seiya', kind: 'cosmo' }),
+  }).then((res) => res.json());
+  assert.equal(saintCosmo.success, true);
+
+  const saintGoldComplete = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saint_seiya.gold_completed', theme: 'saint-seiya', kind: 'twelve-gold' }),
+  }).then((res) => res.json());
+  assert.equal(saintGoldComplete.success, true);
+
+  const saintHidden = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'hidden_mode.enabled', theme: 'saint-seiya', kind: 'saint-seiya-hades', mode: 'enabled' }),
+  }).then((res) => res.json());
+  assert.equal(saintHidden.success, true);
+
+  const saintHadesUsed = await fetch(`${base}/api/achievements/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'hidden_mode.used', theme: 'saint-seiya', kind: 'saint-seiya-hades', mode: 'used' }),
+  }).then((res) => res.json());
+  assert.equal(saintHadesUsed.success, true);
+
   const profile = await fetch(`${base}/api/achievements/profile`).then((res) => res.json());
   assert.equal(profile.success, true);
   assert.equal(profile.data.profile.themeStats.tech.activeSeconds, 600);
@@ -187,10 +339,30 @@ test('achievement backend records active time, hidden mode, and film placeholder
   assert.ok(profile.data.profile.unlockedAchievements['dragon-ball-radar-first']);
   assert.ok(profile.data.profile.unlockedAchievements['dragon-ball-seven-stars']);
   assert.ok(profile.data.profile.unlockedAchievements['dragon-ball-shenron-mode']);
+  assert.equal(profile.data.profile.themeStats['saint-seiya'].saintSeiyaClothsCollected, 2);
+  assert.equal(profile.data.profile.themeStats['saint-seiya'].saintSeiyaGoldClothsCollected, 1);
+  assert.equal(profile.data.profile.themeStats['saint-seiya'].saintSeiyaSilverWins, 1);
+  assert.equal(profile.data.profile.themeStats['saint-seiya'].saintSeiyaCosmoBursts, 1);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-bronze-awakening']);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-silver-trial']);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-gold-gate']);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-twelve-temples']);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-athena-return']);
+  assert.ok(profile.data.profile.unlockedAchievements['saint-seiya-cosmo-burn']);
   assert.equal(profile.data.profile.unlockedFilms['film-rh-01'].hasMedia, false);
   assert.equal(profile.data.profile.unlockedFilms['film-rh-01'].status, 'awaiting-media');
   assert.equal(profile.data.profile.unlockedFilms['film-rh-01'].unavailableText, '影片素材待提供');
   assert.equal(profile.data.profile.unlockedFilms['film-dragon-ball-01'].status, 'awaiting-media');
+  assert.equal(profile.data.profile.unlockedFilms['film-saint-seiya-01'].hasMedia, true);
+  assert.equal(profile.data.profile.unlockedFilms['film-saint-seiya-01'].status, 'ready');
+  assert.equal(profile.data.profile.unlockedFilms['film-saint-seiya-01'].mime, 'video/mp4');
+  assert.match(profile.data.profile.unlockedFilms['film-saint-seiya-01'].mediaUrl, /\/api\/achievements\/films\/film-saint-seiya-01\/media/);
+  const mediaRes = await fetch(`${base}${profile.data.profile.unlockedFilms['film-saint-seiya-01'].mediaUrl}`, {
+    headers: { Range: 'bytes=0-31' },
+  });
+  assert.equal(mediaRes.status, 206);
+  assert.match(mediaRes.headers.get('content-type') || '', /video\/mp4/);
+  assert.match(Buffer.from(await mediaRes.arrayBuffer()).toString('latin1'), /ftyp/);
   assert.ok(profile.data.summary.dailyTasks.length > 0);
   assert.ok(profile.data.summary.weeklyPassport.completedThemeCount >= 3);
   assert.equal(profile.data.summary.creativeReview.topTheme.theme, 'tech');
@@ -306,6 +478,9 @@ test('achievement frontend and server are wired without recording prompt content
   const tracker = read('../src/components/AchievementTracker.tsx');
   const canvas = read('../src/components/Canvas.tsx');
   const dragonRadar = read('../src/components/DragonBallRadar.tsx');
+  const saintSanctuary = read('../src/components/SaintSeiyaSanctuary.tsx');
+  const saintStore = read('../src/stores/saintSeiyaSanctuary.ts');
+  const saintBattle = read('../src/utils/saintSeiyaBattle.ts');
   const nodeActionBar = read('../src/components/NodeActionBar.tsx');
   const materialContext = read('../src/components/MaterialContextMenu.tsx');
   const drawer = read('../src/components/AchievementDrawer.tsx');
@@ -316,6 +491,7 @@ test('achievement frontend and server are wired without recording prompt content
   const portrait = read('../src/components/nodes/PortraitMasterNode.tsx');
   const server = read('../backend/src/server.js');
   const store = read('../backend/src/achievements/store.js');
+  const media = read('../backend/src/achievements/media.js');
   const api = read('../src/services/api.ts');
 
   assert.match(app, /AchievementTracker/);
@@ -334,10 +510,35 @@ test('achievement frontend and server are wired without recording prompt content
   assert.match(canvas, /rhDuckDecoded[\s\S]*hidden_mode\.used[\s\S]*kind:\s*'rh-duck'[\s\S]*mode:\s*'used'/);
   assert.match(canvas, /yyhPortraitHidden[\s\S]*hidden_mode\.used[\s\S]*kind:\s*'yyh-portrait'[\s\S]*mode:\s*'used'/);
   assert.match(canvas, /DragonBallRadar/);
+  assert.match(canvas, /SaintSeiyaSanctuary/);
   assert.match(dragonRadar, /dragon_ball\.collected/);
   assert.match(dragonRadar, /dragon_ball\.set_completed/);
   assert.match(dragonRadar, /kind:\s*'dragon-ball-shenron'/);
   assert.match(dragonRadar, /playDragonBallCollectSound/);
+  assert.match(saintSanctuary, /saint_seiya\.cloth_collected/);
+  assert.match(saintSanctuary, /saint_seiya\.gold_completed/);
+  assert.match(saintSanctuary, /kind:\s*'saint-seiya-hades'/);
+  assert.match(saintStore, /SAINT_SEIYA_SPAWN_INTERVAL_MS\s*=\s*60_000/);
+  assert.match(saintStore, /SAINT_SEIYA_CHEST_VISIBLE_MS\s*=\s*10_000/);
+  assert.match(saintStore, /SAINT_SEIYA_OPEN_MS\s*=\s*3_000/);
+  assert.match(saintStore, /finalizeBattleReward/);
+  const resolveBattleBody = saintStore.slice(
+    saintStore.indexOf('resolveBattle('),
+    saintStore.indexOf('finalizeBattleReward('),
+  );
+  const finalizeBattleBody = saintStore.slice(
+    saintStore.indexOf('finalizeBattleReward('),
+    saintStore.indexOf('clearBattle()'),
+  );
+  assert.match(resolveBattleBody, /rewardApplied:\s*false/);
+  assert.doesNotMatch(resolveBattleBody, /totalExp:\s*nextTotalExp/);
+  assert.doesNotMatch(resolveBattleBody, /collected:\s*nextCollected/);
+  assert.match(finalizeBattleBody, /totalExp:\s*nextTotalExp/);
+  assert.match(saintStore, /hadesAnimationUntil:\s*active \? Date\.now\(\) \+ SAINT_SEIYA_HADES_ANIMATION_MS/);
+  assert.match(saintSanctuary, /battleRewardAppliedRef/);
+  assert.match(saintSanctuary, /finalizeBattleReward\(\)/);
+  assert.match(saintBattle, /rewardExpForRank/);
+  assert.match(saintBattle, /hasAllGoldCloths/);
   assert.match(materialContext, /type:\s*'resource\.saved'/);
   assert.match(drawer, /今日创作任务/);
   assert.match(drawer, /周常创作护照/);
@@ -348,6 +549,9 @@ test('achievement frontend and server are wired without recording prompt content
   assert.match(drawer, /返回主题列表/);
   assert.match(drawer, /隐藏任务/);
   assert.match(drawer, /奖励影片/);
+  assert.match(drawer, /t8-achievement-film-stage/);
+  assert.match(drawer, /openFilmStage/);
+  assert.match(drawer, /achievementFilmMediaUrl/);
   assert.match(drawer, /hiddenModeHint/);
   assert.match(drawer, /本地成就统计已关闭/);
   assert.match(drawer, /开启并补记/);
@@ -361,19 +565,35 @@ test('achievement frontend and server are wired without recording prompt content
   assert.match(toast, /openDrawer\(item\.filmTitle \? 'films' : 'themes', item\.themeId\)/);
   assert.match(ceremony, /t8-hidden-ceremony/);
   assert.match(ceremony, /SHENRON MODE/);
+  assert.match(ceremony, /HADES CHAPTER/);
   assert.match(achievementStore, /buildHiddenCeremony/);
+  assert.match(achievementStore, /saint-seiya-hades/);
   assert.match(achievementStore, /ceremonies/);
   assert.match(api, /AchievementWeeklyPassport/);
   assert.match(api, /AchievementCreativeReview/);
   assert.match(nodeActionBar, /hidden_mode\.enabled[\s\S]*mode:\s*'enabled'/);
+  assert.match(nodeActionBar, /rhDuckHiddenUpload:\s*enabled/);
+  assert.match(nodeActionBar, /const enabled = !rhDuckMode/);
+  assert.match(nodeActionBar, /clearRhDuckUpload\(selectedExe\.id\)/);
   assert.match(upload, /hidden_mode\.used[\s\S]*mode:\s*'used'/);
+  assert.match(upload, /rhDuckHiddenUpload/);
+  assert.match(upload, /const rhDuckPersistentMode[\s\S]*rhDuckStoredMode[\s\S]*rhDuckStoreMode/);
+  assert.match(upload, /uploadType:\s*rhDuckMode\s*\?\s*'image'\s*:\s*lockedUploadType/);
+  assert.match(upload, /RED 模式已锁定图像/);
   assert.match(portrait, /hidden_mode\.used[\s\S]*mode:\s*'used'/);
   assert.match(server, /achievementsRouter/);
   assert.match(server, /\/api\/achievements/);
+  assert.match(api, /mediaUrl\?:\s*string/);
   assert.match(api, /recordAchievementEvent/);
   assert.match(api, /ignoredReason/);
+  assert.match(media, /T8MEDIA1/);
+  assert.match(media, /encryptAchievementMediaBuffer/);
+  assert.match(media, /decryptAchievementMediaFile/);
+  assert.match(media, /film-saint-seiya-01\.mp4\.t8media/);
   assert.match(store, /const event = \{/);
   assert.match(store, /ignoredReason:\s*'achievement-tracking-disabled'/);
+  assert.match(store, /mediaStatusForFilm/);
+  assert.match(store, /getFilmMediaAccess/);
   assert.match(store, /buildDailyTasks/);
   assert.match(store, /buildWeeklyPassport/);
   assert.match(store, /buildCreativeReview/);

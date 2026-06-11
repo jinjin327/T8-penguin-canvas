@@ -20,6 +20,10 @@ const deniedPaths = [
   ['src/components/', privateModalName, '.tsx'].join(''),
   ['data/', privateKeyword].join(''),
   ['backend/data/', privateKeyword].join(''),
+  'src/components/nodes/RHToolboxMakerNode.tsx',
+  'src/components/nodes/FalToolboxMakerNode.tsx',
+  'src/utils/rhToolboxDeveloper.ts',
+  'src/utils/falToolboxDeveloper.ts',
 ];
 const deniedText = [
   privateModalName,
@@ -45,7 +49,7 @@ function git(args) {
 }
 
 function stagedFiles() {
-  const raw = git(['diff', '--cached', '--name-only', '-z']);
+  const raw = git(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXB', '-z']);
   return raw.split('\0').map((item) => item.trim()).filter(Boolean);
 }
 

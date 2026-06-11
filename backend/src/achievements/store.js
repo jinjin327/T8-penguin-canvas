@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('../config');
+const { mediaStatusForFilm } = require('./media');
 
 function loadAchievementManifest() {
   const candidates = [];
@@ -45,6 +46,10 @@ const EVENT_TYPES = new Set([
   'parsehub.resolved',
   'dragon_ball.collected',
   'dragon_ball.set_completed',
+  'saint_seiya.cloth_collected',
+  'saint_seiya.gold_completed',
+  'saint_seiya.battle_won',
+  'saint_seiya.cosmo_burst',
 ]);
 const CREATIVE_EVENT_TYPES = new Set([
   'hidden_mode.enabled',
@@ -57,6 +62,10 @@ const CREATIVE_EVENT_TYPES = new Set([
   'parsehub.resolved',
   'dragon_ball.collected',
   'dragon_ball.set_completed',
+  'saint_seiya.cloth_collected',
+  'saint_seiya.gold_completed',
+  'saint_seiya.battle_won',
+  'saint_seiya.cosmo_burst',
 ]);
 
 function nowIso(ts = Date.now()) {
@@ -135,6 +144,15 @@ function emptyThemeStats() {
     parseHubResolved: 0,
     dragonBallsCollected: 0,
     dragonBallSetsCompleted: 0,
+    saintSeiyaClothsCollected: 0,
+    saintSeiyaBronzeClothsCollected: 0,
+    saintSeiyaSilverClothsCollected: 0,
+    saintSeiyaGoldClothsCollected: 0,
+    saintSeiyaGoldCompleted: 0,
+    saintSeiyaBattlesWon: 0,
+    saintSeiyaSilverWins: 0,
+    saintSeiyaGoldWins: 0,
+    saintSeiyaCosmoBursts: 0,
     nodeTypeCounts: {},
     nodeRunCounts: {},
     hiddenModes: {},
@@ -253,6 +271,42 @@ function ensureThemeStats(data, theme) {
   return data.themeStats[key];
 }
 
+function filmUnlockRecord(film, eventType = 'migration', existing = {}) {
+  const media = mediaStatusForFilm(film);
+  const hasMedia = media.hasMedia === true;
+  return {
+    ...existing,
+    id: film.id,
+    theme: normalizeTheme(film.theme),
+    title: film.title,
+    unlockedAt: existing.unlockedAt || nowIso(),
+    sourceAchievementId: film.unlockAchievementId,
+    hasMedia,
+    status: hasMedia ? 'ready' : 'awaiting-media',
+    lockedText: film.lockedText || '待解锁',
+    unavailableText: hasMedia
+      ? (film.unlockedText || '奖励影片已解锁，可播放')
+      : (film.unavailableText || '影片素材待提供'),
+    playedSeconds: secondsValue(existing.playedSeconds),
+    eventType: existing.eventType || eventType,
+    ...(hasMedia
+      ? {
+        mediaUrl: media.mediaUrl,
+        mime: media.mime,
+        fileName: media.fileName,
+      }
+      : {}),
+  };
+}
+
+function syncUnlockedFilmMedia(data) {
+  data.unlockedFilms = ensureObject(data.unlockedFilms);
+  for (const film of manifest.films) {
+    if (!data.unlockedFilms[film.id]) continue;
+    data.unlockedFilms[film.id] = filmUnlockRecord(film, data.unlockedFilms[film.id].eventType, data.unlockedFilms[film.id]);
+  }
+}
+
 function sanitizeData(raw) {
   const data = raw && typeof raw === 'object' ? raw : defaultData();
   data.schema = SCHEMA;
@@ -264,6 +318,7 @@ function sanitizeData(raw) {
   data.unlockedAchievements = ensureObject(data.unlockedAchievements);
   data.claimedMedals = ensureObject(data.claimedMedals);
   data.unlockedFilms = ensureObject(data.unlockedFilms);
+  syncUnlockedFilmMedia(data);
   data.preferences = {
     enabled: data.preferences?.enabled !== false,
     showToast: data.preferences?.showToast !== false,
@@ -446,18 +501,7 @@ function evaluateUnlocks(data, event) {
   for (const film of manifest.films) {
     if (data.unlockedFilms[film.id]) continue;
     if (!data.unlockedAchievements[film.unlockAchievementId]) continue;
-    data.unlockedFilms[film.id] = {
-      id: film.id,
-      theme: normalizeTheme(film.theme),
-      title: film.title,
-      unlockedAt: nowIso(),
-      sourceAchievementId: film.unlockAchievementId,
-      hasMedia: false,
-      status: 'awaiting-media',
-      lockedText: film.lockedText || '待解锁',
-      unavailableText: film.unavailableText || '影片素材待提供',
-      playedSeconds: 0,
-    };
+    data.unlockedFilms[film.id] = filmUnlockRecord(film, event?.type || 'migration');
     unlockedFilms.push(data.unlockedFilms[film.id]);
   }
   return { unlocked, unlockedFilms };
@@ -548,6 +592,27 @@ function applyEventToStats(data, event) {
   }
   if (event.type === 'dragon_ball.set_completed') {
     stats.dragonBallSetsCompleted += 1;
+    return;
+  }
+  if (event.type === 'saint_seiya.cloth_collected') {
+    stats.saintSeiyaClothsCollected += 1;
+    if (event.kind === 'bronze') stats.saintSeiyaBronzeClothsCollected += 1;
+    if (event.kind === 'silver') stats.saintSeiyaSilverClothsCollected += 1;
+    if (event.kind === 'gold') stats.saintSeiyaGoldClothsCollected += 1;
+    return;
+  }
+  if (event.type === 'saint_seiya.gold_completed') {
+    stats.saintSeiyaGoldCompleted += 1;
+    return;
+  }
+  if (event.type === 'saint_seiya.battle_won') {
+    stats.saintSeiyaBattlesWon += 1;
+    if (event.kind === 'silver') stats.saintSeiyaSilverWins += 1;
+    if (event.kind === 'gold') stats.saintSeiyaGoldWins += 1;
+    return;
+  }
+  if (event.type === 'saint_seiya.cosmo_burst') {
+    stats.saintSeiyaCosmoBursts += 1;
   }
 }
 
@@ -801,6 +866,20 @@ function importData(raw) {
   return publicData(data, unlockResult);
 }
 
+function getFilmMediaAccess(filmId) {
+  const id = safeText(filmId);
+  const film = manifest.films.find((item) => item.id === id);
+  if (!film) return { ok: false, status: 404, error: '奖励影片不存在' };
+  const data = loadData();
+  const unlockResult = evaluateUnlocks(data, null);
+  if (unlockResult.unlocked.length > 0 || unlockResult.unlockedFilms.length > 0) saveData(data);
+  const unlocked = data.unlockedFilms[id];
+  if (!unlocked) return { ok: false, status: 403, error: film.lockedText || '奖励影片尚未解锁' };
+  const media = mediaStatusForFilm(film);
+  if (!media.hasMedia) return { ok: false, status: 404, error: film.unavailableText || '影片素材待提供' };
+  return { ok: true, film, unlocked, media };
+}
+
 module.exports = {
   buildDefinitions,
   getProfile,
@@ -809,6 +888,7 @@ module.exports = {
   resetData,
   exportData,
   importData,
+  getFilmMediaAccess,
   normalizeTheme,
   _private: {
     sanitizeEvent,

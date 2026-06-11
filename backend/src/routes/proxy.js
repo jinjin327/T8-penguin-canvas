@@ -89,7 +89,15 @@ function pickApiKey(settings, hint = '') {
 function normalizeImageApiModel(model) {
   const raw = String(model || '').trim();
   if (raw === 'nano-banana-2') return 'gemini-3.1-flash-image-preview';
+  if (gptImage2ZhenzhenVariantSize(raw)) return 'gpt-image-2';
   return raw;
+}
+
+function gptImage2ZhenzhenVariantSize(model) {
+  const raw = String(model || '').trim().toLowerCase();
+  if (raw === 'gpt-image-2-2k') return '2K';
+  if (raw === 'gpt-image-2-4k') return '4K';
+  return '';
 }
 
 function isBananaImageModel(model) {
@@ -691,6 +699,7 @@ router.post('/image', async (req, res) => {
   if (!ensureKeyOrSelectedGroup(settings, res, apiModel || model || '', '图像', providerParams)) return;
   if (!prompt) return res.status(400).json({ success: false, error: 'prompt 必填' });
   const originalApiModel = String(apiModel || model || '');
+  const gptImage2ForcedSize = gptImage2ZhenzhenVariantSize(originalApiModel);
   const finalApiModel = normalizeImageApiModel(originalApiModel);
   const ml = `${originalApiModel} ${finalApiModel}`.toLowerCase();
   const paramKind = paramKindIn || (ml.includes('grok') && ml.includes('image') ? 'grok-image' : (isBananaImageModel(ml) ? 'banana-ratio' : 'gpt-size'));
@@ -708,7 +717,7 @@ router.post('/image', async (req, res) => {
     });
     const r = await callImageUpstreamAsync({
       apiKey: settings.zhenzhenApiKey, finalApiModel, paramKind,
-      prompt, n, aspect_ratio, image_size, refs, size, quality,
+      prompt, n, aspect_ratio, image_size: gptImage2ForcedSize || image_size, refs, size: gptImage2ForcedSize ? undefined : size, quality,
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch {
@@ -757,6 +766,7 @@ router.post('/image/submit', async (req, res) => {
     if (!ensureKeyOrSelectedGroup(settings, res, apiModel || model || '', '图像', providerParams)) return;
     if (!prompt) return res.status(400).json({ success: false, error: 'prompt 不得为空' });
     const originalApiModel = String(apiModel || model || '');
+    const gptImage2ForcedSize = gptImage2ZhenzhenVariantSize(originalApiModel);
     const finalApiModel = normalizeImageApiModel(originalApiModel);
     const ml = `${originalApiModel} ${finalApiModel}`.toLowerCase();
     const paramKind = paramKindIn || (ml.includes('grok') && ml.includes('image') ? 'grok-image' : (isBananaImageModel(ml) ? 'banana-ratio' : 'gpt-size'));
@@ -774,7 +784,7 @@ router.post('/image/submit', async (req, res) => {
     });
     const r = await callImageUpstreamAsync({
       apiKey: settings.zhenzhenApiKey, finalApiModel, paramKind,
-      prompt, n, aspect_ratio, image_size, refs, size, quality,
+      prompt, n, aspect_ratio, image_size: gptImage2ForcedSize || image_size, refs, size: gptImage2ForcedSize ? undefined : size, quality,
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch { data = { _raw: text }; }
@@ -1878,6 +1888,385 @@ router.post('/video/fal/query', async (req, res) => {
   } catch (e) {
     console.error('proxy/video/fal/query 错误:', e);
     return res.status(500).json({ success: false, error: e.message || '查询失败' });
+  }
+});
+
+// ========================================================================
+// Fal 超市通用 FAL Queue 适配器
+// 不替换现有 /image/fal/* 与 /video/fal/* 路由；这里只服务新的 Fal超市节点。
+// ========================================================================
+
+const FAL_TOOLBOX_PENDING = new Set(['IN_QUEUE', 'IN_PROGRESS', 'PENDING', 'RUNNING', 'QUEUED']);
+const FAL_TOOLBOX_COMPLETED = new Set(['COMPLETED', 'COMPLETE', 'DONE', 'SUCCEEDED', 'SUCCESS']);
+const FAL_TOOLBOX_FAILED = new Set(['FAILED', 'FAILURE', 'ERROR', 'CANCELLED', 'CANCELED']);
+
+function isFalToolboxEndpoint(value) {
+  const endpoint = String(value || '').trim();
+  return !!endpoint && /^[a-z0-9._~:/-]+$/i.test(endpoint) && !endpoint.includes('..') && !/^https?:\/\//i.test(endpoint);
+}
+
+function falToolboxStatusValue(data) {
+  if (!data || typeof data !== 'object') return '';
+  const status = data.status ?? data.state ?? data.task_status ?? data.taskStatus;
+  return String(status || '').trim().toUpperCase();
+}
+
+function falToolboxErrorMessage(data, fallback = 'FAL 任务失败') {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  const candidates = [
+    data.failure_details,
+    data.failure_reason,
+    data.fail_reason,
+    data.error,
+    data.errors,
+    data.detail,
+    data.message,
+    data.msg,
+    data.data?.failure_details,
+    data.data?.error,
+    data.data?.detail,
+    data.data?.message,
+  ];
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '' || (Array.isArray(candidate) && !candidate.length)) continue;
+    const msg = stringifyUpstreamErrorValue(candidate);
+    if (msg) return msg;
+  }
+  try {
+    return JSON.stringify(data).slice(0, 800);
+  } catch {
+    return fallback;
+  }
+}
+
+function fixFalToolboxUrl(url, baseUrl, endpoint, requestId) {
+  let value = String(url || '').trim();
+  if (value.includes('queue.fal.run')) value = value.replace('https://queue.fal.run', `${baseUrl}/fal`);
+  if (value.includes('fal.run')) value = value.replace('https://fal.run', `${baseUrl}/fal`);
+  if (!value && endpoint && requestId) value = `${baseUrl}/fal/${endpoint}/requests/${requestId}`;
+  return value;
+}
+
+function getByPath(data, pathText) {
+  if (!data || !pathText) return undefined;
+  const parts = String(pathText).split('.').filter(Boolean);
+  let cur = data;
+  for (const part of parts) {
+    if (cur == null) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+function collectFalToolboxUrls(value, out = []) {
+  const pushUrl = (url) => {
+    const text = String(url || '').trim();
+    if (text && !out.includes(text)) out.push(text);
+  };
+  if (value == null) return out;
+  if (typeof value === 'string') {
+    if (/^(https?:\/\/|\/files\/|\/output\/|\/input\/)/i.test(value) || /^data:/i.test(value)) pushUrl(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectFalToolboxUrls(item, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    if (typeof value.url === 'string') pushUrl(value.url);
+    if (typeof value.file_url === 'string') pushUrl(value.file_url);
+    if (typeof value.fileUrl === 'string') pushUrl(value.fileUrl);
+    for (const child of Object.values(value)) collectFalToolboxUrls(child, out);
+  }
+  return out;
+}
+
+function collectFalToolboxText(value, out = []) {
+  if (value == null) return out;
+  if (typeof value === 'string') {
+    if (!/^(https?:\/\/|\/files\/|data:)/i.test(value)) out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectFalToolboxText(item, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const key of ['text', 'content', 'caption', 'prompt']) {
+      if (typeof value[key] === 'string') out.push(value[key]);
+    }
+  }
+  return out;
+}
+
+async function saveRemoteFalToolboxFile(url, kind) {
+  if (/^\/(files|output|input)\//i.test(String(url || ''))) return url;
+  if (kind === 'image') return saveRemoteImage(url);
+  if (kind === 'video') return saveRemoteVideo(url);
+  if (kind === 'audio') return saveRemoteAudio(url);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`下载失败: ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const cleanUrl = String(url || '').split(/[?#]/)[0];
+    const match = cleanUrl.match(/\.([a-z0-9]{2,8})$/i);
+    const ext = safeOutputExt(match?.[1], kind === 'model3d' ? 'glb' : 'bin');
+    const prefix = kind === 'model3d' ? 'model3d' : 'fal';
+    const filename = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
+    fs.writeFileSync(path.join(config.OUTPUT_DIR, filename), buf);
+    return `/files/output/${filename}`;
+  } catch (e) {
+    console.error('⚠ 转存 FAL 文件失败:', e.message);
+    return url;
+  }
+}
+
+async function extractFalToolboxOutputs(data, outputSchema) {
+  const outputs = Array.isArray(outputSchema) ? outputSchema : [];
+  const urls = [];
+  const imageUrls = [];
+  const videoUrls = [];
+  const audioUrls = [];
+  const modelUrls = [];
+  const textOutputs = [];
+  const jsonOutputs = [];
+
+  const normalizedOutputs = outputs.length ? outputs : [
+    { key: 'images', kind: 'image', pathCandidates: ['images', 'data.images'] },
+    { key: 'video', kind: 'video', pathCandidates: ['video', 'data.video', 'video_url', 'url'] },
+    { key: 'audio', kind: 'audio', pathCandidates: ['audio', 'data.audio', 'audio_url'] },
+    { key: 'model', kind: 'model3d', pathCandidates: ['model', 'mesh', 'file', 'files'] },
+  ];
+
+  for (const output of normalizedOutputs) {
+    const kind = String(output?.kind || 'json');
+    const candidates = Array.isArray(output?.pathCandidates) && output.pathCandidates.length
+      ? output.pathCandidates
+      : [output?.key].filter(Boolean);
+    for (const candidate of candidates) {
+      const value = getByPath(data, candidate);
+      if (value == null) continue;
+      if (kind === 'text') {
+        textOutputs.push(...collectFalToolboxText(value));
+        continue;
+      }
+      if (kind === 'json') {
+        jsonOutputs.push(value);
+        continue;
+      }
+      const found = collectFalToolboxUrls(value, []);
+      for (const remote of found) {
+        const local = await saveRemoteFalToolboxFile(remote, kind);
+        urls.push(local);
+        if (kind === 'image') imageUrls.push(local);
+        else if (kind === 'video') videoUrls.push(local);
+        else if (kind === 'audio') audioUrls.push(local);
+        else if (kind === 'model3d') modelUrls.push(local);
+      }
+    }
+  }
+
+  return {
+    urls: Array.from(new Set(urls)),
+    imageUrls: Array.from(new Set(imageUrls)),
+    videoUrls: Array.from(new Set(videoUrls)),
+    audioUrls: Array.from(new Set(audioUrls)),
+    modelUrls: Array.from(new Set(modelUrls)),
+    textOutputs: Array.from(new Set(textOutputs.filter(Boolean))),
+    jsonOutputs,
+  };
+}
+
+function falToolboxHasOutput(result) {
+  return Boolean(result.urls.length || result.textOutputs.length || result.jsonOutputs.length);
+}
+
+async function resolveFalToolboxMediaPayload(payload, mediaFields, apiKey) {
+  const next = { ...(payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}) };
+  const fields = Array.isArray(mediaFields) ? mediaFields : [];
+  for (const field of fields) {
+    const key = String(field?.key || '').trim();
+    if (!key || !(key in next)) continue;
+    const rawValues = Array.isArray(next[key]) ? next[key] : [next[key]];
+    const resolved = [];
+    for (const raw of rawValues) {
+      const value = String(raw || '').trim();
+      if (!value) continue;
+      if (field?.upload === false) {
+        resolved.push(value);
+      } else if (field?.kind === 'image' && field?.mediaMode === 'base64') {
+        const dataUrl = await refToBananaImage(value);
+        if (!dataUrl) throw new Error(`FAL 图片读取失败: ${value.slice(0, 80)}`);
+        resolved.push(dataUrl);
+      } else {
+        const url = await uploadRefToZhenzhen(value, apiKey);
+        if (!url) throw new Error(`FAL 素材上传失败: ${value.slice(0, 80)}`);
+        resolved.push(url);
+      }
+    }
+    if (field?.multiple === false || !Array.isArray(next[key])) next[key] = resolved[0] || '';
+    else next[key] = resolved;
+  }
+  return next;
+}
+
+router.post('/fal-toolbox/submit', async (req, res) => {
+  const settings = loadRawSettings();
+  if (!ensureDefaultZhenzhenKey(settings, res, 'Fal超市')) return;
+  const apiKey = settings.zhenzhenApiKey;
+  const baseUrl = config.ZHENZHEN_BASE_URL;
+  const {
+    toolId,
+    title,
+    endpoint,
+    payload,
+    mediaFields,
+    outputSchema,
+    statusPath,
+  } = req.body || {};
+  if (!isFalToolboxEndpoint(endpoint)) {
+    return res.status(400).json({ success: false, error: `非法 FAL endpoint: ${endpoint || ''}` });
+  }
+  try {
+    const finalPayload = await resolveFalToolboxMediaPayload(payload, mediaFields, apiKey);
+    const falUrl = `${baseUrl}/fal/${endpoint}`;
+    console.log('[fal-toolbox/submit]', toolId || title || endpoint, '→', falUrl, '| payload keys:', Object.keys(finalPayload));
+    const upstream = await fetch(falUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(finalPayload),
+    });
+    const text = await upstream.text();
+    let data; try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({
+        success: false,
+        error: falToolboxErrorMessage(data, `FAL HTTP ${upstream.status}: ${text.slice(0, 300)}`),
+        raw: data,
+      });
+    }
+    if (Array.isArray(data)) {
+      return res.status(400).json({ success: false, error: `FAL 参数校验错误: ${JSON.stringify(data).slice(0, 500)}` });
+    }
+    const st = falToolboxStatusValue(data);
+    if (FAL_TOOLBOX_FAILED.has(st)) {
+      return res.json({ success: false, data: { status: 'failed', error: falToolboxErrorMessage(data, `FAL ${st}`), raw: data } });
+    }
+
+    const output = await extractFalToolboxOutputs(data, outputSchema);
+    if (falToolboxHasOutput(output)) {
+      return res.json({ success: true, data: { sync: true, endpoint, ...output, raw: data } });
+    }
+
+    const requestId = data?.request_id || data?.requestId;
+    if (!requestId) {
+      return res.status(500).json({ success: false, error: 'FAL 未返回 request_id: ' + JSON.stringify(data).slice(0, 400), raw: data });
+    }
+    const responseUrl = fixFalToolboxUrl(data?.response_url || data?.responseUrl, baseUrl, endpoint, requestId);
+    const rawStatusUrl = data?.status_url || data?.statusUrl || (statusPath === 'result-only' ? '' : `${responseUrl}/status`);
+    const statusUrl = rawStatusUrl ? fixFalToolboxUrl(rawStatusUrl, baseUrl, endpoint, requestId) : '';
+    rememberTaskKey(requestId, apiKey, {
+      route: 'fal-toolbox',
+      toolId,
+      title,
+      endpoint,
+      outputSchema,
+      responseUrl,
+      statusUrl,
+      statusPath,
+    });
+    return res.json({
+      success: true,
+      data: { sync: false, requestId, responseUrl, statusUrl, endpoint, raw: data },
+    });
+  } catch (e) {
+    console.error('proxy/fal-toolbox/submit 错误:', e);
+    return res.status(500).json({ success: false, error: e.message || '请求失败' });
+  }
+});
+
+router.post('/fal-toolbox/query', async (req, res) => {
+  const settings = loadRawSettings();
+  const { responseUrl: rawResponseUrl, statusUrl: rawStatusUrl, endpoint: rawEndpoint, requestId, outputSchema: bodyOutputSchema, statusPath: rawStatusPath } = req.body || {};
+  const rememberedMeta = recallTaskMeta(requestId);
+  if (rememberedMeta?.apiKey) {
+    if (settings) settings.zhenzhenApiKey = rememberedMeta.apiKey;
+    else return res.status(400).json({ success: false, error: '未找到 settings' });
+  } else {
+    if (!ensureDefaultZhenzhenKey(settings, res, 'Fal超市')) return;
+  }
+  const apiKey = settings.zhenzhenApiKey;
+  const baseUrl = config.ZHENZHEN_BASE_URL;
+  const endpoint = rememberedMeta?.endpoint || rawEndpoint;
+  const outputSchema = rememberedMeta?.outputSchema || bodyOutputSchema;
+  const statusPath = rememberedMeta?.statusPath || rawStatusPath;
+  const responseUrl = fixFalToolboxUrl(rawResponseUrl || rememberedMeta?.responseUrl, baseUrl, endpoint, requestId);
+  const rawEffectiveStatusUrl = rawStatusUrl || rememberedMeta?.statusUrl || (statusPath === 'result-only' ? '' : (responseUrl ? `${responseUrl}/status` : ''));
+  const statusUrl = rawEffectiveStatusUrl ? fixFalToolboxUrl(rawEffectiveStatusUrl, baseUrl, endpoint, requestId) : '';
+  if (!responseUrl && !statusUrl) return res.status(400).json({ success: false, error: 'responseUrl/statusUrl 或 requestId 必填' });
+
+  const fetchJson = async (url) => {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const text = await r.text();
+    let data; try { data = JSON.parse(text); } catch { data = null; }
+    return { r, text, data };
+  };
+
+  try {
+    let statusData = null;
+    if (statusUrl) {
+      const statusResp = await fetchJson(statusUrl);
+      statusData = statusResp.data;
+      if (!statusResp.r.ok) {
+        const st = falToolboxStatusValue(statusData);
+        if (FAL_TOOLBOX_PENDING.has(st)) {
+          return res.json({ success: true, data: { status: 'pending', falStatus: st, requestId, responseUrl, statusUrl, raw: statusData } });
+        }
+        return res.status(statusResp.r.status).json({
+          success: false,
+          data: { status: 'failed', error: falToolboxErrorMessage(statusData, `FAL Poll HTTP ${statusResp.r.status}: ${statusResp.text.slice(0, 300)}`), raw: statusData },
+        });
+      }
+      const st = falToolboxStatusValue(statusData);
+      if (FAL_TOOLBOX_FAILED.has(st)) {
+        return res.json({ success: false, data: { status: 'failed', error: falToolboxErrorMessage(statusData, `FAL ${st}`), falStatus: st, requestId, responseUrl, statusUrl, raw: statusData } });
+      }
+      const statusOutput = await extractFalToolboxOutputs(statusData, outputSchema);
+      if (falToolboxHasOutput(statusOutput)) {
+        return res.json({ success: true, data: { status: 'completed', requestId, responseUrl, statusUrl, ...statusOutput, raw: statusData } });
+      }
+      if (st && !FAL_TOOLBOX_COMPLETED.has(st)) {
+        return res.json({ success: true, data: { status: 'pending', falStatus: st, requestId, responseUrl, statusUrl, raw: statusData } });
+      }
+    }
+
+    const resultResp = await fetchJson(responseUrl || statusUrl);
+    if (!resultResp.r.ok) {
+      const st = falToolboxStatusValue(resultResp.data);
+      if (FAL_TOOLBOX_PENDING.has(st)) {
+        return res.json({ success: true, data: { status: 'pending', falStatus: st, requestId, responseUrl, statusUrl, raw: resultResp.data } });
+      }
+      return res.status(resultResp.r.status).json({
+        success: false,
+        data: { status: 'failed', error: falToolboxErrorMessage(resultResp.data, `FAL Result HTTP ${resultResp.r.status}: ${resultResp.text.slice(0, 300)}`), raw: resultResp.data },
+      });
+    }
+    if (!resultResp.data) {
+      return res.status(500).json({ success: false, data: { status: 'failed', error: 'FAL 响应非 JSON: ' + resultResp.text.slice(0, 200) } });
+    }
+    const resultStatus = falToolboxStatusValue(resultResp.data);
+    if (FAL_TOOLBOX_FAILED.has(resultStatus)) {
+      return res.json({ success: false, data: { status: 'failed', error: falToolboxErrorMessage(resultResp.data, `FAL ${resultStatus}`), falStatus: resultStatus, requestId, responseUrl, statusUrl, raw: resultResp.data } });
+    }
+    const output = await extractFalToolboxOutputs(resultResp.data, outputSchema);
+    if (falToolboxHasOutput(output)) {
+      return res.json({ success: true, data: { status: 'completed', requestId, responseUrl, statusUrl, ...output, raw: resultResp.data } });
+    }
+    return res.json({ success: true, data: { status: 'pending', falStatus: resultStatus || falToolboxStatusValue(statusData) || 'IN_PROGRESS', requestId, responseUrl, statusUrl, raw: resultResp.data || statusData } });
+  } catch (e) {
+    console.error('proxy/fal-toolbox/query 错误:', e);
+    return res.status(500).json({ success: false, data: { status: 'failed', error: e.message || '查询失败' } });
   }
 });
 

@@ -349,6 +349,70 @@
           "condition": { "type": "hidden", "kind": "dragon-ball-shenron", "mode": "enabled", "count": 1 }
         }
       ]
+    },
+    {
+      "style": "saint-seiya",
+      "label": "圣斗士风格",
+      "shortLabel": "圣斗士",
+      "accent": "#f8c84a",
+      "featured": [
+        {
+          "idSuffix": "bronze-awakening",
+          "title": "青铜觉醒",
+          "description": "在圣斗士风格下获得第一件圣衣。",
+          "rarity": "bronze",
+          "condition": { "type": "counter", "metric": "saintSeiyaClothsCollected", "count": 1 }
+        },
+        {
+          "idSuffix": "silver-trial",
+          "title": "白银试炼",
+          "description": "在圣斗士风格下首次击败白银圣斗士。",
+          "rarity": "silver",
+          "condition": { "type": "counter", "metric": "saintSeiyaSilverWins", "count": 1 }
+        },
+        {
+          "idSuffix": "gold-gate",
+          "title": "黄金之门",
+          "description": "在圣斗士风格下获得第一件黄金圣衣。",
+          "rarity": "gold",
+          "condition": { "type": "counter", "metric": "saintSeiyaGoldClothsCollected", "count": 1 }
+        },
+        {
+          "idSuffix": "twelve-temples",
+          "title": "十二宫突破",
+          "description": "集齐 12 件黄金圣衣。",
+          "rarity": "gold",
+          "condition": { "type": "counter", "metric": "saintSeiyaGoldCompleted", "count": 1 }
+        },
+        {
+          "idSuffix": "athena-return",
+          "title": "雅典娜归来",
+          "description": "救出雅典娜并开启冥界篇。",
+          "rarity": "hidden",
+          "condition": { "type": "hidden", "kind": "saint-seiya-hades", "mode": "enabled", "count": 1 }
+        },
+        {
+          "idSuffix": "cosmo-burn",
+          "title": "小宇宙燃烧",
+          "description": "在圣斗士风格下首次使用小宇宙爆发。",
+          "rarity": "silver",
+          "condition": { "type": "counter", "metric": "saintSeiyaCosmoBursts", "count": 1 }
+        },
+        {
+          "idSuffix": "hundred-saints",
+          "title": "百战圣斗士",
+          "description": "在圣斗士风格下累计赢得 30 场圣斗士试炼。",
+          "rarity": "master",
+          "condition": { "type": "counter", "metric": "saintSeiyaBattlesWon", "count": 30 }
+        },
+        {
+          "idSuffix": "hades-gate",
+          "title": "冥界入口",
+          "description": "冥界篇开启后完成一次战斗。",
+          "rarity": "hidden",
+          "condition": { "type": "hidden", "kind": "saint-seiya-hades", "mode": "used", "count": 1 }
+        }
+      ]
     }
   ],
   "films": [
@@ -381,6 +445,14 @@
       "theme": "dragon-ball",
       "title": "七龙珠奖励影片",
       "unlockAchievementId": "dragon-ball-shenron-mode",
+      "lockedText": "待解锁",
+      "unavailableText": "影片素材待提供"
+    },
+    {
+      "id": "film-saint-seiya-01",
+      "theme": "saint-seiya",
+      "title": "圣斗士奖励影片",
+      "unlockAchievementId": "saint-seiya-athena-return",
       "lockedText": "待解锁",
       "unavailableText": "影片素材待提供"
     }
