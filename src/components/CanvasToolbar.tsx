@@ -15,6 +15,7 @@ import {
   Magnet,
   Bell,
   BellOff,
+  Archive,
   Search,
   Terminal as TerminalIcon,
   LayoutGrid,
@@ -78,6 +79,8 @@ interface CanvasToolbarProps {
   // 吸附开关
   snapEnabled: boolean;
   onToggleSnap: () => void;
+  outputMaterialPersistenceEnabled: boolean;
+  onToggleOutputMaterialPersistence: () => void;
   onAlignSelection: (action: NodeAlignAction) => void;
   children?: ReactNode;
 }
@@ -103,6 +106,8 @@ export default function CanvasToolbar({
   batchDone,
   snapEnabled,
   onToggleSnap,
+  outputMaterialPersistenceEnabled,
+  onToggleOutputMaterialPersistence,
   onAlignSelection,
   children,
 }: CanvasToolbarProps) {
@@ -424,6 +429,27 @@ export default function CanvasToolbar({
           aria-pressed={completionSoundEnabled}
         >
           {completionSoundEnabled ? <Bell size={15} /> : <BellOff size={15} />}
+        </button>
+        <button
+          className={`${baseBtn} ${
+            outputMaterialPersistenceEnabled
+              ? isPixel
+                ? 'bg-[var(--px-mint)] text-[var(--px-ink)]'
+                : isDark
+                  ? 'text-violet-200 bg-violet-500/20'
+                  : 'text-violet-700 bg-violet-500/10'
+              : ''
+          }`}
+          onClick={onToggleOutputMaterialPersistence}
+          title={
+            outputMaterialPersistenceEnabled
+              ? '关闭输出素材持久化：中断或重跑后允许自动清理输出素材'
+              : '开启输出素材持久化：中断或重跑后保留已生成的输出素材'
+          }
+          aria-label={outputMaterialPersistenceEnabled ? '关闭输出素材持久化' : '开启输出素材持久化'}
+          aria-pressed={outputMaterialPersistenceEnabled}
+        >
+          <Archive size={15} />
         </button>
         <button
           className={baseBtn}

@@ -26,6 +26,7 @@ export type NodeType =
   | 'codex-cli-agent'
   | 'codex-image-conjure'
   | 'artist-style-master'
+  | 'anime-tag-master'
   | 'comfyui-store'
   | 'comfyui-app-maker'
   // Special (5)
@@ -293,6 +294,15 @@ export interface ApiSettings {
   advancedProviderSummary?: AdvancedProviderSummary;
   cloudUploadTargets?: CloudUploadTargetConfig[];
   cloudUploadSummary?: CloudUploadSummary;
+  taskCompletionSound?: {
+    mode?: 'default' | 'custom';
+    name?: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+    updatedAt?: number;
+    url?: string;
+  };
   preferences?: {
     theme?: 'dark' | 'light';
     language?: string;

@@ -43,6 +43,8 @@ interface Props {
   expandable?: boolean;
   promptTemplateKind?: PromptTemplateKind | false;
   onSubmit?: (value: string, mentions: MediaMention[]) => void;
+  /** Force the editor to fill a flex parent instead of growing with long text. */
+  fillHeight?: boolean;
 }
 
 interface QueryState {
@@ -298,6 +300,7 @@ const MentionPromptInput = ({
   expandable = true,
   promptTemplateKind = false,
   onSubmit,
+  fillHeight = false,
 }: Props) => {
   const localRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
@@ -565,6 +568,7 @@ const MentionPromptInput = ({
   };
 
   const activeMaterial = filteredMaterials[Math.min(queryState.activeIndex, Math.max(0, filteredMaterials.length - 1))];
+  const fillLayout = fillHeight || !expandable;
 
   const popup =
     queryState.open && popupRect && typeof document !== 'undefined'
@@ -686,8 +690,12 @@ const MentionPromptInput = ({
       : null;
 
   return (
-    <div className={`nodrag nowheel ${expandable ? '' : 'flex h-full min-h-0 flex-col'}`}>
-      <div className={expandable ? 'relative' : 'relative flex min-h-0 flex-1 flex-col'}>
+    <div
+      className={`nodrag nowheel ${
+        fillHeight ? 'flex min-h-0 flex-1 flex-col' : expandable ? '' : 'flex h-full min-h-0 flex-col'
+      }`}
+    >
+      <div className={fillLayout ? 'relative flex min-h-0 flex-1 flex-col' : 'relative'}>
         <div
           ref={setEditorRef}
           contentEditable
@@ -818,8 +826,8 @@ const MentionPromptInput = ({
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
             overflowY: 'auto',
-            height: expandable ? style?.height : '100%',
-            minHeight: expandable ? (style?.minHeight ?? 56) : '100%',
+            height: fillLayout ? '100%' : style?.height,
+            minHeight: fillLayout ? 0 : (style?.minHeight ?? 56),
             lineHeight: 1.45,
             caretColor: 'currentColor',
             cursor: 'text',

@@ -1,7 +1,55 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "lastUpdated": "2026-06-14-source-only",
+  "sourceReleaseV221": {
+    "version": "2.2.1",
+    "status": "source-only",
+    "date": "2026-06-14",
+    "description": "v2.2.1 GitHub 源码版：继续收口灵感之源、资源库、工具节点、Codex / 生图工作台、RH 工具箱、图像裁切、任务提示音和画布快捷体验；本次不打包 Electron，不发布 GitHub Release 自动更新资产。",
+    "highlights": [
+      "艺术风格大师补齐素材右键保存风格、自定义图片上传、分类 / 流派筛选与节点内滚轮浏览，输出风格提示词 / 图片可稳定生成对应 OutputNode。",
+      "新增并完善动漫标签大师节点，按 comfyui-anima-t8 思路懒加载 Danbooru / Gelbooru 等图库，支持标签 / 图像输出、自定义分类、导入导出和素材右键保存。",
+      "资源库分类新增 / 重命名 / 删除恢复可用，任务完成提示音支持设置页上传自定义音频，顶部快捷栏新增输出素材持久化开关。",
+      "画布交互修复 Home 键回到画布中心、文本节点长文缩放溢出、对齐 / 整理顺序颠倒、图像编辑裁切比例默认撑满和俄罗斯方块主题节点顶部残影。",
+      "RH 工具箱每次读取 NodeList 都以当前 WebAppId 为准，不再混入上一次应用字段；用户节点隐藏调试映射块但保持参数映射完整。",
+      "Codex CLI Agent 简约模式和 Codex 生图工作台继续补齐上游图片预览、排序、删除和图像模式 / LLM 模式边界；模型帮助新增 gpt-image-2-vip 注意事项。",
+      "公开版本同步到 2.2.1：package.json、package-lock.json、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.2.1.md 同步；本次只推 GitHub 源码。"
+    ],
+    "releaseFiles": [
+      "package.json",
+      "package-lock.json",
+      "electron/main.cjs",
+      "backend/src/config.js",
+      "features.json",
+      "README.md",
+      "release-notes/v2.2.1.md"
+    ],
+    "sourceOnly": {
+      "githubPush": true,
+      "electronPackaging": false,
+      "githubRelease": false,
+      "blockedCommands": [
+        "npm run dist:release",
+        "npm run dist",
+        "npm run release:github",
+        "npm run release:verify"
+      ]
+    },
+    "releaseBoundary": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、hermes-agent/**、Electron 缓存目录和任何私有计费/支付/充值/分组令牌实现进入 GitHub。",
+      "RH 工具箱制作器与 FAL 应用制作工具仍为本地开发工具，不进入公开源码。",
+      "真实 Grok OAuth 私有调用、New API 分组令牌等私有能力继续通过本机 ignored local-private 扩展 / 加密链路处理。"
+    ],
+    "verification": [
+      "node --test tests\\artistStyleMaster.test.ts tests\\animeTagMaster.test.ts tests\\resourceLibraryPanorama.test.ts tests\\rhToolbox.test.ts tests\\taskCompletionSound.test.ts tests\\taskCompletionSoundRoute.test.ts tests\\nodeAlign.test.ts tests\\imageCropAspect.test.ts tests\\outputMaterialPersistence.test.ts tests\\textNodeResize.test.ts tests\\canvasCenterShortcut.test.ts tests\\themeRegistry.test.ts tests\\apiSettingsTheme.test.ts",
+      "node -c backend\\src\\routes\\animeTags.js",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "git diff --check"
+    ]
+  },
   "sourceReleaseV220": {
     "version": "2.2.0",
     "status": "source-only",
@@ -392,10 +440,12 @@
       "图库支持缩略图网格、点击 lightbox 大图、方向键左右切换、Esc 关闭、一键复制画家名称提示词和输出风格提示词。",
       "运行模式提供「输出风格提示词」与「输出风格图片」两种，节点内两个快捷按钮和底部运行按钮都会生成标准 OutputNode 文本或图片素材，图片输出同时携带 directImageUrl/imageUrl 兼容字段。",
       "支持用户保存当前风格、新增/编辑/删除自定义风格、新增/重命名/删除分类，新增自定义风格可直接上传本地图片并保存到用户库，也可用 t8-artist-style-master@1 JSON 导入导出，便于换版本迁移。",
+      "上传素材节点和输出素材节点的图片素材支持右键「保存风格到艺术风格大师」：输出素材优先自动带出来源提示词，上传素材可手动填写；保存前必须在确认窗里修改或确认风格提示词。",
       "节点、图库弹层和 lightbox 使用 artist-style-master 命名空间 CSS 变量，覆盖浅色/深色主题文字、按钮、输入框和边框对比度，避免主题切换后文字不可读。"
     ],
     "sourceFiles": [
       "src/components/nodes/ArtistStyleMasterNode.tsx",
+      "src/components/MaterialContextMenu.tsx",
       "src/data/artistStyleMasterManifest.ts",
       "src/utils/artistStyleMaster.ts",
       "public/artist-style-master/generated/*.webp",
@@ -410,6 +460,54 @@
     ],
     "verification": [
       "node --test tests\\artistStyleMaster.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
+  "animeTagMasterNode": {
+    "status": "implemented",
+    "date": "2026-06-14",
+    "nodeType": "anime-tag-master",
+    "category": "inspiration",
+    "description": "左侧「灵感之源」新增「动漫标签大师」节点：基于 comfyui-anima-t8 的 Danbooru / Gelbooru 在线图库懒加载思路，面向动漫创作提供标签检索、参考图浏览、自定义标签库和一键输出能力。",
+    "ports": {
+      "inputs": [
+        "text",
+        "image"
+      ],
+      "outputs": [
+        "text",
+        "image"
+      ]
+    },
+    "capabilities": [
+      "内置动漫创作常用标签库，覆盖角色人设、姿势动作、表情情绪、服装配饰、构图镜头、画风质感、光影场景、质量增强和负面排除等分类。",
+      "支持按英文标签、中文名、分类、标签、描述搜索，支持按分类和来源筛选；节点内只展示精简缩略图，完整图库通过外部弹层打开，避免节点被撑高。",
+      "Danbooru 与 Gelbooru / Galbooru 在线图库采用懒加载搜索：用户输入标签后通过 /api/anime-tags 同源代理按需拉取公开预览图，不提前打包大图库，适合后续扩展更多图库源。",
+      "Gelbooru 优先使用 DAPI；未配置 user_id/api_key 或接口拒绝时自动切到公开 HTML 兜底解析，并通过 /api/anime-tags/image 代理预览图，减少 CORS、热链和鉴权导致的空白。",
+      "运行模式提供「输出标签」和「输出图像」两种，按钮和运行动作都会生成标准 OutputNode；图像输出携带 directImageUrl/imageUrl/directImageUrls/imageUrls，便于后续节点继续接线。",
+      "图库支持点击缩略图进入 lightbox、方向键左右切换、Esc 关闭、复制标签提示词；每张卡片展示中文翻译、原始标签、分类、来源和属性信息。",
+      "支持用户新增、编辑、删除自定义动漫标签，新增/重命名/删除分类，上传本地参考图保存到自定义库，并用 t8-anime-tag-master@1 JSON 导入导出迁移。",
+      "上传素材节点和输出素材节点的图片素材支持右键「保存动漫标签到动漫标签大师」：自动带出来源提示词时也必须经过确认弹窗，用户可手动修改名称、分类、标签、提示词和负面提示词后保存。",
+      "节点、图库弹层和 lightbox 使用 anime-tag-master 命名空间 CSS 变量，覆盖浅色/深色主题文字、按钮、输入框和边框对比度。"
+    ],
+    "sourceFiles": [
+      "src/components/nodes/AnimeTagMasterNode.tsx",
+      "src/components/MaterialContextMenu.tsx",
+      "src/data/animeTagMasterManifest.ts",
+      "src/utils/animeTagMaster.ts",
+      "backend/src/routes/animeTags.js",
+      "backend/src/server.js",
+      "src/config/nodeRegistry.ts",
+      "src/config/portTypes.ts",
+      "src/components/Canvas.tsx",
+      "src/components/Sidebar.tsx",
+      "src/utils/nodePlacement.ts",
+      "src/styles/index.css",
+      "tests/animeTagMaster.test.ts"
+    ],
+    "verification": [
+      "node --test tests\\animeTagMaster.test.ts",
       "npm run type-check",
       "npm run build"
     ]
@@ -1695,11 +1793,11 @@
       "T8_RUNTIME_CACHE_DIR": "可选，覆盖运行时归档解压缓存目录；默认打包模式为 %APPDATA%/t8-penguin-canvas/runtime-cache",
       "T8_ENABLE_LOCAL_PRIVATE": "可选，0=强制关闭本机 local-private/extensions 私有扩展；默认只要本机 ignored 私有扩展存在，开发环境和本机打包 release 都会自动带入。GitHub/clean clone 因为没有 local-private 目录，所以不会带充值实现。"
     },
-    "version": "2.2.0",
-    "semverVersion": "2.2.0",
+    "version": "2.2.1",
+    "semverVersion": "2.2.1",
     "versionNumberPolicy": "T8 版本号仍采用 x.y.z 三段，但每一段只允许 0-9；任一段到 9 后下一次发布必须向左进位，禁止任一段出现两位数字。例：1.9.9 的下一版必须是 2.0.0。",
-    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.2.0 源码版：在 v2.1.9 Electron 自动更新版基础上收口灵感之源艺术风格大师、批量素材处理、Codex Agent / 生图工作台输入预览和俄罗斯方块主题问题；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
-    "installer": "v2.2.0 为 GitHub 源码版，本轮不生成 dist_electron 安装器、blockmap 或 latest.yml；如需桌面自动更新，后续必须另走 npm run dist:release 并完成 release:verify。",
+    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.2.1 源码版：在 v2.2.0 源码版基础上收口灵感之源艺术风格大师 / 动漫标签大师、资源库、RH 工具箱、任务提示音、画布快捷键、图像裁切、Codex Agent / 生图工作台输入预览和俄罗斯方块主题问题；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
+    "installer": "v2.2.1 为 GitHub 源码版，本轮不生成 dist_electron 安装器、blockmap 或 latest.yml；如需桌面自动更新，后续必须另走 npm run dist:release 并完成 release:verify。",
     "updaterInstallMode": "自动更新下载完成后不得静默安装：main.cjs 必须设置 autoInstallOnAppQuit=false，显式安装调用 quitAndInstall(false,true)；electron/build-resources/installer.nsh 通过 SetSilent normal 让新版 NSIS 安装器即使收到旧客户端传入的 /S 也尽量切回前台安装向导。",
     "installerShortcutPolicy": "安装完成后必须创建桌面和开始菜单快捷方式：package.json build.nsis.createDesktopShortcut 必须为 \"always\"，createStartMenuShortcut 必须为 true；electron/build-resources/installer.nsh 必须保留 customInstall 兜底 CreateShortCut \"$newStartMenuLink\" 与 \"$DESKTOP\\${SHORTCUT_NAME}.lnk\"，防止更新安装/keepShortcuts 路径遗漏入口。",
     "updaterEntryPolicy": "顶栏桌面更新入口不得只因 window.t8pc.updater 缺失就静默消失；Electron UA 或 t8pc.getInfo/openExternal 可用时必须显示诊断入口，提示重新安装完整桌面包，Web/纯浏览器环境才隐藏。状态为 not-available 时按钮仍保留“更新”字样，避免用户误以为自动更新入口被删除。",
@@ -4343,6 +4441,19 @@
         "俄罗斯方块主题继续修复拖动节点顶部残影、大屏游戏布局和游戏难度曲线细节。",
         "公开版本同步到 2.2.0：package.json、package-lock.json、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.2.0.md 同步；本次只推 GitHub 源码，不打包 Electron，不发布 GitHub Release 自动更新资产。"
       ]
+    },
+    "phase161": {
+      "label": "灵感之源与工具体验源码收口版 (v2.2.1)",
+      "status": "implemented",
+      "items": [
+        "艺术风格大师继续完善输出风格提示词 / 图片、自定义图片上传、右键保存风格、分类 / 流派筛选、节点内滚轮浏览和长文字防溢出。",
+        "新增并完善动漫标签大师节点，支持 Danbooru / Gelbooru 懒加载图库、标签 / 图像输出、自定义分类、导入导出和素材图片右键保存标签。",
+        "资源库分类新增 / 重命名 / 删除恢复可用，任务完成提示音支持设置页上传自定义音频，顶部快捷栏新增输出素材持久化开关。",
+        "画布交互修复 Home 键回到画布中心、文本节点长文缩放溢出、对齐 / 整理顺序颠倒和图像编辑裁切比例默认撑满。",
+        "RH 工具箱读取字段时每次以当前 WebAppId 为准，完整映射字段但在用户节点隐藏调试映射块，避免旧应用字段混入。",
+        "Codex CLI Agent 简约模式和 Codex 生图工作台补齐上游图片预览、排序、删除、LLM / IMG 模式边界和 gpt-image-2-vip 模型提示。",
+        "俄罗斯方块主题继续修复节点顶部残影；公开版本同步到 2.2.1，本次只推 GitHub 源码，不打包 Electron，不发布 GitHub Release 自动更新资产。"
+      ]
     }
   },
   "categories": {
@@ -4437,12 +4548,17 @@
     },
     "inspiration": {
       "label": "灵感之源",
-      "count": 1,
+      "count": 2,
       "nodes": [
         {
           "type": "artist-style-master",
           "label": "艺术风格大师",
           "description": "移植 qiaomu 艺术家风格库，支持画家英文名/中文名/风格标签搜索、按流派和分类筛选、缩略图 lightbox、大图方向键切换、复制画家提示词、自定义分类/风格保存、导入导出，并可运行输出风格提示词或风格图片"
+        },
+        {
+          "type": "anime-tag-master",
+          "label": "动漫标签大师",
+          "description": "基于 comfyui-anima-t8 的 Danbooru / Gelbooru 懒加载图库思路，支持动漫标签搜索、按分类/来源筛选、在线预览、lightbox、复制标签提示词、自定义分类/标签保存、图片上传、导入导出，并可运行输出标签或参考图"
         }
       ]
     },

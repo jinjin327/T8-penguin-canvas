@@ -76,6 +76,7 @@ test('RH toolbox builds nodeInfoList from configured mappings without per-tool c
   const {
     buildRhToolboxNodeInfoList,
     classifyRhToolboxOutputs,
+    inferRhToolboxUserParamsFromNodeInfoList,
     normalizeRhToolboxManifest,
     pickRhToolboxInputs,
   } = await loadRhToolboxUtils();
@@ -131,6 +132,70 @@ test('RH toolbox builds nodeInfoList from configured mappings without per-tool c
     { nodeId: '31', fieldName: 'mode', fieldValue: 'transparent', valueType: 'text' },
   ]);
 
+  const inferredParams = inferRhToolboxUserParamsFromNodeInfoList([
+    {
+      nodeId: '390',
+      nodeName: 'PrimitiveInt',
+      fieldName: 'value',
+      fieldValue: '129',
+      fieldData: '["INT", {"max": 9223372036854775807, "min": -9223372036854775807, "control_after_generate": "fixed"}]',
+      fieldType: 'INT',
+      description: '总帧数',
+      descriptionEn: 'Total frames',
+    },
+    {
+      nodeId: '410',
+      nodeName: 'Text',
+      fieldName: 'text',
+      fieldValue: '女人运球灌篮',
+      fieldType: 'STRING',
+      description: 'text',
+    },
+    {
+      nodeId: '408',
+      nodeName: 'LoadImage',
+      fieldName: 'image',
+      fieldValue: 'input.png',
+      fieldType: 'IMAGE',
+      description: 'image',
+    },
+    {
+      nodeId: '417',
+      nodeName: 'JWInteger',
+      fieldName: 'value',
+      fieldValue: '1280',
+      fieldData: '["INT", {"max": 18446744073709551615, "min": -18446744073709551615, "default": 0}]',
+      fieldType: 'INT',
+      description: '最长边',
+      descriptionEn: 'Longest side',
+    },
+  ], [
+    { key: 'prompt', rhNodeId: '410', fieldName: 'text' },
+    { key: 'source-image', rhNodeId: '408', fieldName: 'image' },
+  ]);
+  assert.deepEqual(
+    inferredParams.map(({ key, label, kind, rhNodeId, fieldName, defaultValue }) => ({
+      key,
+      label,
+      kind,
+      rhNodeId,
+      fieldName,
+      defaultValue,
+    })),
+    [
+      { key: 'node-390-value', label: '总帧数', kind: 'number', rhNodeId: '390', fieldName: 'value', defaultValue: 129 },
+      { key: 'node-417-value', label: '最长边', kind: 'number', rhNodeId: '417', fieldName: 'value', defaultValue: 1280 },
+    ],
+  );
+  assert.deepEqual(
+    buildRhToolboxNodeInfoList({ ...tool, userParams: inferredParams }, { inputValues: {}, userParamValues: {} })
+      .filter((item) => item.nodeId === '390' || item.nodeId === '417'),
+    [
+      { nodeId: '390', fieldName: 'value', fieldValue: 129, valueType: 'number' },
+      { nodeId: '417', fieldName: 'value', fieldValue: 1280, valueType: 'number' },
+    ],
+  );
+
   assert.deepEqual(classifyRhToolboxOutputs(['/files/output/a.png', '/files/output/b.mp4', '/files/output/c.wav']).imageUrls, ['/files/output/a.png']);
   assert.deepEqual(classifyRhToolboxOutputs(['/files/output/a.png', '/files/output/b.mp4', '/files/output/c.wav']).videoUrls, ['/files/output/b.mp4']);
   assert.deepEqual(classifyRhToolboxOutputs(['/files/output/a.png', '/files/output/b.mp4', '/files/output/c.wav']).audioUrls, ['/files/output/c.wav']);
@@ -180,6 +245,11 @@ test('RH toolbox service exposes a single callable runner for future quick actio
   assert.match(component, /MaterialPreviewSection/);
   assert.match(service, /inputValues\?: Record<string, string \| string\[\]>/);
   assert.match(service, /缺少输入/);
+  assert.match(component, /fetchRhAppInfo/);
+  assert.match(component, /inferRhToolboxUserParamsFromNodeInfoList/);
+  assert.doesNotMatch(component, /NodeList 映射/);
+  assert.doesNotMatch(component, /mappedNodeListRows/);
+  assert.match(component, /manifest:\s*runManifest/);
 });
 
 test('RH toolbox display config follows theme and does not expose per-tool color or button labels', () => {
@@ -235,6 +305,19 @@ test('RH toolbox maker is dev-only and guarded from packaged builds', () => {
   assert.match(gitignore, /\/src\/components\/nodes\/RHToolboxMakerNode\.tsx/);
   assert.match(gitignore, /\/src\/utils\/rhToolboxDeveloper\.ts/);
   assert.match(features, /RH工具箱制作器/);
+});
+
+test('RH toolbox maker rebuilds mappings from the current WebApp snapshot', () => {
+  const maker = readFileSync(new URL('../src/components/nodes/RHToolboxMakerNode.tsx', import.meta.url), 'utf8');
+
+  assert.match(maker, /function mappingSignature/);
+  assert.match(maker, /currentInputs\.filter\(\(row\) => fieldKeys\.has\(mappingSignature\(row\)\) \|\| isDefaultInputPlaceholder\(row\)\)/);
+  assert.match(maker, /currentParams\.filter\(\(row\) => fieldKeys\.has\(mappingSignature\(row\)\)\)/);
+  assert.match(maker, /buildAutoMappingsFromFields\(fields,\s*\[\],\s*\[\],\s*\{\s*replaceExisting:\s*true\s*\}\)/);
+  assert.match(maker, /requestedWebappId:\s*webappId/);
+  assert.match(maker, /rhToolboxMakerFixedParams:\s*\[\]/);
+  assert.match(maker, /rhToolboxMakerWebappId:\s*value[\s\S]*rhToolboxMakerAppInfo:\s*undefined[\s\S]*rhToolboxMakerInputs:\s*\[\][\s\S]*rhToolboxMakerUserParams:\s*\[\][\s\S]*rhToolboxMakerFixedParams:\s*\[\]/);
+  assert.match(maker, /const mappingsChanged = Boolean\(autoMappings\.addedInputs \|\| autoMappings\.addedParams\)[\s\S]*autoMappings\.inputs\.length !== inputs\.length[\s\S]*autoMappings\.params\.length !== params\.length/);
 });
 
 test('RH toolbox developer helpers stay private and runtime uses guarded imports', () => {

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, CloudUpload, Download, ExternalLink, Eye, EyeOff, FileUp, Info, KeyRound, Loader2, Lock, Plus, Save, Settings2, TestTube2, Trash2, X, FolderOpen, ServerCog } from 'lucide-react';
+import { ChevronDown, ChevronRight, CloudUpload, Download, ExternalLink, Eye, EyeOff, FileUp, Info, KeyRound, Loader2, Lock, Plus, Save, Settings2, TestTube2, Trash2, X, FolderOpen, ServerCog, Volume2 } from 'lucide-react';
 import { useApiKeysStore, FIXED_ZHENZHEN_BASE, RH_BASE } from '../stores/apiKeys';
+import { taskCompletionSound as taskCompletionSoundController } from '../stores/taskCompletionSound';
 import { useThemeStore } from '../stores/theme';
 import type { AdvancedProviderConfig, AdvancedProviderProtocol, ApiSettings, CloudUploadProvider, CloudUploadTargetConfig } from '../types/canvas';
-import { getRawSettings, testAdvancedProvider, testCloudUploadTarget } from '../services/api';
+import { getRawSettings, resetTaskCompletionSound, testAdvancedProvider, testCloudUploadTarget, uploadTaskCompletionSound } from '../services/api';
+import { playTaskCompletionSound } from '../utils/taskCompletionSound';
 import {
   advancedProviderSummary as summarizeAdvancedProviderForm,
   normalizeModelscopeLoraStrength,
@@ -306,7 +308,11 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [cloudUploadDirty, setCloudUploadDirty] = useState(false);
   const [cloudTestStatus, setCloudTestStatus] = useState<Record<string, { loading?: boolean; ok?: boolean; message?: string }>>({});
   const [backupMessage, setBackupMessage] = useState<string>('');
+  const [taskSoundMessage, setTaskSoundMessage] = useState<string>('');
+  const [taskSoundBusy, setTaskSoundBusy] = useState(false);
+  const [taskSoundTesting, setTaskSoundTesting] = useState(false);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
+  const taskCompletionSoundFileInputRef = useRef<HTMLInputElement | null>(null);
   // 眼睛预览拉取的明文（仅缓存，不提交）
   const revealedRef = useRef<Partial<Record<KeyField, string>>>({});
 
@@ -341,6 +347,9 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       setActiveCloudTargetId(cloudTargets[0]?.id || '');
       setCloudUploadDirty(false);
       setCloudTestStatus({});
+      setTaskSoundMessage('');
+      setTaskSoundBusy(false);
+      setTaskSoundTesting(false);
       // 回填文件自动保存路径(明文字段，不脱敏)
       setFileSavePathInput((settings as any)?.fileSavePath || '');
       setCanvasAutoSavePathInput((settings as any)?.canvasAutoSavePath || '');
@@ -664,6 +673,71 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     }
   };
 
+  const isTaskCompletionSoundFile = (file: File): boolean => {
+    const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase() : '';
+    return file.type.startsWith('audio/') || ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.webm'].includes(ext);
+  };
+
+  const formatTaskCompletionSoundSize = (size?: number): string => {
+    const n = Number(size || 0);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${Math.max(1, Math.round(n / 1024))} KB`;
+  };
+
+  const refreshTaskCompletionSoundSettings = async () => {
+    await load();
+    await taskCompletionSoundController.refreshSettings();
+  };
+
+  const handleTaskCompletionSoundUpload = async (file: File | null) => {
+    if (!file) return;
+    if (!isTaskCompletionSoundFile(file)) {
+      setTaskSoundMessage('请选择音频文件：mp3 / wav / ogg / m4a / aac / flac / webm。');
+      if (taskCompletionSoundFileInputRef.current) taskCompletionSoundFileInputRef.current.value = '';
+      return;
+    }
+    setTaskSoundBusy(true);
+    setTaskSoundMessage('');
+    try {
+      const result = await uploadTaskCompletionSound(file);
+      await refreshTaskCompletionSoundSettings();
+      const sizeLabel = formatTaskCompletionSoundSize(result.size || file.size);
+      setTaskSoundMessage(`已使用自定义提示音：${result.name || file.name}${sizeLabel ? ` · ${sizeLabel}` : ''}`);
+    } catch (e: any) {
+      setTaskSoundMessage(e?.message || '上传提示音失败');
+    } finally {
+      setTaskSoundBusy(false);
+      if (taskCompletionSoundFileInputRef.current) taskCompletionSoundFileInputRef.current.value = '';
+    }
+  };
+
+  const handleResetTaskCompletionSound = async () => {
+    setTaskSoundBusy(true);
+    setTaskSoundMessage('');
+    try {
+      await resetTaskCompletionSound();
+      await refreshTaskCompletionSoundSettings();
+      setTaskSoundMessage('已恢复默认任务完成提示音。');
+    } catch (e: any) {
+      setTaskSoundMessage(e?.message || '恢复默认提示音失败');
+    } finally {
+      setTaskSoundBusy(false);
+    }
+  };
+
+  const handlePreviewTaskCompletionSound = async () => {
+    setTaskSoundTesting(true);
+    setTaskSoundMessage('');
+    try {
+      await playTaskCompletionSound((settings as any)?.taskCompletionSound);
+    } catch (e: any) {
+      setTaskSoundMessage(e?.message || '试听提示音失败，请先与页面交互后重试。');
+    } finally {
+      setTaskSoundTesting(false);
+    }
+  };
+
   // 每个字段费应的「获取 APIKey」按钮配置
   const renderGetKeyButtons = (field: KeyField) => {
     if (field === 'zhenzhenApiKey') {
@@ -711,6 +785,9 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const activeCloudTarget = cloudUploadTargetsInput.find((target) => target.id === activeCloudTargetId)
     || cloudUploadTargetsInput[0]
     || null;
+  const taskCompletionSoundSettings = (settings as any)?.taskCompletionSound || { mode: 'default', url: '' };
+  const hasCustomTaskCompletionSound = taskCompletionSoundSettings.mode === 'custom' && !!taskCompletionSoundSettings.url;
+  const taskCompletionSoundSizeLabel = formatTaskCompletionSoundSize(taskCompletionSoundSettings.size);
 
   const updateAdvancedProvider = (id: string, patch: Partial<AdvancedProviderConfig>) => {
     setAdvancedProvidersInput((prev) => prev.map((provider) => (
@@ -2537,6 +2614,99 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                 )}
               </div>
             )}
+          </div>
+
+          {/* 任务完成提示音 */}
+          <div className="t8-api-settings-divider pt-3 border-t">
+            <label className={`text-sm font-medium flex items-center gap-2 flex-wrap ${labelCls}`}>
+              <Volume2 size={14} className="t8-api-settings-icon" />
+              任务完成提示音
+              <span className={`text-[11px] font-normal ${hintCls}`}>· 生成任务完成时播放；未上传时使用默认短提示音</span>
+            </label>
+            <div
+              className={
+                isPixel
+                  ? 't8-api-settings-section mt-2 p-3 space-y-3 border'
+                  : 't8-api-settings-section mt-2 p-3 space-y-3 rounded-lg border'
+              }
+            >
+              <div className="flex items-start gap-3 justify-between flex-wrap">
+                <div className="min-w-0">
+                  <div className={`text-xs font-black ${labelCls}`}>
+                    当前：{hasCustomTaskCompletionSound ? (taskCompletionSoundSettings.name || '自定义提示音') : '默认提示音'}
+                  </div>
+                  <div className={`mt-1 text-[11px] leading-relaxed ${hintCls}`}>
+                    支持 mp3 / wav / ogg / m4a / aac / flac / webm，最大 20MB。
+                    {hasCustomTaskCompletionSound && taskCompletionSoundSizeLabel ? ` 当前文件 ${taskCompletionSoundSizeLabel}。` : ''}
+                  </div>
+                </div>
+                <span
+                  className="t8-api-settings-badge px-2 py-1 text-[10px] rounded border shrink-0"
+                  data-tone={hasCustomTaskCompletionSound ? 'success' : 'muted'}
+                >
+                  {hasCustomTaskCompletionSound ? '自定义' : '默认'}
+                </span>
+              </div>
+              <input
+                ref={taskCompletionSoundFileInputRef}
+                type="file"
+                accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm"
+                className="hidden"
+                onChange={(e) => handleTaskCompletionSoundUpload(e.target.files?.[0] || null)}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => taskCompletionSoundFileInputRef.current?.click()}
+                  disabled={taskSoundBusy}
+                  className={
+                    isPixel
+                      ? 't8-api-settings-secondary-btn px-btn flex items-center gap-2 disabled:opacity-50'
+                      : 't8-api-settings-secondary-btn px-3 py-2 text-xs rounded-md border flex items-center gap-2 disabled:opacity-50'
+                  }
+                >
+                  <FileUp size={13} />
+                  {taskSoundBusy ? '处理中...' : '上传音频'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePreviewTaskCompletionSound}
+                  disabled={taskSoundBusy || taskSoundTesting}
+                  className={
+                    isPixel
+                      ? 't8-api-settings-action-btn px-btn flex items-center gap-2 disabled:opacity-50'
+                      : 't8-api-settings-action-btn px-3 py-2 text-xs rounded-md border flex items-center gap-2 disabled:opacity-50'
+                  }
+                >
+                  <Volume2 size={13} />
+                  {taskSoundTesting ? '试听中...' : '试听'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetTaskCompletionSound}
+                  disabled={taskSoundBusy || !hasCustomTaskCompletionSound}
+                  className={
+                    isPixel
+                      ? 't8-api-settings-secondary-btn px-btn flex items-center gap-2 disabled:opacity-50'
+                      : 't8-api-settings-secondary-btn px-3 py-2 text-xs rounded-md border flex items-center gap-2 disabled:opacity-50'
+                  }
+                >
+                  <Trash2 size={13} />
+                  恢复默认
+                </button>
+              </div>
+              {taskSoundMessage && (
+                <div
+                  className={
+                    taskSoundMessage.includes('失败') || taskSoundMessage.includes('请选择')
+                      ? 'text-[11px] text-red-400'
+                      : 'text-[11px] text-emerald-500'
+                  }
+                >
+                  {taskSoundMessage}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* v1.2.10.2: 文件自动保存路径 */}

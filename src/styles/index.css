@@ -768,10 +768,40 @@ body.t8-file-drag-out-active * {
 }
 
 .t8-model-help-panel__text {
-  white-space: pre-wrap;
   color: var(--t8-text-main, #f4f4f5);
   font-size: 14px;
-  line-height: 1.78;
+  line-height: 1.72;
+}
+
+.t8-model-help-panel__section + .t8-model-help-panel__section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--t8-border, rgba(255, 255, 255, 0.14));
+}
+
+.t8-model-help-panel__section h3 {
+  margin: 0 0 10px;
+  color: var(--t8-text-main, #f4f4f5);
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+}
+
+.t8-model-help-panel__section p {
+  margin: 0;
+  color: var(--t8-text-main, #f4f4f5);
+}
+
+.t8-model-help-panel__section ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.t8-model-help-panel__section li {
+  padding-left: 2px;
+  color: var(--t8-text-main, #f4f4f5);
 }
 
 .t8-radial-settings-panel {
@@ -4518,6 +4548,548 @@ html[data-theme-mode="light"] .artist-style-master-lightbox-backdrop {
 
 .lightbox-next {
   right: 34px;
+}
+
+.anime-tag-master-node,
+.anime-tag-master-modal,
+.anime-tag-master-lightbox-backdrop {
+  --atm-bg: #f7fee7;
+  --atm-panel: #fbfff2;
+  --atm-panel-strong: #d9f99d;
+  --atm-text: #132012;
+  --atm-muted: #476241;
+  --atm-border: #1f2937;
+  --atm-border-soft: rgba(31, 41, 55, 0.2);
+  --atm-accent: #84cc16;
+  --atm-accent-strong: #4d7c0f;
+  --atm-blue: #38bdf8;
+  --atm-danger: #dc2626;
+  --atm-shadow: rgba(15, 23, 42, 0.24);
+  color: var(--atm-text);
+}
+
+[data-theme-mode="dark"] .anime-tag-master-node,
+[data-theme-mode="dark"] .anime-tag-master-modal,
+[data-theme-mode="dark"] .anime-tag-master-lightbox-backdrop,
+html[data-theme-mode="dark"] .anime-tag-master-node,
+html[data-theme-mode="dark"] .anime-tag-master-modal,
+html[data-theme-mode="dark"] .anime-tag-master-lightbox-backdrop {
+  --atm-bg: #07111f;
+  --atm-panel: #0d1f2d;
+  --atm-panel-strong: #18351f;
+  --atm-text: #f8fafc;
+  --atm-muted: #bdd3c0;
+  --atm-border: #86efac;
+  --atm-border-soft: rgba(134, 239, 172, 0.26);
+  --atm-accent: #22c55e;
+  --atm-accent-strong: #4ade80;
+  --atm-blue: #38bdf8;
+  --atm-danger: #fb7185;
+  --atm-shadow: rgba(0, 0, 0, 0.58);
+}
+
+[data-theme-mode="light"] .anime-tag-master-node,
+[data-theme-mode="light"] .anime-tag-master-modal,
+[data-theme-mode="light"] .anime-tag-master-lightbox-backdrop,
+html[data-theme-mode="light"] .anime-tag-master-node,
+html[data-theme-mode="light"] .anime-tag-master-modal,
+html[data-theme-mode="light"] .anime-tag-master-lightbox-backdrop {
+  --atm-bg: #f7fee7;
+  --atm-panel: #fbfff2;
+  --atm-panel-strong: #d9f99d;
+  --atm-text: #132012;
+  --atm-muted: #476241;
+  --atm-border: #1f2937;
+  --atm-border-soft: rgba(31, 41, 55, 0.2);
+}
+
+.anime-tag-master-node {
+  width: 500px;
+  min-height: 660px;
+  overflow: visible;
+  border: 3px solid var(--atm-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--atm-bg), color-mix(in srgb, var(--atm-bg) 80%, var(--atm-blue) 20%));
+  box-shadow: 8px 8px 0 var(--atm-shadow);
+  color: var(--atm-text);
+}
+
+.anime-tag-master-node *,
+.anime-tag-master-modal *,
+.anime-tag-master-lightbox-backdrop * {
+  box-sizing: border-box;
+}
+
+.anime-tag-master-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 2px solid var(--atm-border);
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(90deg, var(--atm-blue), var(--atm-accent), #facc15);
+  color: var(--atm-text);
+}
+
+.anime-tag-master-header h3,
+.anime-tag-master-modal h2,
+.anime-tag-master-modal h3 {
+  margin: 0;
+  color: var(--atm-text);
+  line-height: 1.2;
+}
+
+.anime-tag-master-header p,
+.anime-tag-master-modal p,
+.anime-tag-master-card small,
+.anime-tag-master-selected small,
+.anime-tag-master-cue,
+.anime-tag-master-footer span,
+.anime-tag-master-status {
+  color: var(--atm-muted);
+}
+
+.anime-tag-master-icon,
+.atm-icon-button,
+.anime-tag-master-lightbox button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--atm-border);
+  border-radius: 8px;
+  background: var(--atm-panel);
+  color: var(--atm-text);
+}
+
+.anime-tag-master-icon,
+.atm-icon-button {
+  width: 38px;
+  height: 38px;
+}
+
+.atm-icon-button,
+.anime-tag-master-node button,
+.anime-tag-master-modal button,
+.anime-tag-master-lightbox button {
+  cursor: pointer;
+}
+
+.anime-tag-master-section,
+.anime-tag-master-actions,
+.anime-tag-master-footer {
+  margin: 12px;
+  padding: 12px;
+  border: 2px solid var(--atm-border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--atm-panel) 90%, transparent);
+}
+
+.anime-tag-master-selected {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.anime-tag-master-selected img,
+.anime-tag-master-selected-placeholder {
+  width: 84px;
+  height: 84px;
+  border: 2px solid var(--atm-border);
+  border-radius: 8px;
+  background: var(--atm-panel);
+}
+
+.anime-tag-master-selected img {
+  object-fit: cover;
+}
+
+.anime-tag-master-selected-placeholder,
+.anime-tag-master-no-image,
+.anime-tag-master-tag-badge {
+  display: grid;
+  place-items: center;
+  color: var(--atm-muted);
+}
+
+.anime-tag-master-selected strong,
+.anime-tag-master-selected span {
+  display: block;
+  color: var(--atm-text);
+}
+
+.anime-tag-master-section label,
+.anime-tag-master-manager label {
+  display: grid;
+  gap: 6px;
+  color: var(--atm-text);
+  font-weight: 800;
+}
+
+.anime-tag-master-section label > span,
+.anime-tag-master-manager h3,
+.anime-tag-master-card-actions button,
+.anime-tag-master-mode button,
+.anime-tag-master-actions button,
+.anime-tag-master-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.anime-tag-master-node input,
+.anime-tag-master-node select,
+.anime-tag-master-node textarea,
+.anime-tag-master-modal input,
+.anime-tag-master-modal select,
+.anime-tag-master-modal textarea {
+  width: 100%;
+  min-height: 36px;
+  border: 2px solid var(--atm-border);
+  border-radius: 8px;
+  background: var(--atm-panel);
+  color: var(--atm-text);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.anime-tag-master-modal textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.anime-tag-master-two-cols,
+.anime-tag-master-mode,
+.anime-tag-master-actions,
+.anime-tag-master-footer,
+.anime-tag-master-card-actions,
+.anime-tag-master-inline-form,
+.anime-tag-master-custom-actions,
+.anime-tag-master-online {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.anime-tag-master-online {
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  margin-top: 8px;
+}
+
+.anime-tag-master-mode button,
+.anime-tag-master-actions button,
+.anime-tag-master-footer button,
+.anime-tag-master-modal button,
+.anime-tag-master-card-actions button {
+  min-height: 36px;
+  border: 2px solid var(--atm-border);
+  border-radius: 8px;
+  background: var(--atm-panel);
+  color: var(--atm-text);
+  font-weight: 900;
+}
+
+.anime-tag-master-mode button.active,
+.anime-tag-master-grid button.active,
+.anime-tag-master-footer button {
+  background: linear-gradient(180deg, var(--atm-accent), var(--atm-accent-strong));
+  color: #fff;
+}
+
+.anime-tag-master-actions {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.anime-tag-master-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 350px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.anime-tag-master-grid button {
+  min-width: 0;
+  min-height: 138px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+  overflow: hidden;
+  border: 2px solid var(--atm-border-soft);
+  border-radius: 8px;
+  background: var(--atm-panel);
+  color: var(--atm-text);
+  padding: 6px;
+  cursor: pointer;
+}
+
+.anime-tag-master-grid img {
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 132px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.anime-tag-master-grid span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.15;
+  word-break: break-word;
+  color: inherit;
+  font-weight: 800;
+}
+
+.anime-tag-master-modal-backdrop,
+.anime-tag-master-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--atm-accent) 25%, transparent), transparent 26%),
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--atm-blue) 22%, transparent), transparent 24%),
+    rgba(3, 7, 18, 0.72);
+}
+
+.anime-tag-master-modal {
+  width: min(1380px, calc(100vw - 56px));
+  height: min(860px, calc(100vh - 56px));
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  overflow: hidden;
+  border: 2px solid var(--atm-border);
+  border-radius: 14px;
+  background: var(--atm-bg);
+  box-shadow: 0 24px 80px var(--atm-shadow);
+}
+
+.anime-tag-master-modal-header,
+.anime-tag-master-modal-tools {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 2px solid var(--atm-border-soft);
+  background: color-mix(in srgb, var(--atm-panel-strong) 55%, var(--atm-bg));
+}
+
+.anime-tag-master-modal-header {
+  grid-template-columns: 1fr auto;
+}
+
+.anime-tag-master-kicker {
+  color: var(--atm-accent-strong);
+  font-weight: 900;
+}
+
+.anime-tag-master-modal-tools {
+  grid-template-columns: minmax(260px, 1fr) 210px 210px auto auto;
+}
+
+.anime-tag-master-search {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.anime-tag-master-modal-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 14px;
+  padding: 14px;
+}
+
+.anime-tag-master-gallery,
+.anime-tag-master-manager {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.anime-tag-master-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.anime-tag-master-card,
+.anime-tag-master-manager {
+  border: 2px solid var(--atm-border-soft);
+  border-radius: 12px;
+  background: var(--atm-panel);
+  color: var(--atm-text);
+}
+
+.anime-tag-master-card.is-selected {
+  border-color: var(--atm-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--atm-accent) 24%, transparent);
+}
+
+.anime-tag-master-thumb-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid var(--atm-border-soft);
+  border-radius: 10px 10px 0 0;
+  background: var(--atm-panel);
+  padding: 0;
+  overflow: hidden;
+}
+
+.anime-tag-master-thumb-button img,
+.anime-tag-master-no-image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+}
+
+.anime-tag-master-no-image {
+  background: color-mix(in srgb, var(--atm-panel-strong) 44%, var(--atm-panel));
+  font-weight: 900;
+}
+
+.anime-tag-master-card-body,
+.anime-tag-master-manager {
+  padding: 12px;
+}
+
+.anime-tag-master-card-body strong,
+.anime-tag-master-card-body span {
+  display: block;
+  color: var(--atm-text);
+}
+
+.anime-tag-master-card-body p {
+  min-height: 44px;
+}
+
+.anime-tag-master-card-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.anime-tag-master-card-actions button:last-child:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.anime-tag-master-manager {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.anime-tag-master-wide-button {
+  width: 100%;
+}
+
+.anime-tag-master-inline-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.anime-tag-master-inline-form > * {
+  min-width: 0;
+}
+
+.anime-tag-master-custom-upload {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px dashed var(--atm-border-soft);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--atm-panel) 80%, transparent);
+}
+
+.anime-tag-master-custom-upload img,
+.anime-tag-master-custom-upload-placeholder {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--atm-border-soft);
+}
+
+.anime-tag-master-custom-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.anime-tag-master-inline-form .danger,
+.anime-tag-master-modal button.danger {
+  color: var(--atm-danger);
+  border-color: var(--atm-danger);
+}
+
+.anime-tag-master-status {
+  border: 1px dashed var(--atm-border-soft);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.anime-tag-master-lightbox-backdrop {
+  z-index: 10030;
+}
+
+.anime-tag-master-lightbox {
+  width: min(1080px, calc(100vw - 160px));
+  max-height: calc(100vh - 80px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden;
+  border: 2px solid var(--atm-border);
+  border-radius: 14px;
+  background: var(--atm-bg);
+  color: var(--atm-text);
+  box-shadow: 0 24px 80px var(--atm-shadow);
+}
+
+.anime-tag-master-lightbox img {
+  width: 100%;
+  height: min(78vh, 760px);
+  object-fit: contain;
+  background: #050814;
+}
+
+.anime-tag-master-lightbox figcaption {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 18px;
+}
+
+.anime-tag-master-lightbox figcaption strong,
+.anime-tag-master-lightbox figcaption span,
+.anime-tag-master-lightbox figcaption p {
+  color: var(--atm-text);
+}
+
+@media (max-width: 900px) {
+  .anime-tag-master-modal-tools,
+  .anime-tag-master-modal-layout,
+  .anime-tag-master-lightbox {
+    grid-template-columns: 1fr;
+  }
+
+  .anime-tag-master-lightbox {
+    width: calc(100vw - 32px);
+  }
+
+  .anime-tag-master-lightbox img {
+    height: 52vh;
+  }
 }
 
 @media (max-width: 900px) {

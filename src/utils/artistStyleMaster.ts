@@ -40,6 +40,16 @@ export interface ArtistStyleSearchOptions {
   limit?: number;
 }
 
+export interface ArtistStyleMaterialInput {
+  imageUrl: string;
+  title?: string;
+  prompt: string;
+  negativePrompt?: string;
+  categoryZh?: string;
+  tags?: string[];
+  sourceNodeId?: string;
+}
+
 export interface ArtistStyleOutputPayload {
   kind: 'text' | 'image';
   data: {
@@ -95,6 +105,63 @@ function uniqueStrings(values: unknown[]): string[] {
     result.push(item);
   });
   return result;
+}
+
+function simpleHash(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function fileNameFromUrl(url: string): string {
+  try {
+    const parsed = url.startsWith('http') ? new URL(url) : new URL(url, 'http://local');
+    return decodeURIComponent(parsed.pathname.split('/').pop() || '') || 'image-style';
+  } catch {
+    return url.split(/[\\/]/).pop()?.split(/[?#]/)[0] || 'image-style';
+  }
+}
+
+function stripExtension(value: string): string {
+  return value.replace(/\.[a-z0-9]{2,8}$/i, '').trim();
+}
+
+export function createArtistStyleFromMaterial(input: ArtistStyleMaterialInput): ArtistStyleItem {
+  const imageUrl = textOf(input.imageUrl);
+  const prompt = textOf(input.prompt);
+  const negativePrompt = textOf(input.negativePrompt);
+  const rawTitle = textOf(input.title) || fileNameFromUrl(imageUrl);
+  const name = stripExtension(rawTitle) || 'material-style';
+  const categoryZh = textOf(input.categoryZh) || '素材收藏';
+  const category = slugifyArtistStyle(categoryZh);
+  const cue = [
+    prompt,
+    negativePrompt ? `Negative prompt: ${negativePrompt}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  return normalizeArtistStyleItem({
+    id: `material-${slugifyArtistStyle(name)}-${simpleHash(`${imageUrl}\n${prompt}`)}`,
+    name,
+    chineseName: name,
+    displayName: name,
+    movement: 'User',
+    movementZh: '自定义风格',
+    category,
+    categoryZh,
+    cue,
+    imageUrl,
+    thumbnailUrl: imageUrl,
+    tags: uniqueStrings([
+      ...(Array.isArray(input.tags) ? input.tags : []),
+      '素材右键',
+      categoryZh,
+      textOf(input.sourceNodeId),
+    ]),
+    sourceOrder: Date.now(),
+    userCreated: true,
+  });
 }
 
 export function normalizeArtistStyleItem(input: Partial<ArtistStyleItem> & { name?: string }): ArtistStyleItem {

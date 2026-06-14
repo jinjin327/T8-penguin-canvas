@@ -111,6 +111,44 @@ export async function updateSettings(patch: Partial<ApiSettings>): Promise<void>
   });
 }
 
+export type TaskCompletionSoundSettings = NonNullable<ApiSettings['taskCompletionSound']>;
+
+export async function getTaskCompletionSoundSettings(): Promise<TaskCompletionSoundSettings> {
+  const res = await request<{ success: boolean; data: TaskCompletionSoundSettings }>(
+    `${BASE}/settings/task-completion-sound`,
+  );
+  return res.data || { mode: 'default', url: '' };
+}
+
+export async function uploadTaskCompletionSound(file: File): Promise<TaskCompletionSoundSettings> {
+  const form = new FormData();
+  form.append('audio', file);
+  const res = await fetch(`${BASE}/settings/task-completion-sound`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      errMsg = data.error || data.message || errMsg;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(errMsg);
+  }
+  const data = await res.json();
+  return data.data || { mode: 'default', url: '' };
+}
+
+export async function resetTaskCompletionSound(): Promise<TaskCompletionSoundSettings> {
+  const res = await request<{ success: boolean; data: TaskCompletionSoundSettings }>(
+    `${BASE}/settings/task-completion-sound`,
+    { method: 'DELETE' },
+  );
+  return res.data || { mode: 'default', url: '' };
+}
+
 export interface AdvancedProviderTestResult {
   ok: boolean;
   code: string;

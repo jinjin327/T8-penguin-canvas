@@ -388,10 +388,16 @@ html[data-theme-visual="tetris"][data-theme-mode="dark"] .t8-node::after {
   filter: drop-shadow(0 0 8px rgba(38, 230, 255, 0.22));
 }
 
-html[data-theme-visual="tetris"] .react-flow__node:not(.react-flow__node-groupBox) > div > :not(.react-flow__handle),
-html[data-theme-visual="tetris"] .t8-node > :not(.react-flow__handle) {
+html[data-theme-visual="tetris"] .react-flow__node:not(.react-flow__node-groupBox) > div > :not(.react-flow__handle):not(.react-flow__resize-control):not(.t8-resize-handle),
+html[data-theme-visual="tetris"] .t8-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.t8-resize-handle) {
   position: relative;
   z-index: 1;
+}
+
+html[data-theme-visual="tetris"] .react-flow__node:not(.react-flow__node-groupBox) .react-flow__resize-control,
+html[data-theme-visual="tetris"] .react-flow__node:not(.react-flow__node-groupBox) .t8-resize-handle {
+  position: absolute !important;
+  z-index: 20;
 }
 
 html[data-theme-visual="tetris"] .react-flow__node:not(.react-flow__node-groupBox) > div > .t8-node-header,

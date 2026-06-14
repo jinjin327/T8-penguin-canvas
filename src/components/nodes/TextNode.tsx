@@ -189,7 +189,7 @@ const TextNode = ({ id, data, selected }: NodeProps) => {
         <span className="text-[10px] text-white/30">prompt</span>
       </div>
 
-      <div className={`p-2.5 flex flex-col ${size.h ? 'flex-1 min-h-0' : ''}`}>
+      <div className={`p-2.5 flex flex-col ${size.h ? 'flex-1 min-h-0 overflow-hidden' : ''}`}>
         <MentionPromptInput
           title="文本节点 Prompt"
           value={text}
@@ -206,8 +206,9 @@ const TextNode = ({ id, data, selected }: NodeProps) => {
           isDark={isDark}
           isPixel={isPixel}
           expandable
+          fillHeight={!!size.h}
           className={`w-full resize-none rounded-md bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white outline-none focus:border-white/30 placeholder:text-white/30 nodrag nowheel ${
-            size.h ? 'flex-1 min-h-[72px]' : 'h-24'
+            size.h ? 'min-h-0 flex-1' : 'h-24'
           }`}
         />
         <div className="text-[10px] text-white/30 mt-1 flex items-center gap-2 shrink-0">

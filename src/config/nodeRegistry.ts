@@ -49,6 +49,7 @@ export const NODE_REGISTRY: NodeMeta[] = [
 
   // ========== Inspiration 灵感之源 ==========
   { type: 'artist-style-master', label: '艺术风格大师', category: 'inspiration', description: '移植 qiaomu 艺术家风格库：按画家、中文名、流派和标签检索，输出风格提示词或参考图', icon: 'Palette', color: 'amber' },
+  { type: 'anime-tag-master', label: '动漫标签大师', category: 'inspiration', description: '移植 comfyui-anima-t8 Danbooru / Gelbooru 懒加载图库：搜索动漫标签、参考图、保存自定义标签并输出标签或图像', icon: 'Tags', color: 'lime' },
 
   // ========== ComfyUI 本地工作流节点 ==========
   { type: 'comfyui-store', label: 'ComfyUI超市', category: 'comfyui', description: 'ComfyUI 应用库：导入制作好的工作流应用，接上游素材后一键运行', icon: 'Boxes', color: 'cyan' },

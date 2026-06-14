@@ -156,6 +156,9 @@ test('Tetris theme files are imported and mounted in the toolbar without coverin
   assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node\.dragging:not\(\.react-flow__node-groupBox\) \.t8-node::before/);
   assert.match(css, /html\[data-theme-style="pixel"\]\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) > div:first-child/);
   assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) > div > :not\(\.react-flow__handle\)/);
+  assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) > div > :not\(\.react-flow__handle\):not\(\.react-flow__resize-control\):not\(\.t8-resize-handle\)/);
+  assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) \.react-flow__resize-control[\s\S]*position:\s*absolute\s*!important/);
+  assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) \.t8-resize-handle[\s\S]*position:\s*absolute\s*!important/);
   assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) \[class\*="border-white\/10"\]/);
   assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__node:not\(\.react-flow__node-groupBox\) \[data-drag-source\]/);
   assert.match(css, /html\[data-theme-visual="tetris"\] \.react-flow__handle::before/);

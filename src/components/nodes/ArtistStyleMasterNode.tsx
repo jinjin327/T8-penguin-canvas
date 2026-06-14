@@ -22,7 +22,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { createPortal } from 'react-dom';
 import { PORT_COLOR } from '../../config/portTypes';
 import {
-  ARTIST_STYLE_MASTER_CATEGORIES,
   ARTIST_STYLE_MASTER_ITEMS,
   ARTIST_STYLE_MASTER_MOVEMENTS,
 } from '../../data/artistStyleMasterManifest';
@@ -127,20 +126,24 @@ function ArtistStyleMasterNode({ id, data, selected }: NodeProps) {
     writeLibrary(library);
   }, [library]);
 
+  useEffect(() => {
+    const onLibraryChanged = () => setLibrary(readLibrary());
+    window.addEventListener('penguin:artist-style-master-changed', onLibraryChanged);
+    return () => window.removeEventListener('penguin:artist-style-master-changed', onLibraryChanged);
+  }, []);
+
   const allStyles = useMemo(() => {
     return [...ARTIST_STYLE_MASTER_ITEMS, ...library.styles] as ArtistStyleItem[];
   }, [library.styles]);
 
   const categoryOptions = useMemo(() => {
-    const customCategories = library.categories.map((item) => ({ id: item.id, label: item.name, labelZh: item.name }));
-    const fromStyles = library.styles.map((item) => ({
-      id: item.category,
-      label: item.category,
-      labelZh: item.categoryZh || item.category,
-    }));
     const merged = new Map<string, { id: string; label: string; labelZh: string }>();
-    [...ARTIST_STYLE_MASTER_CATEGORIES, ...customCategories, ...fromStyles].forEach((item) => {
-      if (item.id) merged.set(item.id, item);
+    library.categories.forEach((item) => {
+      if (item.id) merged.set(item.id, { id: item.id, label: item.name, labelZh: item.name });
+    });
+    library.styles.forEach((item) => {
+      const label = item.categoryZh || item.category;
+      if (item.category) merged.set(item.category, { id: item.category, label, labelZh: label });
     });
     return Array.from(merged.values()).sort((a, b) => a.labelZh.localeCompare(b.labelZh, 'zh-Hans-CN'));
   }, [library.categories, library.styles]);
@@ -157,6 +160,12 @@ function ArtistStyleMasterNode({ id, data, selected }: NodeProps) {
   const filteredStyles = useMemo(() => {
     return searchArtistStyles(allStyles, { query, movement, category, limit: galleryOpen ? undefined : 12 });
   }, [allStyles, category, galleryOpen, movement, query]);
+
+  useEffect(() => {
+    if (category !== 'all' && !categoryOptions.some((item) => item.id === category)) {
+      setCategory('all');
+    }
+  }, [category, categoryOptions]);
 
   const selectedStyle = useMemo(() => {
     return allStyles.find((item) => item.id === selectedId) || filteredStyles[0] || allStyles[0];
@@ -433,7 +442,7 @@ function ArtistStyleMasterNode({ id, data, selected }: NodeProps) {
             {toSelectOptions(movementOptions).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
           <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="all">全部分类</option>
+            <option value="all">全部收藏分类</option>
             {toSelectOptions(categoryOptions).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
           <button type="button" onClick={exportLibrary}><Download size={15} /> 导出</button>
@@ -600,9 +609,9 @@ function ArtistStyleMasterNode({ id, data, selected }: NodeProps) {
             </select>
           </label>
           <label>
-            <span><BookOpen size={14} /> 分类</span>
+            <span><BookOpen size={14} /> 收藏分类</span>
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option value="all">全部分类</option>
+              <option value="all">全部收藏分类</option>
               {toSelectOptions(categoryOptions).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
@@ -632,8 +641,8 @@ function ArtistStyleMasterNode({ id, data, selected }: NodeProps) {
       </section>
 
       <section className="artist-style-master-section nodrag nopan">
-        <div className="artist-style-master-mini-grid">
-          {filteredStyles.slice(0, 6).map((style) => (
+        <div className="artist-style-master-mini-grid" onWheelCapture={stopCanvasWheel}>
+          {filteredStyles.map((style) => (
             <button key={style.id} type="button" className={selectedStyle?.id === style.id ? 'active' : ''} onClick={() => setSelectedId(style.id)}>
               <img src={style.thumbnailUrl || style.imageUrl} alt={style.chineseName} />
               <span>{style.chineseName}</span>

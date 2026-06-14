@@ -51,6 +51,12 @@ import {
   type MediaItem,
   type MediaKind,
 } from '../utils/mediaCollection';
+import {
+  buildPersistentOutputSnapshotData,
+  readOutputMaterialPersistenceSetting,
+  shouldPreserveAutoOutputMaterialNode,
+  writeOutputMaterialPersistenceSetting,
+} from '../utils/outputMaterialPersistence';
 import { markCanvasNodesDeleted } from '../utils/deletedNodeRegistry';
 import {
   bucketSendableMaterials,
@@ -158,6 +164,7 @@ const GrokOAuthAgentNode = lazyCanvasNode(() => import('./nodes/GrokOAuthAgentNo
 const CodexCliAgentNode = lazyCanvasNode(() => import('./nodes/CodexCliAgentNode'), 'CodexCliAgentNode');
 const CodexImageConjureNode = lazyCanvasNode(() => import('./nodes/CodexImageConjureNode'), 'CodexImageConjureNode');
 const ArtistStyleMasterNode = lazyCanvasNode(() => import('./nodes/ArtistStyleMasterNode'), 'ArtistStyleMasterNode');
+const AnimeTagMasterNode = lazyCanvasNode(() => import('./nodes/AnimeTagMasterNode'), 'AnimeTagMasterNode');
 const ComfyUIStoreNode = lazyCanvasNode(() => import('./nodes/ComfyUIStoreNode'), 'ComfyUIStoreNode');
 const ComfyUIAppMakerNode = lazyCanvasNode(() => import('./nodes/ComfyUIAppMakerNode'), 'ComfyUIAppMakerNode');
 const ResizeNode = lazyCanvasNode(() => import('./nodes/ResizeNode'), 'ResizeNode');
@@ -227,6 +234,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   'codex-cli-agent': CodexCliAgentNode,
   'codex-image-conjure': CodexImageConjureNode,
   'artist-style-master': ArtistStyleMasterNode,
+  'anime-tag-master': AnimeTagMasterNode,
   ...(import.meta.env?.DEV ? { 'fal-toolbox-maker': FalToolboxMakerNode } : {}),
   'comfyui-store': ComfyUIStoreNode,
   'comfyui-app-maker': ComfyUIAppMakerNode,
@@ -1560,37 +1568,58 @@ function isRadialMenuPaneTarget(target: EventTarget | null): boolean {
   return !!el.closest('.react-flow__pane, .react-flow__background, .react-flow__renderer');
 }
 
-const MODEL_USAGE_HELP_TEXT = `特别注意事项：
+type ModelUsageHelpSection = {
+  title: string;
+  paragraphs?: readonly string[];
+  items?: readonly string[];
+};
 
-如果不小心网页崩溃等，但是实际任务没失败，需要去网站异步任务看下，有个蓝色的TASKID，点进去可以看到下载地址，手动下载。另外fal模型会预扣3.4个币，生成结束后会多退少补。seedance2.0模型会预扣10个币，生成结束后多退少补
-
-图像模型注意事项：
-
-gpt-image-2-all模型（default分组）只能出1K图，速度最快，最稳定，审核最松
-gpt-image-2模型（default分组）可以出1K，2K，4K图，2K，4K不一定稳定，如果提示系统错误，降低分辨率重试，超过1K，需要选择分辨率， auto不支持1K以上
-gpt-image-2-fal模型，兜底模型，支持2K，4K，价格较贵
-gpt-image-2-2k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）
-gpt-image-2-4k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）
-nano-banana-2和nano-banana-pro模型，需要用gemini优质分组，default分组不稳定（尤其4K）
-nano-banana-2-fal和nano-banana-pro-fal模型，兜底模型，支持4K，价格较贵
-grok-4.2-image模型（Default分组），审核最松，可以做各种姿势，支持多图编辑，保持一致性需要单独写保证脸部100%一致性不变
-MJ系列模型（Default分组），不同模型的用法都不一样，参考官方，推荐用fast模式，relax模式封号比较严重
-
-视频模型注意事项：
-seedance2.0（Default分组）非远景推荐480P+FAST模式，质量吊打快乐马，价格只要5个币15秒，后续用flashvsr放大即可，720P满血15秒大概15币，不排队，支持真人
-seedance2.0（sd-global分组）需要联系T8微信单独开通，只支持企业开通，由于除版权外基本无审核，防止有人搞色情，需要签协议才能开通，价格和上面一样
-veo3.1模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是veo&grok备用分组2的veo3.1模型和默认分组的fal模型
-veo-omni模型，需要使用default分组（veo-omnii模型是2026.06.06刚上架的）
-grok-video模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是fal模型和默认分组，新增支持最新imagine 1.5模型（支持图生视频FAL模型），最佳SD平替（default分组），以及veo&grok备用分组2，支持15秒多参生视频，2026.06.11修复grok-video-3模型的defualt默认分组，直接升级成imagine 1.5模型，0.5积分10秒，2026.06.12新增grok-video-1.5-6s，grok-video-1.5-10s，grok-video-1.5-15s模型，默认720P，分组default，3个模型，分别是0.5，0.7，0.7积分，最佳SD2.0平替
-sora-2模型，支持sora-vip分组以及default默认分组的FAL模型（sora-vip分组是2026.06.06刚修复的）
-
-音频模型注意事项：
-
-suno v5.5模型（Default分组）支持生成，翻唱，延长，一次生成两首歌，翻唱模式情况下，如果是版权歌曲大概率会失败，需要做各种前置处理，可以在网站异步任务查看。
-
-LLM模型注意事项：
-
-LLM模型有时候因为官方问题会出现速度慢，失败等现象，这时候换个模型即可或者换一下分组即可，预置了多个模型。`;
+const MODEL_USAGE_HELP_SECTIONS: readonly ModelUsageHelpSection[] = [
+  {
+    title: '特别注意事项',
+    paragraphs: [
+      '如果不小心网页崩溃等，但是实际任务没失败，需要去网站异步任务看下，有个蓝色的TASKID，点进去可以看到下载地址，手动下载。另外fal模型会预扣3.4个币，生成结束后会多退少补。seedance2.0模型会预扣10个币，生成结束后多退少补',
+    ],
+  },
+  {
+    title: '图像模型注意事项',
+    items: [
+      'gpt-image-2-vip模型（default分组）2026.06.14新增，支持2K，4K，目前稳定速度快，0.1积分',
+      'gpt-image-2-all模型（default分组）只能出1K图，速度最快，最稳定，审核最松',
+      'gpt-image-2模型（default分组）可以出1K，2K，4K图，2K，4K不一定稳定，如果提示系统错误，降低分辨率重试，超过1K，需要选择分辨率， auto不支持1K以上',
+      'gpt-image-2-fal模型，兜底模型，支持2K，4K，价格较贵',
+      'gpt-image-2-2k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）',
+      'gpt-image-2-4k模型是备用模型，非gpt-image-2模型分支，直接支持2k，目前0.1积分,2026.06.10新增（default分组）',
+      'nano-banana-2和nano-banana-pro模型，需要用gemini优质分组，default分组不稳定（尤其4K）',
+      'nano-banana-2-fal和nano-banana-pro-fal模型，兜底模型，支持4K，价格较贵',
+      'grok-4.2-image模型（Default分组），审核最松，可以做各种姿势，支持多图编辑，保持一致性需要单独写保证脸部100%一致性不变',
+      'MJ系列模型（Default分组），不同模型的用法都不一样，参考官方，推荐用fast模式，relax模式封号比较严重',
+    ],
+  },
+  {
+    title: '视频模型注意事项',
+    items: [
+      'seedance2.0（Default分组）非远景推荐480P+FAST模式，质量吊打快乐马，价格只要5个币15秒，后续用flashvsr放大即可，720P满血15秒大概15币，不排队，支持真人',
+      'seedance2.0（sd-global分组）需要联系T8微信单独开通，只支持企业开通，由于除版权外基本无审核，防止有人搞色情，需要签协议才能开通，价格和上面一样',
+      'veo3.1模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是veo&grok备用分组2的veo3.1模型和默认分组的fal模型',
+      'veo-omni模型，需要使用default分组（veo-omnii模型是2026.06.06刚上架的）',
+      'grok-video模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是fal模型和默认分组，新增支持最新imagine 1.5模型（支持图生视频FAL模型），最佳SD平替（default分组），以及veo&grok备用分组2，支持15秒多参生视频，2026.06.11修复grok-video-3模型的defualt默认分组，直接升级成imagine 1.5模型，0.5积分10秒，2026.06.12新增grok-video-1.5-6s，grok-video-1.5-10s，grok-video-1.5-15s模型，默认720P，分组default，3个模型，分别是0.5，0.7，0.7积分，最佳SD2.0平替',
+      'sora-2模型，支持sora-vip分组以及default默认分组的FAL模型（sora-vip分组是2026.06.06刚修复的）',
+    ],
+  },
+  {
+    title: '音频模型注意事项',
+    paragraphs: [
+      'suno v5.5模型（Default分组）支持生成，翻唱，延长，一次生成两首歌，翻唱模式情况下，如果是版权歌曲大概率会失败，需要做各种前置处理，可以在网站异步任务查看。',
+    ],
+  },
+  {
+    title: 'LLM模型注意事项',
+    paragraphs: [
+      'LLM模型有时候因为官方问题会出现速度慢，失败等现象，这时候换个模型即可或者换一下分组即可，预置了多个模型。',
+    ],
+  },
+];
 
 function getReactFlowHandleInfo(target: EventTarget | null): {
   nodeId: string;
@@ -2105,6 +2134,16 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
 
   // 吸附 + 对齐辅助线
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [outputMaterialPersistenceEnabled, setOutputMaterialPersistenceEnabled] = useState(() =>
+    readOutputMaterialPersistenceSetting(),
+  );
+  const toggleOutputMaterialPersistence = useCallback(() => {
+    setOutputMaterialPersistenceEnabled((current) => {
+      const next = !current;
+      writeOutputMaterialPersistenceSetting(next);
+      return next;
+    });
+  }, []);
   const [guides, setGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
     vertical: [],
     horizontal: [],
@@ -3742,6 +3781,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       grid: SNAP_GRID,
       gridGap: 48,
       alignGap: 32,
+      edges: edgesRef.current,
     });
     if (!result.changed) {
       logBus.info('选区已经足够整齐，未移动节点', '对齐');
@@ -5486,7 +5526,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
             id: newId,
             type: 'output',
             position: { x: baseX + _offFP.dx, y: baseY + i * 360 + _offFP.dy },
-            data: {}, // 不带 pickKind/pickIndex, 让 useUpstreamMaterials 按 sourceHandle 过滤
+            data: outputMaterialPersistenceEnabled
+              ? buildPersistentOutputSnapshotData({ kind: 'image', url: h === 'first' ? first : last })
+              : {}, // 不带 pickKind/pickIndex, 让 useUpstreamMaterials 按 sourceHandle 过滤
             selected: false,
           } as Node;
           toAddNodes.push(_newNode);
@@ -5541,7 +5583,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
             id: newId,
             type: 'output',
             position: { x: baseX + _offSU.dx, y: baseY + i * 360 + _offSU.dy },
-            data: {}, // 不带 pickKind/pickIndex。由 useUpstreamMaterials/OutputNode collected 按 sourceHandle 滤
+            data: outputMaterialPersistenceEnabled
+              ? buildPersistentOutputSnapshotData({ kind: 'audio', url: h === 'audio-0' ? a0 : a1 })
+              : {}, // 不带 pickKind/pickIndex。由 useUpstreamMaterials/OutputNode collected 按 sourceHandle 滤
             selected: false,
           } as Node;
           toAddNodes.push(_newNode);
@@ -5764,6 +5808,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           typeof o.pickIndex === 'number' &&
           !validItemKeys.has(`${o.pickKind}:${o.pickIndex}`)
         ) {
+          if (shouldPreserveAutoOutputMaterialNode(nodeById.get(o.id), outputMaterialPersistenceEnabled)) {
+            return true;
+          }
           toRemoveNodeIds.add(o.id);
           for (const edge of edges) {
             if (edge.source === o.id || edge.target === o.id) toRemoveEdgeIds.add(edge.id);
@@ -5853,7 +5900,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           },
           // pickKind/pickIndex: 下游 OutputNode 只拾上游对应 kind 的第 kindIndex 项,
           // 避免多图场景下所有 OutputNode 都重复显示全部输出
-          data: { pickKind: item.kind, pickIndex: item.kindIndex },
+          data: outputMaterialPersistenceEnabled
+            ? { pickKind: item.kind, pickIndex: item.kindIndex, ...buildPersistentOutputSnapshotData(item) }
+            : { pickKind: item.kind, pickIndex: item.kindIndex },
           selected: false,
         } as Node;
         toAddNodes.push(_newNodeGen);
@@ -5898,7 +5947,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         ...toAddEdges,
       ]);
     }
-  }, [nodes, edges, loaded, assignActiveNodeSerials, registerPlacementShelfNodes]);
+  }, [nodes, edges, loaded, assignActiveNodeSerials, registerPlacementShelfNodes, outputMaterialPersistenceEnabled]);
 
   // ===== 自动外挂 OutputNode 的网格重排 =====
   // 创建时使用了固定占位坐标 (350x360), 但节点实际宽高取决于
@@ -6066,6 +6115,13 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     pulseNearestNode(nearest.id);
   }, [activeId, getViewport, loaded, loadedCanvasId, nodes, screenToFlowPosition, setCenter]);
 
+  const focusCanvasCenter = useCallback(() => {
+    if (!loaded || loadedCanvasId !== activeId) return;
+    const currentZoom = getViewport().zoom || 1;
+    const zoom = Math.min(Math.max(currentZoom, 0.55), 1.15);
+    setCenter(0, 0, { zoom, duration: 420 });
+  }, [activeId, getViewport, loaded, loadedCanvasId, setCenter]);
+
   const focusNodeBySerialId = useCallback(() => {
     if (!loaded || loadedCanvasId !== activeId) return;
     const raw = window.prompt('输入要查找的 NodeID');
@@ -6143,6 +6199,27 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           .filter((n) => n.selected && n.type !== 'groupBox')
           .map((n) => n.id);
         if (selIds.length >= 1) handleCreateGroup(selIds);
+      } else if (matchesAnyShortcut(shortcuts['canvas.center-view'], e)) {
+        if (selectedCount > 0) return;
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (
+          isCanvasOverviewShortcutBlocked(e.target) ||
+          isCanvasOverviewShortcutBlocked(activeEl) ||
+          document.querySelector(
+            [
+              '[data-canvas-floating-ui="image-compare-modal"]',
+              '[data-canvas-floating-ui="portrait-master-editor"]',
+              '[data-canvas-floating-ui="send-materials-modal"]',
+              '[data-canvas-floating-ui="picker-menu"]',
+              '[data-canvas-floating-ui="node-menu"]',
+              '[data-canvas-floating-ui="pane-menu"]',
+            ].join(','),
+          )
+        ) {
+          return;
+        }
+        e.preventDefault();
+        focusCanvasCenter();
       } else if (matchesAnyShortcut(shortcuts['canvas.overview'], e) || matchesAnyShortcut(shortcuts['canvas.nearest-node'], e)) {
         const isNearestShortcut = matchesAnyShortcut(shortcuts['canvas.nearest-node'], e);
         if (isNearestShortcut && selectedCount > 0) return;
@@ -6189,7 +6266,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         internalPasteTimerRef.current = null;
       }
     };
-  }, [histUndo, histRedo, handleCopy, handlePaste, handleDuplicate, handleDeleteSelected, handleCreateGroup, nodes, selectedCount, fitView, focusNearestNodeToViewport, shortcuts]);
+  }, [histUndo, histRedo, handleCopy, handlePaste, handleDuplicate, handleDeleteSelected, handleCreateGroup, nodes, selectedCount, fitView, focusCanvasCenter, focusNearestNodeToViewport, shortcuts]);
 
   // 全局滚轮拦截 —— 自动给所有节点内的 input / textarea / select / contenteditable
   // 挂上 wheel.stopPropagation()，让用户在文本框内可用鼠标滚轮滚动文字而不触发画布缩放。
@@ -6322,6 +6399,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         batchDone={batchDone}
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled((v) => !v)}
+        outputMaterialPersistenceEnabled={outputMaterialPersistenceEnabled}
+        onToggleOutputMaterialPersistence={toggleOutputMaterialPersistence}
         onAlignSelection={handleAlignSelection}
       >
         <TetrisPanel
@@ -6565,7 +6644,23 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               </button>
             </div>
             <div className="t8-model-help-panel__body">
-              <div className="t8-model-help-panel__text">{MODEL_USAGE_HELP_TEXT}</div>
+              <div className="t8-model-help-panel__text">
+                {MODEL_USAGE_HELP_SECTIONS.map((section) => (
+                  <section className="t8-model-help-panel__section" key={section.title}>
+                    <h3>{section.title}：</h3>
+                    {section.paragraphs?.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                    {section.items ? (
+                      <ul>
+                        {section.items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                ))}
+              </div>
             </div>
           </div>
         )}

@@ -54,6 +54,7 @@ const DEFAULT: ApiSettings = {
     defaultTargetId: '',
     defaultLabel: '',
   },
+  taskCompletionSound: { mode: 'default', url: '' },
   preferences: { theme: 'dark', language: 'zh-CN' },
 };
 

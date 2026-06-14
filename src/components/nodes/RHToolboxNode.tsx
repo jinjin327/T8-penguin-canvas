@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { PORT_COLOR } from '../../config/portTypes';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
-import { uploadFile } from '../../services/generation';
+import { fetchRhAppInfo, uploadFile } from '../../services/generation';
 import { runRhToolboxTool, getRhToolboxManifest, type RunRhToolboxProgress } from '../../services/rhToolbox';
 import { useThemeStore } from '../../stores/theme';
 import { logBus } from '../../stores/logs';
@@ -28,7 +28,11 @@ import {
   RH_TOOLBOX_CAPABILITY_LABELS,
   filterRhToolboxTools,
   getRhToolboxCategoryMajorId,
+  getRhToolboxNodeInfoFieldLabel,
+  getRhToolboxNodeInfoFieldName,
+  getRhToolboxNodeInfoFieldNodeId,
   getRhToolboxToolMajorCategory,
+  inferRhToolboxUserParamsFromNodeInfoList,
   isRhToolboxBuiltinCategoryId,
   listRhToolboxTools,
   normalizeRhToolboxManifest,
@@ -123,7 +127,7 @@ const RHToolboxNode = ({ id, data, selected }: NodeProps) => {
   const categoryId = d.rhToolboxCategoryId || RH_TOOLBOX_ALL_CATEGORY_ID;
   const query = d.rhToolboxSearchQuery || '';
   const activeToolId = d.rhToolboxActiveToolId || '';
-  const activeTool = enabledTools.find((tool) => tool.id === activeToolId);
+  const baseActiveTool = enabledTools.find((tool) => tool.id === activeToolId);
   const status = d.status || 'idle';
   const isBusy = status === 'submitting' || status === 'polling';
   const urls: string[] = Array.isArray(d.urls) ? d.urls : [];
@@ -142,6 +146,35 @@ const RHToolboxNode = ({ id, data, selected }: NodeProps) => {
   const [hoveredToolId, setHoveredToolId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [activeToolAppInfo, setActiveToolAppInfo] = useState<any>(null);
+  const activeToolAppInfoFields = useMemo(
+    () => (Array.isArray(activeToolAppInfo?.nodeInfoList) ? activeToolAppInfo.nodeInfoList : []),
+    [activeToolAppInfo],
+  );
+  const activeTool = useMemo(() => {
+    if (!baseActiveTool) return undefined;
+    if (!activeToolAppInfoFields.length) return baseActiveTool;
+    const enrichedParams = (baseActiveTool.userParams || []).map((param) => {
+      const matchedField = activeToolAppInfoFields.find((field: any) => (
+        getRhToolboxNodeInfoFieldNodeId(field) === String(param.rhNodeId || '').trim().replace(/^#/, '')
+        && getRhToolboxNodeInfoFieldName(field) === String(param.fieldName || '').trim()
+      ));
+      const label = matchedField ? getRhToolboxNodeInfoFieldLabel(matchedField) : '';
+      if (!label || label === param.label) return param;
+      if (param.label && param.label !== param.fieldName && param.label !== param.key && param.label !== 'value') return param;
+      return { ...param, label };
+    });
+    const inferredParams = inferRhToolboxUserParamsFromNodeInfoList(activeToolAppInfoFields, [
+      ...(baseActiveTool.inputSchema || []),
+      ...enrichedParams,
+      ...(baseActiveTool.fixedParams || []),
+    ]);
+    if (enrichedParams === baseActiveTool.userParams && inferredParams.length === 0) return baseActiveTool;
+    return {
+      ...baseActiveTool,
+      userParams: [...enrichedParams, ...inferredParams],
+    };
+  }, [activeToolAppInfoFields, baseActiveTool]);
 
   const initialSize = (d?.size && typeof d.size.w === 'number') ? d.size : { w: 360, h: 460 };
   const [size, setSize] = useState<{ w: number; h: number }>(initialSize);
@@ -196,6 +229,26 @@ const RHToolboxNode = ({ id, data, selected }: NodeProps) => {
       window.removeEventListener('penguin:rh-toolbox-manifest-updated', refreshManifest);
     };
   }, [activeToolId, update]);
+
+  useEffect(() => {
+    let disposed = false;
+    setActiveToolAppInfo(null);
+    if (!baseActiveTool?.webappId || baseActiveTool.runtime?.fetchAppInfo === false) return () => {
+      disposed = true;
+    };
+    fetchRhAppInfo(baseActiveTool.webappId)
+      .then((info) => {
+        if (disposed) return;
+        setActiveToolAppInfo(info);
+      })
+      .catch((error: any) => {
+        if (disposed) return;
+        logBus.debug(error?.message || '读取 RH NodeList 失败', `rh-toolbox:${id}`);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [baseActiveTool?.id, baseActiveTool?.runtime?.fetchAppInfo, baseActiveTool?.webappId]);
 
   const upstream = useUpstreamMaterials(id);
   const excludedMaterialIds = useMemo(
@@ -521,13 +574,18 @@ const RHToolboxNode = ({ id, data, selected }: NodeProps) => {
     try {
       const explicitInputValues = collectExplicitInputValues();
       const resolvedUserParams = collectResolvedUserParams();
+      const runManifest = normalizeRhToolboxManifest({
+        ...manifest,
+        tools: manifest.tools.map((tool) => (tool.id === activeTool.id ? activeTool : tool)),
+      });
       const onProgress = (progress: RunRhToolboxProgress) => {
         setProgressMessage(progress.message);
         if (progress.taskId) update({ status: progress.stage === 'poll' ? 'polling' : 'submitting', taskId: progress.taskId });
       };
       const result = await runRhToolboxTool({
         toolId: activeTool.id,
-        manifest,
+        manifest: runManifest,
+        appInfo: activeToolAppInfo,
         inputs: {
           texts: orderedTexts.map((m) => m.url),
           images: orderedImages.map((m) => m.url),

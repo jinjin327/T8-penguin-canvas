@@ -97,6 +97,8 @@ export const NODE_PORTS: Record<string, NodePorts> = {
   // ========== Inspiration ==========
   // 艺术风格大师：可接收上游文本作为检索/创作语境，运行时输出风格提示词或风格参考图。
   'artist-style-master': { inputs: ['text'], outputs: ['text', 'image'] },
+  // 动漫标签大师：可接收文本/图像语境，运行时输出标签提示词或标签参考图。
+  'anime-tag-master': { inputs: ['text', 'image'], outputs: ['text', 'image'] },
 
   // ========== ComfyUI ==========
   // ComfyUI超市：本地 workflow 应用运行器，可按 manifest 消费/输出四类素材。
