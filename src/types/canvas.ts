@@ -254,12 +254,47 @@ export interface CanvasListItem {
   updatedAt: number;
 }
 
+export type CreativeDeskFrameId =
+  | 'none'
+  | 'poster-card'
+  | 'glass-card'
+  | 'sticker'
+  | 'polaroid'
+  | 'comic-panel';
+
+export interface CreativeDeskItem {
+  id: string;
+  kind: 'image';
+  url: string;
+  title?: string;
+  resourceId?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+  frameId: CreativeDeskFrameId | string;
+  zIndex: number;
+  locked?: boolean;
+  visible?: boolean;
+  createdAt: number;
+}
+
+export interface CreativeDeskState {
+  version: 1;
+  defaultOpacity?: number;
+  items: CreativeDeskItem[];
+}
+
 // 画布完整数据
 export interface CanvasData {
   nodes: any[];
   edges: any[];
   viewport: { x: number; y: number; zoom: number };
   nextNodeSerialId?: number;
+  creativeDesk?: CreativeDeskState;
 }
 
 // API Key 设置(对应后端 settings)

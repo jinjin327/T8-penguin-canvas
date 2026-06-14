@@ -123,8 +123,8 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
     boxShadow: isPixel ? '3px 3px 0 var(--px-ink)' : 'var(--t8-node-shadow, 0 12px 30px rgba(0,0,0,0.28))',
   };
   const inputCls = isPixel
-    ? 'px-input nodrag nowheel w-full text-xs px-2 py-1'
-    : 'nodrag nowheel w-full rounded border px-2 py-1 text-xs outline-none';
+    ? 'px-input nodrag nopan nowheel w-full text-xs px-2 py-1'
+    : 'nodrag nopan nowheel w-full rounded border px-2 py-1 text-xs outline-none';
   const inputStyle: CSSProperties = isPixel
     ? {}
     : {
@@ -133,8 +133,8 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
       color: text,
     };
   const btnCls = isPixel
-    ? 'px-btn nodrag nowheel text-[11px] px-2 py-1 inline-flex items-center justify-center gap-1'
-    : 'nodrag nowheel rounded border px-2 py-1 text-[11px] inline-flex items-center justify-center gap-1';
+    ? 'px-btn nodrag nopan nowheel text-[11px] px-2 py-1 inline-flex items-center justify-center gap-1'
+    : 'nodrag nopan nowheel rounded border px-2 py-1 text-[11px] inline-flex items-center justify-center gap-1';
 
   const setRaw = (raw: string) => {
     update({ comfyMakerWorkflowRaw: raw, comfyMakerHiddenParamKeys: [] });
@@ -440,7 +440,7 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
                     )}
                     <button
                       type="button"
-                      className="nodrag nowheel inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px]"
+                      className="nodrag nopan nowheel inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px]"
                       style={{ borderColor: 'rgba(248,113,113,0.45)', color: '#f87171', background: isLight ? 'rgba(248,113,113,0.08)' : 'rgba(248,113,113,0.12)' }}
                       title="移除此参数"
                       onClick={() => hideParam(param.key)}
@@ -449,7 +449,7 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
                     </button>
                   </div>
                   <div className="truncate text-[10px]" style={{ color: sub }}>
-                    {COMFY_APP_SOURCE_LABELS[param.source] || param.source} · {param.kind}{param.options?.length ? `(${param.options.length}项)` : ''} · 默认 {String(param.defaultValue ?? '空').slice(0, 28)}
+                    {COMFY_APP_SOURCE_LABELS[param.source] || COMFY_APP_SOURCE_LABELS[param.fieldName || ''] || param.fieldName || param.source} · {param.kind}{param.options?.length ? `(${param.options.length}项)` : ''} · 默认 {String(param.defaultValue ?? '空').slice(0, 28)}
                   </div>
                 </div>
               ))}

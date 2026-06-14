@@ -92,12 +92,27 @@ export interface AiWatermarkProcessResult {
   outputUrl?: string;
   outputText?: string;
   report?: any;
+  warnings?: string[];
+  deviceFallback?: {
+    requested?: string;
+    resolved?: string;
+    reason?: string;
+    torchVersion?: string;
+    torchCuda?: string | null;
+    cudaAvailable?: boolean;
+    deviceCount?: number;
+    deviceName?: string;
+  } | null;
   logs?: Array<{ step: string; ok: boolean; stdout?: string; stderr?: string }>;
   input?: {
     kind?: MediaKind;
     mime?: string;
     source?: string;
   };
+}
+
+export interface AiWatermarkRequestOptions {
+  signal?: AbortSignal;
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -121,9 +136,10 @@ export function processAiWatermark(payload: {
   kind?: MediaKind;
   mode: AiWatermarkMode;
   options?: AiWatermarkOptions;
-}): Promise<AiWatermarkProcessResult> {
+}, options: AiWatermarkRequestOptions = {}): Promise<AiWatermarkProcessResult> {
   return requestJson<AiWatermarkProcessResult>(`${BASE}/process`, {
     method: 'POST',
+    signal: options.signal,
     body: JSON.stringify(payload),
   });
 }

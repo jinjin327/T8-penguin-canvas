@@ -113,6 +113,59 @@ function deriveNextNodeSerialId(nodes, incomingNext) {
   return Math.max(1, requested || 1, maxSerial + 1);
 }
 
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function sanitizeCreativeDeskText(value, maxLength = 160) {
+  if (value == null) return undefined;
+  const text = String(value).replace(/\0/g, '').trim();
+  return text ? text.slice(0, maxLength) : undefined;
+}
+
+function sanitizeCreativeDeskUrl(value) {
+  const url = sanitizeCreativeDeskText(value, 2048);
+  if (!url) return '';
+  if (/^data:/i.test(url)) return '';
+  return url;
+}
+
+function sanitizeCreativeDeskState(value) {
+  const items = Array.isArray(value?.items) ? value.items : [];
+  const sanitizedItems = [];
+  for (const item of items.slice(0, 48)) {
+    const url = sanitizeCreativeDeskUrl(item?.url);
+    if (!url) continue;
+    const id = sanitizeCreativeDeskText(item?.id, 80) || `desk-${sanitizedItems.length + 1}`;
+    sanitizedItems.push({
+      id,
+      kind: 'image',
+      url,
+      title: sanitizeCreativeDeskText(item?.title, 120),
+      resourceId: sanitizeCreativeDeskText(item?.resourceId, 120),
+      x: clampNumber(item?.x, 0, -200000, 200000),
+      y: clampNumber(item?.y, 0, -200000, 200000),
+      width: clampNumber(item?.width, 320, 24, 8000),
+      height: clampNumber(item?.height, 220, 24, 8000),
+      scale: clampNumber(item?.scale, 1, 0.05, 12),
+      rotation: clampNumber(item?.rotation, 0, -720, 720),
+      opacity: clampNumber(item?.opacity, 0.42, 0, 1),
+      frameId: sanitizeCreativeDeskText(item?.frameId, 40) || 'poster-card',
+      zIndex: Math.round(clampNumber(item?.zIndex, sanitizedItems.length + 1, 0, 9999)),
+      locked: item?.locked === true,
+      visible: item?.visible !== false,
+      createdAt: Math.round(clampNumber(item?.createdAt, Date.now(), 1, 9999999999999)),
+    });
+  }
+  return {
+    version: 1,
+    defaultOpacity: clampNumber(value?.defaultOpacity, 0.42, 0, 1),
+    items: sanitizedItems,
+  };
+}
+
 // GET /api/canvas — 获取画布列表
 router.get('/', (_req, res) => {
   const list = loadCanvasList();
@@ -175,6 +228,9 @@ router.put('/:id', (req, res) => {
     viewport: incoming?.viewport || { x: 0, y: 0, zoom: 1 },
     nextNodeSerialId: deriveNextNodeSerialId(incoming?.nodes, incoming?.nextNodeSerialId),
   };
+  if (Object.prototype.hasOwnProperty.call(incoming || {}, 'creativeDesk')) {
+    persisted.creativeDesk = sanitizeCreativeDeskState(incoming.creativeDesk);
+  }
   atomicWriteJson(file, persisted);
   // 更新列表元数据
   const list = loadCanvasList();
@@ -225,6 +281,9 @@ router.post('/:id/auto-save', (req, res) => {
       viewport: incoming.viewport || { x: 0, y: 0, zoom: 1 },
       nextNodeSerialId: deriveNextNodeSerialId(incoming.nodes, incoming.nextNodeSerialId),
     };
+    if (Object.prototype.hasOwnProperty.call(incoming || {}, 'creativeDesk')) {
+      payload.creativeDesk = sanitizeCreativeDeskState(incoming.creativeDesk);
+    }
 
     atomicWriteJson(target, payload);
     res.json({ success: true, data: { path: target, nodeCount: incoming.nodes.length, edgeCount: incoming.edges.length } });

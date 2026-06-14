@@ -24,6 +24,8 @@ import ResizableCorners from './ResizableCorners';
 import CollectionSplitButton from '../CollectionSplitButton';
 import ImageHoverPreview from '../ImageHoverPreview';
 import LoopingVideo from '../LoopingVideo';
+import MediaMetadataBadge from '../MediaMetadataBadge';
+import RhImageCapabilityButton from '../RhImageCapabilityButton';
 import SmartImage from '../SmartImage';
 import { decodeDuckFiles, type DuckDecodeFileItem } from '../../services/api';
 import { resolveThemeTemplate } from '../../theme/defaultTemplates';
@@ -412,12 +414,16 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
   // === 双击 / 上方「Edit」 → 启动图像编辑弹窗（仅 image 类型生效） ===
   // 逻辑对齐 OutputNode：编辑产物以独立 OutputNode 外挂到右侧，
   // 不修改当前上传节点本身的 imageUrl。
-  const canEditImage = !!url && uploadType === 'image';
+  const imageSourceUrls = useMemo(
+    () => mediaItems.filter((item) => item.kind === 'image' && item.url).map((item) => item.url),
+    [mediaItems],
+  );
+  const canEditImage = imageSourceUrls.length > 0 && uploadType === 'image';
   const openEdit = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (canEditImage && url) setEditingUrl(url);
+    if (canEditImage) setEditingUrl(imageSourceUrls[0]);
   };
-  const handleProduce = (urls: string[], _meta: ImageEditProduceMeta) => {
+  const handleProduce = (urls: string[], _meta?: ImageEditProduceMeta) => {
     if (!urls || urls.length === 0) return;
     const me = rf.getNode(id);
     const myW = (me as any)?.measured?.width || (me as any)?.width || 260;
@@ -521,41 +527,59 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
         accent={effectiveHandleColor}
         onResize={(_e, p) => setSize({ w: p.width, h: p.height })}
       />
-      {/* 选中时浮动「Edit」按钮 — 仅图像类型可用，与双击预览图等价 */}
+      {/* 选中时浮动图像操作按钮 — Edit 保持本地编辑, 抠图走 RH 工具箱能力层 */}
       {selected && canEditImage && (
-        <button
-          type="button"
+        <div
           className="nodrag nopan"
-          onClick={openEdit}
           onMouseDown={(e) => e.stopPropagation()}
-          title="编辑图像（裁剪 / 宫格切分），等同双击预览图"
           style={{
             position: 'absolute',
             top: -34,
             left: 0,
-            display: 'inline-flex',
+            display: 'flex',
             alignItems: 'center',
-            gap: 4,
-            padding: '4px 10px',
-            height: 26,
-            background: isDark ? 'rgba(28,28,32,0.92)' : 'rgba(255,255,255,0.95)',
-            color: effectiveHandleColor,
-            border: `1px solid ${effectiveHandleColor}66`,
-            borderRadius: isPixel ? 0 : 6,
-            boxShadow: isPixel
-              ? `2px 2px 0 ${effectiveHandleColor}`
-              : isDark
-                ? '0 6px 24px rgba(0,0,0,0.4)'
-                : '0 6px 24px rgba(0,0,0,0.12)',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
+            gap: 6,
             zIndex: 30,
           }}
         >
-          <Edit3 size={12} />
-          <span>Edit</span>
-        </button>
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={openEdit}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="编辑图像（裁剪 / 宫格切分），等同双击预览图"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '4px 10px',
+              height: 26,
+              background: isDark ? 'rgba(28,28,32,0.92)' : 'rgba(255,255,255,0.95)',
+              color: effectiveHandleColor,
+              border: `1px solid ${effectiveHandleColor}66`,
+              borderRadius: isPixel ? 0 : 6,
+              boxShadow: isPixel
+                ? `2px 2px 0 ${effectiveHandleColor}`
+                : isDark
+                  ? '0 6px 24px rgba(0,0,0,0.4)'
+                  : '0 6px 24px rgba(0,0,0,0.12)',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            <Edit3 size={12} />
+            <span>Edit</span>
+          </button>
+          <RhImageCapabilityButton
+            sourceUrls={imageSourceUrls}
+            accent={effectiveHandleColor}
+            isDark={isDark}
+            isPixel={isPixel}
+            onComplete={(result) => handleProduce(result.imageUrls)}
+            onError={setError}
+          />
+        </div>
       )}
       {/* 仅有 source handle(上传节点不接收输入) */}
       <Handle
@@ -697,6 +721,7 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                     </div>
                     <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/45' : 'text-zinc-500'}`}>
                       <span className="truncate flex-1" title={item.name}>{item.name || `图像 ${i + 1}`}</span>
+                      <MediaMetadataBadge kind="image" url={item.url} />
                       {item.size ? <span className="opacity-70">{formatMediaSize(item.size)}</span> : null}
                     </div>
                   </div>
@@ -725,6 +750,7 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                     />
                     <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/45' : 'text-zinc-500'}`}>
                       <span className="truncate flex-1" title={item.name}>{item.name || `视频 ${i + 1}`}</span>
+                      <MediaMetadataBadge kind="video" url={item.url} />
                       {item.size ? <span className="opacity-70">{formatMediaSize(item.size)}</span> : null}
                     </div>
                   </div>
@@ -751,6 +777,7 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                     />
                     <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/45' : 'text-zinc-500'}`}>
                       <span className="truncate flex-1" title={item.name}>{item.name || `音频 ${i + 1}`}</span>
+                      <MediaMetadataBadge kind="audio" url={item.url} />
                       {item.size ? <span className="opacity-70">{formatMediaSize(item.size)}</span> : null}
                     </div>
                   </div>

@@ -115,6 +115,7 @@ import RadialNodeMenu from './RadialNodeMenu';
 import RadialMenuSettingsModal from './RadialMenuSettingsModal';
 import MaterialDragOverlay from './MaterialDragOverlay';
 import ThemeMusicToggle from './ThemeMusicToggle';
+import CreativeDeskLayer from './CreativeDeskLayer';
 import DragonBallRadar from './DragonBallRadar';
 import SaintSeiyaSanctuary from './SaintSeiyaSanctuary';
 import TetrisPanel from './TetrisPanel';
@@ -125,7 +126,13 @@ import type { CanvasTemplate } from '../config/canvasTemplates';
 import PlaceholderNode from './nodes/PlaceholderNode';
 import DeletableEdge from './edges/DeletableEdge';
 import { NODE_REGISTRY } from '../config/nodeRegistry';
-import type { NodeType, NodeMeta } from '../types/canvas';
+import type { CreativeDeskState, NodeType, NodeMeta } from '../types/canvas';
+import {
+  appendCreativeDeskItem,
+  createCreativeDeskImageItem,
+  createDefaultCreativeDeskState,
+  sanitizeCreativeDeskState,
+} from '../utils/creativeDesk';
 import {
   isConnectionValid,
   getNodeOutputs,
@@ -136,6 +143,10 @@ import {
   NODE_PORTS,
   type PortType,
 } from '../config/portTypes';
+
+const CANVAS_PAN_MOUSE_BUTTONS = [0, 1] as const;
+const RADIAL_MENU_MOUSE_BUTTON = 2;
+const RADIAL_MENU_CONTEXT_SUPPRESS_MS = 700;
 
 function lazyCanvasNode(load: () => Promise<any>, displayName: string): ComponentType<any> {
   const LazyNode = lazy(load);
@@ -1862,24 +1873,31 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   );
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [creativeDesk, setCreativeDesk] = useState<CreativeDeskState>(() => createDefaultCreativeDeskState());
+  const [creativeDeskEditing, setCreativeDeskEditing] = useState(false);
+  const [creativeDeskActiveItemId, setCreativeDeskActiveItemId] = useState<string | null>(null);
+  const [creativeDeskResources, setCreativeDeskResources] = useState<api.ResourceItem[]>([]);
+  const [creativeDeskResourceLoading, setCreativeDeskResourceLoading] = useState(false);
+  const [creativeDeskMessage, setCreativeDeskMessage] = useState('');
   const [radialMenu, setRadialMenu] = useState<RadialMenuSession | null>(null);
   const [fileDragOutActive, setFileDragOutActive] = useState(false);
   const [fileDragOutFeedback, setFileDragOutFeedback] = useState<FileDragOutFeedback | null>(null);
   const radialPanLocked = Boolean(radialMenu);
   const canvasPanLocked = radialPanLocked || fileDragOutActive;
-  const memoPanOnDrag = useMemo(() => (canvasPanLocked ? false : [0]), [canvasPanLocked]);
+  const memoPanOnDrag = useMemo(() => (canvasPanLocked ? false : [...CANVAS_PAN_MOUSE_BUTTONS]), [canvasPanLocked]);
   const [placementShelfItems, setPlacementShelfItems] = useState<PlacementShelfItem[]>([]);
   const [placementShelfOpen, setPlacementShelfOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>(null);
   const saveTimersByCanvasRef = useRef<Map<string, number>>(new Map());
-  const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; snapshot: string; nextNodeSerialId: number }>>(new Map());
+  const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; creativeDesk: CreativeDeskState; snapshot: string; nextNodeSerialId: number }>>(new Map());
   const lastSavedByCanvasRef = useRef<Map<string, string>>(new Map());
   const lastSavedNodeCountByCanvasRef = useRef<Map<string, number>>(new Map());
   const nextNodeSerialIdRef = useRef(1);
   const radialMenuRef = useRef<RadialMenuSession | null>(null);
   const radialPressRef = useRef<RadialPressState | null>(null);
   const radialViewportLockRef = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const radialContextMenuSuppressedUntilRef = useRef(0);
   const fileDragOutFeedbackTimerRef = useRef<number | null>(null);
   const allowEmptySaveCanvasIdsRef = useRef<Set<string>>(new Set());
   const edgeMotionReleaseTimerRef = useRef<number | null>(null);
@@ -2005,6 +2023,16 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   useEffect(() => {
     radialMenuRef.current = radialMenu;
   }, [radialMenu]);
+
+  const suppressRadialContextMenu = useCallback(() => {
+    radialContextMenuSuppressedUntilRef.current = Date.now() + RADIAL_MENU_CONTEXT_SUPPRESS_MS;
+  }, []);
+
+  const isRadialMenuContextMenuSuppressed = useCallback(() => (
+    Date.now() < radialContextMenuSuppressedUntilRef.current ||
+    Boolean(radialMenuRef.current) ||
+    Boolean(radialPressRef.current?.open)
+  ), []);
 
   useEffect(() => {
     if (!loaded || !achievementProfileLoaded || !achievementTrackingEnabled) return;
@@ -2223,6 +2251,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       nextNodeSerialIdRef.current = 1;
       setNodes([]);
       setEdges([]);
+      setCreativeDesk(createDefaultCreativeDeskState());
+      setCreativeDeskEditing(false);
+      setCreativeDeskActiveItemId(null);
       setPlacementShelfItems([]);
       setPlacementShelfOpen(false);
       setLoaded(false);
@@ -2241,6 +2272,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         const pendingSave = pendingSaveByCanvasRef.current.get(requestedCanvasId);
         const ns = pendingSave?.nodes || data.nodes || [];
         const es = pendingSave?.edges || data.edges || [];
+        const nextCreativeDesk = pendingSave?.creativeDesk || sanitizeCreativeDeskState(data.creativeDesk);
         const savedNextNodeSerialId = pendingSave?.nextNodeSerialId ?? data.nextNodeSerialId;
         // ⚡ 兑底补丁: 历史画布中可能存在 connectable=false 的旧 groupBox 节点
         // (5656721 事故期间创建的 group), 加载时强制打开可连接以恢复右侧聚合输出口
@@ -2254,6 +2286,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         const fixedNs = normalized.nodes;
         setNodes(fixedNs);
         setEdges(es);
+        setCreativeDesk(nextCreativeDesk);
+        setCreativeDeskEditing(false);
+        setCreativeDeskActiveItemId(null);
         const baselineNodes = normalized.changed ? fixedNsBeforeSerials : fixedNs;
         const baselineNextNodeSerialId = normalized.changed
           ? savedNextNodeSerialId || 1
@@ -2263,6 +2298,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         lastSavedByCanvasRef.current.set(requestedCanvasId, JSON.stringify({
           nodes: baselineNodes,
           edges: es,
+          creativeDesk: nextCreativeDesk,
           nextNodeSerialId: baselineNextNodeSerialId,
         }));
         lastSavedNodeCountByCanvasRef.current.set(requestedCanvasId, baselineNodes.length);
@@ -2277,6 +2313,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         nextNodeSerialIdRef.current = 1;
         setNodes([]);
         setEdges([]);
+        setCreativeDesk(createDefaultCreativeDeskState());
+        setCreativeDeskEditing(false);
+        setCreativeDeskActiveItemId(null);
         setPlacementShelfItems([]);
         setPlacementShelfOpen(false);
         histReset();
@@ -2350,7 +2389,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       (ed) => ed.source !== BULK_PHANTOM_ID && ed.target !== BULK_PHANTOM_ID
     );
     const nextNodeSerialId = nextNodeSerialIdRef.current;
-    const snapshot = JSON.stringify({ nodes: persistNodes, edges: persistEdges, nextNodeSerialId });
+    const snapshot = JSON.stringify({ nodes: persistNodes, edges: persistEdges, creativeDesk, nextNodeSerialId });
     const canvasIdForSave = activeId;
     const previousSnapshot = lastSavedByCanvasRef.current.get(canvasIdForSave) || '';
     if (snapshot === previousSnapshot) return;
@@ -2365,11 +2404,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     pendingSaveByCanvasRef.current.set(canvasIdForSave, {
       nodes: persistNodes,
       edges: persistEdges,
+      creativeDesk,
       nextNodeSerialId,
       snapshot,
     });
     const timer = window.setTimeout(async () => {
-      const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport(), nextNodeSerialId };
+      const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport(), nextNodeSerialId, creativeDesk };
       try {
         await api.saveCanvasData(canvasIdForSave, payload, { allowEmpty: allowEmptySave });
         api.autoSaveCanvasData(canvasIdForSave, payload).catch((e) => {
@@ -2397,7 +2437,108 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       }
     }, 800);
     saveTimersByCanvasRef.current.set(canvasIdForSave, timer);
-  }, [nodes, edges, activeId, loaded, loadedCanvasId, getViewport, dragSaveTick]);
+  }, [nodes, edges, creativeDesk, activeId, loaded, loadedCanvasId, getViewport, dragSaveTick]);
+
+  const getCreativeDeskCenter = useCallback(() => {
+    const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
+    const rect = flowEl?.getBoundingClientRect();
+    const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+    const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+    return screenToFlowPosition({ x: cx, y: cy });
+  }, [screenToFlowPosition]);
+
+  const loadCreativeDeskResources = useCallback(async () => {
+    setCreativeDeskResourceLoading(true);
+    setCreativeDeskMessage('');
+    try {
+      const result = await api.getResourceItems({ kind: 'image' });
+      if (!result.success) throw new Error(result.error || '资源库读取失败');
+      const items = result.data || [];
+      setCreativeDeskResources(items);
+      setCreativeDeskMessage(items.length > 0 ? `已载入 ${items.length} 张图片` : '资源库暂无图片');
+    } catch (err: any) {
+      setCreativeDeskMessage(err?.message || '资源库读取失败');
+    } finally {
+      setCreativeDeskResourceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!creativeDeskEditing) return;
+    void loadCreativeDeskResources();
+  }, [creativeDeskEditing, loadCreativeDeskResources]);
+
+  const handleCreativeDeskUploadFiles = useCallback(async (files: File[]) => {
+    const images = files.filter((file) => inferCanvasMediaKind(file) === 'image');
+    if (images.length === 0) {
+      setCreativeDeskMessage('请选择图片文件');
+      return;
+    }
+    setCreativeDeskResourceLoading(true);
+    setCreativeDeskMessage('正在上传图片...');
+    const prepared: Array<{ url: string; title?: string; resourceId?: string }> = [];
+    for (let i = 0; i < images.length; i += 1) {
+      const file = images[i];
+      try {
+        const media = await uploadCanvasMediaFile(file, 'image', i);
+        let resource: api.ResourceItem | null = null;
+        try {
+          const resourceResult = await api.addResourceItem({
+            kind: 'image',
+            url: media.url,
+            title: media.name || file.name || '创作台图片',
+            tags: ['创作台背景'],
+            sourceCanvasId: activeId || undefined,
+          });
+          if (resourceResult.success) {
+            resource = resourceResult.data;
+          } else {
+            console.warn('创作台图片入库失败，使用上传文件引用', resourceResult.error);
+          }
+        } catch (resourceErr) {
+          console.warn('创作台图片入库失败，使用上传文件引用', resourceErr);
+        }
+        prepared.push({
+          url: resource?.fileUrl || media.url,
+          title: resource?.title || media.name || file.name,
+          resourceId: resource?.id,
+        });
+      } catch (err: any) {
+        console.warn('创作台图片上传失败', err);
+      }
+    }
+    if (prepared.length === 0) {
+      setCreativeDeskMessage('图片上传失败');
+      setCreativeDeskResourceLoading(false);
+      return;
+    }
+    const center = getCreativeDeskCenter();
+    const preparedWithIds = prepared.map((item, index) => ({
+      ...item,
+      id: `desk-image-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    }));
+    const lastItemId = preparedWithIds[preparedWithIds.length - 1]?.id || null;
+    setCreativeDesk((prev) => {
+      let next = prev;
+      preparedWithIds.forEach((item, index) => {
+        const created = createCreativeDeskImageItem(item, {
+          x: center.x + index * 36,
+          y: center.y + index * 36,
+        }, next.items);
+        next = appendCreativeDeskItem(next, created);
+      });
+      return next;
+    });
+    if (lastItemId) setCreativeDeskActiveItemId(lastItemId);
+    setCreativeDeskMessage(`已添加 ${prepared.length} 张背景图`);
+    setCreativeDeskResourceLoading(false);
+    void loadCreativeDeskResources();
+  }, [activeId, getCreativeDeskCenter, loadCreativeDeskResources]);
+
+  const handleCreativeDeskResourceTouch = useCallback(async (item: api.ResourceItem) => {
+    const result = await api.updateResourceItem(item.id, { touch: true });
+    if (!result.success) console.warn('创作台资源使用时间更新失败', result.error);
+  }, []);
 
   // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   // 可选 atScreen 传入屏幕坐标，节点会落在该点(用于右键画布空白区添加)
@@ -2476,6 +2617,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         height: window.innerHeight,
       });
       press.open = true;
+      suppressRadialContextMenu();
       if (!radialViewportLockRef.current) {
         radialViewportLockRef.current = getViewport();
       }
@@ -2493,10 +2635,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      if (event.defaultPrevented || event.button !== 1) return;
+      if (event.defaultPrevented || event.button !== RADIAL_MENU_MOUSE_BUTTON) return;
       if (event.pointerType && event.pointerType !== 'mouse') return;
       if (!isRadialMenuPaneTarget(event.target)) return;
-      stopRadialPointerEvent(event);
       clearPress();
       radialViewportLockRef.current = getViewport();
       const start = { x: event.clientX, y: event.clientY };
@@ -2514,13 +2655,13 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const onPointerMove = (event: PointerEvent) => {
       const press = radialPressRef.current;
       if (!press || press.pointerId !== event.pointerId) return;
-      stopRadialPointerEvent(event);
-      restoreRadialViewportLock();
       const point = { x: event.clientX, y: event.clientY };
       if (!press.open) {
         if (distanceBetween(press.start, point) > RADIAL_MENU_MOVE_TOLERANCE) clearPress();
         return;
       }
+      stopRadialPointerEvent(event);
+      restoreRadialViewportLock();
       const current = radialMenuRef.current;
       if (!current) return;
       const index = radialSlotIndexFromPointer(current.center, point);
@@ -2533,11 +2674,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const onPointerUp = (event: PointerEvent) => {
       const press = radialPressRef.current;
       if (!press || press.pointerId !== event.pointerId) return;
-      stopRadialPointerEvent(event);
       if (!press.open) {
         clearPress();
         return;
       }
+      stopRadialPointerEvent(event);
+      suppressRadialContextMenu();
       const current = radialMenuRef.current;
       const slot = current?.activeIndex === null || current?.activeIndex === undefined
         ? null
@@ -2551,30 +2693,38 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const onPointerCancel = (event: PointerEvent) => {
       const press = radialPressRef.current;
       if (!press || press.pointerId !== event.pointerId) return;
-      stopRadialPointerEvent(event);
+      if (press.open) {
+        stopRadialPointerEvent(event);
+        suppressRadialContextMenu();
+      }
       closeRadial();
     };
 
     const onAuxClick = (event: MouseEvent) => {
-      if (event.button !== 1) return;
-      if (!isRadialMenuPaneTarget(event.target) && !radialMenuRef.current) return;
+      if (event.button !== RADIAL_MENU_MOUSE_BUTTON) return;
+      if (!radialMenuRef.current && !radialPressRef.current?.open) return;
       stopRadialPointerEvent(event);
     };
 
     const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 1) return;
-      if (!isRadialMenuPaneTarget(event.target) && !radialMenuRef.current && !radialPressRef.current) return;
+      if (event.button !== RADIAL_MENU_MOUSE_BUTTON) return;
+      if (!radialMenuRef.current && !radialPressRef.current?.open) return;
       stopRadialPointerEvent(event);
     };
 
     const onMouseMove = (event: MouseEvent) => {
-      if (!radialMenuRef.current && !radialPressRef.current) return;
+      if (!radialMenuRef.current && !radialPressRef.current?.open) return;
       stopRadialPointerEvent(event);
     };
 
     const onMouseUp = (event: MouseEvent) => {
-      if (event.button !== 1) return;
-      if (!radialMenuRef.current && !radialPressRef.current) return;
+      if (event.button !== RADIAL_MENU_MOUSE_BUTTON) return;
+      if (!radialMenuRef.current && !radialPressRef.current?.open) return;
+      stopRadialPointerEvent(event);
+    };
+
+    const onContextMenu = (event: MouseEvent) => {
+      if (!isRadialMenuContextMenuSuppressed()) return;
       stopRadialPointerEvent(event);
     };
 
@@ -2593,6 +2743,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     window.addEventListener('mousemove', onMouseMove, true);
     window.addEventListener('mouseup', onMouseUp, true);
     window.addEventListener('auxclick', onAuxClick, true);
+    window.addEventListener('contextmenu', onContextMenu, true);
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('blur', closeRadial);
     return () => {
@@ -2604,11 +2755,20 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       window.removeEventListener('mousemove', onMouseMove, true);
       window.removeEventListener('mouseup', onMouseUp, true);
       window.removeEventListener('auxclick', onAuxClick, true);
+      window.removeEventListener('contextmenu', onContextMenu, true);
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('blur', closeRadial);
       closeRadial();
     };
-  }, [addNode, getViewport, radialLongPressMs, radialSlots, restoreRadialViewportLock]);
+  }, [
+    addNode,
+    getViewport,
+    isRadialMenuContextMenuSuppressed,
+    radialLongPressMs,
+    radialSlots,
+    restoreRadialViewportLock,
+    suppressRadialContextMenu,
+  ]);
 
   const createUploadNodesFromFiles = useCallback(
     async (rawFiles: File[], atScreen?: { x: number; y: number }) => {
@@ -4136,6 +4296,11 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   // 空白处右键: 弹出快速添加节点菜单(同时关闭选区菜单)
   const onPaneContextMenu = useCallback(
     (e: React.MouseEvent | MouseEvent) => {
+      if (isRadialMenuContextMenuSuppressed()) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.preventDefault();
       setSelectionContextSubmenu(null);
       setContextMenu(null);
@@ -4143,7 +4308,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       const y = (e as MouseEvent).clientY;
       setPaneMenu({ x, y });
     },
-    []
+    [isRadialMenuContextMenuSuppressed]
   );
 
   // 记录最新选中的节点 id 列表(以便 onSelectionEnd 读取)
@@ -6380,6 +6545,148 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     );
   }
 
+  const floatingControlRail = (
+    <>
+      <div className="t8-control-rail nodrag nopan" data-canvas-floating-ui="control-rail">
+        <div className="t8-control-stack">
+          <button
+            type="button"
+            className={`t8-control-rail-help t8-control-rail-creative-desk t8-mini-icon-button${creativeDeskEditing ? ' is-active' : ''}`}
+            data-canvas-floating-ui="creative-desk-toggle"
+            aria-label="创作台背景"
+            title="创作台背景"
+            aria-expanded={creativeDeskEditing}
+            onClick={(event) => {
+              event.stopPropagation();
+              setCreativeDeskEditing((value) => {
+                const next = !value;
+                if (next) {
+                  setRadialSettingsOpen(false);
+                  setModelHelpOpen(false);
+                }
+                return next;
+              });
+            }}
+          >
+            <LucideIcons.Images size={16} />
+          </button>
+          <button
+            type="button"
+            className={`t8-control-rail-help t8-control-rail-radial t8-mini-icon-button${radialSettingsOpen ? ' is-active' : ''}`}
+            data-canvas-floating-ui="radial-settings-toggle"
+            aria-label="中键圆盘设置"
+            title="中键圆盘设置"
+            aria-expanded={radialSettingsOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setRadialSettingsOpen((value) => {
+                const next = !value;
+                if (next) {
+                  setModelHelpOpen(false);
+                  setCreativeDeskEditing(false);
+                }
+                return next;
+              });
+            }}
+          >
+            <LucideIcons.Settings2 size={16} />
+          </button>
+          <button
+            type="button"
+            className={`t8-control-rail-help t8-mini-icon-button${modelHelpOpen ? ' is-active' : ''}`}
+            data-canvas-floating-ui="model-help-toggle"
+            aria-label="模型注意事项"
+            title="模型注意事项"
+            aria-expanded={modelHelpOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setModelHelpOpen((value) => {
+                const next = !value;
+                if (next) {
+                  setRadialSettingsOpen(false);
+                  setCreativeDeskEditing(false);
+                }
+                return next;
+              });
+            }}
+          >
+            <LucideIcons.CircleHelp size={16} />
+          </button>
+          <ThemeMusicToggle template={currentTemplate} />
+          <Controls
+            style={{
+              background: isOp
+                ? themeTokens.panelBg
+                : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
+              border: isOp
+                ? `3px solid ${themeTokens.textMain}`
+                : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
+              borderRadius: isOp ? '16px 16px 8px 8px' : 8,
+              boxShadow: isOp ? `4px 4px 0 ${themeTokens.textMain}` : undefined,
+            }}
+          />
+        </div>
+        <PlacementShelf
+          items={placementShelfItems}
+          open={placementShelfOpen}
+          isDark={isDark}
+          isPixel={isPixel}
+          onToggle={() => setPlacementShelfOpen((prev) => !prev)}
+          onMoveNode={movePlacementShelfNode}
+          onRemove={(id) => setPlacementShelfItems((prev) => prev.filter((item) => item.id !== id))}
+        />
+      </div>
+      <RadialMenuSettingsModal open={radialSettingsOpen} onClose={() => setRadialSettingsOpen(false)} />
+      {modelHelpOpen && (
+        <div
+          className="t8-model-help-panel nodrag nopan"
+          data-canvas-floating-ui="model-help-panel"
+          role="dialog"
+          aria-modal="false"
+          aria-label="模型注意事项"
+        >
+          <div className="t8-model-help-panel__header">
+            <div>
+              <div className="t8-model-help-panel__eyebrow">MODEL NOTES</div>
+              <h2>模型注意事项</h2>
+            </div>
+            <button
+              type="button"
+              className="t8-model-help-panel__close t8-mini-icon-button"
+              aria-label="关闭说明"
+              title="关闭说明"
+              onClick={(event) => {
+                event.stopPropagation();
+                setModelHelpOpen(false);
+              }}
+            >
+              <LucideIcons.X size={16} />
+            </button>
+          </div>
+          <div className="t8-model-help-panel__body">
+            <div className="t8-model-help-panel__text">
+              {MODEL_USAGE_HELP_SECTIONS.map((section) => (
+                <section className="t8-model-help-panel__section" key={section.title}>
+                  <h3>{section.title}：</h3>
+                  {section.paragraphs?.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                  {section.items ? (
+                    <ul>
+                      {section.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div
       className={`t8-canvas-shell flex-1 relative${connectionPanModeActive ? ' connection-pan-mode-active' : ''}${edgeMotionReduced ? ' t8-edge-motion-reduced' : ''}${viewportMoving ? ' t8-viewport-moving' : ''}${nodeDragging ? ' t8-node-dragging' : ''}`}
@@ -6522,6 +6829,23 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           size={isPixel ? 1.6 : 1.2}
           color={dotColor}
         />
+        <CreativeDeskLayer
+          creativeDesk={creativeDesk}
+          editing={creativeDeskEditing}
+          activeItemId={creativeDeskActiveItemId}
+          resources={creativeDeskResources}
+          resourceLoading={creativeDeskResourceLoading}
+          message={creativeDeskMessage}
+          isPixel={isPixel}
+          isDark={isDark}
+          visualStyle={visualStyle}
+          onChange={setCreativeDesk}
+          onEditingChange={setCreativeDeskEditing}
+          onActiveItemChange={setCreativeDeskActiveItemId}
+          onUploadFiles={handleCreativeDeskUploadFiles}
+          onAddResource={handleCreativeDeskResourceTouch}
+          onRefreshResources={loadCreativeDeskResources}
+        />
         {/* 对齐辅助线:在世界坐标系中随视口变换 */}
         {(guides.vertical.length > 0 || guides.horizontal.length > 0) && (
           <ViewportPortal>
@@ -6565,116 +6889,6 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               ))}
             </svg>
           </ViewportPortal>
-        )}
-        <div className="t8-control-rail nodrag nopan" data-canvas-floating-ui="control-rail">
-          <div className="t8-control-stack">
-            <button
-              type="button"
-              className={`t8-control-rail-help t8-control-rail-radial t8-mini-icon-button${radialSettingsOpen ? ' is-active' : ''}`}
-              data-canvas-floating-ui="radial-settings-toggle"
-              aria-label="中键圆盘设置"
-              title="中键圆盘设置"
-              aria-expanded={radialSettingsOpen}
-              onClick={(event) => {
-                event.stopPropagation();
-                setRadialSettingsOpen((value) => {
-                  const next = !value;
-                  if (next) setModelHelpOpen(false);
-                  return next;
-                });
-              }}
-            >
-              <LucideIcons.Settings2 size={16} />
-            </button>
-            <button
-              type="button"
-              className={`t8-control-rail-help t8-mini-icon-button${modelHelpOpen ? ' is-active' : ''}`}
-              data-canvas-floating-ui="model-help-toggle"
-              aria-label="模型注意事项"
-              title="模型注意事项"
-              aria-expanded={modelHelpOpen}
-              onClick={(event) => {
-                event.stopPropagation();
-                setModelHelpOpen((value) => {
-                  const next = !value;
-                  if (next) setRadialSettingsOpen(false);
-                  return next;
-                });
-              }}
-            >
-              <LucideIcons.CircleHelp size={16} />
-            </button>
-            <ThemeMusicToggle template={currentTemplate} />
-            <Controls
-              style={{
-                background: isOp
-                  ? themeTokens.panelBg
-                  : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
-                border: isOp
-                  ? `3px solid ${themeTokens.textMain}`
-                  : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-                borderRadius: isOp ? '16px 16px 8px 8px' : 8,
-                boxShadow: isOp ? `4px 4px 0 ${themeTokens.textMain}` : undefined,
-              }}
-            />
-          </div>
-          <PlacementShelf
-            items={placementShelfItems}
-            open={placementShelfOpen}
-            isDark={isDark}
-            isPixel={isPixel}
-            onToggle={() => setPlacementShelfOpen((prev) => !prev)}
-            onMoveNode={movePlacementShelfNode}
-            onRemove={(id) => setPlacementShelfItems((prev) => prev.filter((item) => item.id !== id))}
-          />
-        </div>
-        <RadialMenuSettingsModal open={radialSettingsOpen} onClose={() => setRadialSettingsOpen(false)} />
-        {modelHelpOpen && (
-          <div
-            className="t8-model-help-panel nodrag nopan"
-            data-canvas-floating-ui="model-help-panel"
-            role="dialog"
-            aria-modal="false"
-            aria-label="模型注意事项"
-          >
-            <div className="t8-model-help-panel__header">
-              <div>
-                <div className="t8-model-help-panel__eyebrow">MODEL NOTES</div>
-                <h2>模型注意事项</h2>
-              </div>
-              <button
-                type="button"
-                className="t8-model-help-panel__close t8-mini-icon-button"
-                aria-label="关闭说明"
-                title="关闭说明"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setModelHelpOpen(false);
-                }}
-              >
-                <LucideIcons.X size={16} />
-              </button>
-            </div>
-            <div className="t8-model-help-panel__body">
-              <div className="t8-model-help-panel__text">
-                {MODEL_USAGE_HELP_SECTIONS.map((section) => (
-                  <section className="t8-model-help-panel__section" key={section.title}>
-                    <h3>{section.title}：</h3>
-                    {section.paragraphs?.map((paragraph) => (
-                      <p key={paragraph}>{paragraph}</p>
-                    ))}
-                    {section.items ? (
-                      <ul>
-                        {section.items.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </section>
-                ))}
-              </div>
-            </div>
-          </div>
         )}
         <MiniMap
           pannable
@@ -6745,6 +6959,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         {/* 选中可执行节点时的浮动操作栏 (执行 / 中止 / 关闭) */}
         <NodeActionBar />
       </ReactFlow>
+      {floatingControlRail}
 
       {/* 跨节点素材拖拽浮层 (Ctrl + 鼠标左键 从素材缩略图拖出) */}
       <MaterialDragOverlay />

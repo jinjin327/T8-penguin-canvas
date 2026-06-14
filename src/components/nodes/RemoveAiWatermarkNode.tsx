@@ -1,14 +1,14 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position, useEdges, useNodes } from '@xyflow/react';
 import {
   AlertTriangle,
   Eraser,
   FileText,
   Info,
-  Loader2,
   Plus,
   ShieldOff,
   Sparkles,
+  Square,
   Trash2,
 } from 'lucide-react';
 import { getAiWatermarkStatus, processAiWatermark, type AiWatermarkMode, type AiWatermarkOptions, type AiWatermarkRegion, type AiWatermarkStatus } from '../../services/aiWatermark';
@@ -17,6 +17,7 @@ import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import { useHasAutoOutput } from './useHasAutoOutput';
 import SmartImage from '../SmartImage';
+import { useRunBusStore } from '../../stores/runBus';
 
 type AiWatermarkMediaKind = Exclude<MediaKind, 'model3d'>;
 
@@ -174,13 +175,18 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
   const [status, setStatus] = useState<AiWatermarkStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [localError, setLocalError] = useState('');
+  const [localWarning, setLocalWarning] = useState('');
   const [previewSize, setPreviewSize] = useState<{ w: number; h: number } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const runBusWasRunningRef = useRef(false);
+  const isRunBusRunning = useRunBusStore((state) => state.currentRunId === id || state.runningIds.includes(id));
 
   const d = data || {};
   const mode = normalizeMode(d.aiWatermarkMode);
   const processAll = d.aiWatermarkProcessAll === true;
   const options: AiWatermarkOptions = { ...DEFAULT_OPTIONS, ...(d.aiWatermarkOptions || {}) };
   const statusText = d.status || 'idle';
+  const isRunning = statusText === 'running';
   const outputUrls: string[] = Array.isArray(d.imageUrls)
     ? d.imageUrls
     : d.imageUrl
@@ -235,6 +241,30 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
     update({ aiWatermarkOptions: { ...options, ...patch } });
   };
 
+  const stopProcessing = useCallback((message = '已停止去 AI 水印任务') => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLocalError(message);
+    setLocalWarning('');
+    update({ status: 'idle', error: message });
+  }, [update]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (isRunBusRunning) {
+      runBusWasRunningRef.current = true;
+      return;
+    }
+    if (runBusWasRunningRef.current && abortRef.current && isRunning) {
+      stopProcessing('已停止去 AI 水印任务');
+    }
+    runBusWasRunningRef.current = false;
+  }, [isRunBusRunning, isRunning, stopProcessing]);
+
   const setRegions = (regions: AiWatermarkRegion[]) => patchOptions({ regions });
 
   const addRegion = () => {
@@ -261,6 +291,7 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
 
   const handleRun = async () => {
     setLocalError('');
+    setLocalWarning('');
     const candidates = isImageOnlyMode(mode)
       ? upstreamItems.filter((item) => item.kind === 'image')
       : upstreamItems;
@@ -277,6 +308,9 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
       return;
     }
     const selectedItems = processAll ? candidates : candidates.slice(0, 1);
+    abortRef.current?.abort();
+    const aborter = new AbortController();
+    abortRef.current = aborter;
     update({ status: 'running', error: '', outputText: '' });
     try {
       const effectiveOptions: AiWatermarkOptions = {
@@ -288,14 +322,21 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
       const videoUrls: string[] = [];
       const audioUrls: string[] = [];
       const texts: string[] = [];
+      const warnings: string[] = [];
       for (const item of selectedItems) {
+        if (aborter.signal.aborted) throw new DOMException('已停止去 AI 水印任务', 'AbortError');
         const result = await processAiWatermark({
           source: item.url,
           kind: item.kind,
           mode,
           options: effectiveOptions,
+        }, {
+          signal: aborter.signal,
         });
         results.push(result);
+        for (const warning of result.warnings || []) {
+          if (warning && !warnings.includes(warning)) warnings.push(warning);
+        }
         if (result.outputUrl) {
           if (result.outputKind === 'image') imageUrls.push(result.outputUrl);
           else if (result.outputKind === 'video') videoUrls.push(result.outputUrl);
@@ -307,7 +348,8 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
         status: 'success',
         error: '',
         aiWatermarkResults: results,
-        metadata: { aiWatermarkResults: results },
+        aiWatermarkWarnings: warnings,
+        metadata: { aiWatermarkResults: results, aiWatermarkWarnings: warnings },
       };
       if (imageUrls.length > 0) {
         patch.imageUrl = imageUrls[0];
@@ -327,11 +369,21 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
         patch.text = patch.outputText;
         patch.prompt = patch.outputText;
       }
+      if (aborter.signal.aborted) throw new DOMException('已停止去 AI 水印任务', 'AbortError');
+      setLocalWarning(warnings.join('\n'));
       update(patch);
     } catch (error: any) {
+      if (aborter.signal.aborted || error?.name === 'AbortError') {
+        const msg = '已停止去 AI 水印任务';
+        setLocalError(msg);
+        update({ status: 'idle', error: msg });
+        return;
+      }
       const msg = error?.message || '去 AI 水印处理失败';
       setLocalError(msg);
       update({ status: 'error', error: msg });
+    } finally {
+      if (abortRef.current === aborter) abortRef.current = null;
     }
   };
 
@@ -345,6 +397,7 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
   const canUseEsrgan = status?.optionalFeatures?.esrgan !== false;
   const pipeline = normalizePipeline(options.pipeline);
   const error = localError || d.error || '';
+  const warning = localWarning || (Array.isArray(d.aiWatermarkWarnings) ? d.aiWatermarkWarnings.filter(Boolean).join('\n') : '');
 
   return (
     <div
@@ -606,17 +659,23 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
 
         <button
           type="button"
-          className="t8-btn t8-btn-primary w-full px-3 py-2 text-sm"
-          disabled={statusText === 'running'}
-          onClick={handleRun}
+          className={`t8-btn w-full px-3 py-2 text-sm ${isRunning ? '' : 't8-btn-primary'}`}
+          onClick={isRunning ? () => stopProcessing() : handleRun}
         >
-          {statusText === 'running' ? <Loader2 size={14} className="animate-spin" /> : mode === 'erase' ? <Eraser size={14} /> : mode.includes('metadata') || mode === 'identify' ? <FileText size={14} /> : <Sparkles size={14} />}
-          {statusText === 'running' ? '处理中...' : '运行'}
+          {isRunning ? <Square size={14} /> : mode === 'erase' ? <Eraser size={14} /> : mode.includes('metadata') || mode === 'identify' ? <FileText size={14} /> : <Sparkles size={14} />}
+          {isRunning ? '停止' : '运行'}
         </button>
 
         {error && (
           <div className="rounded-md border px-2 py-1.5 text-[11px]" style={{ borderColor: '#ef444466', color: '#ef4444' }}>
             {error}
+          </div>
+        )}
+
+        {warning && (
+          <div className="flex items-start gap-1 rounded-md border px-2 py-1.5 text-[10px] leading-snug" style={{ borderColor: '#f59e0b66', color: '#f59e0b' }}>
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span className="whitespace-pre-wrap">{warning}</span>
           </div>
         )}
 

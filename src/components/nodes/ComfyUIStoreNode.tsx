@@ -135,15 +135,15 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   const sub = isPixel ? 'var(--px-ink-soft)' : isLight ? '#64748b' : 'rgba(229,247,251,0.62)';
   const border = isPixel ? 'var(--px-ink)' : isLight ? 'rgba(14,165,233,0.24)' : 'rgba(103,232,249,0.24)';
   const accent = activeApp?.ui?.accent || '#67e8f9';
-  const inputCls = isPixel ? 'px-input nodrag nowheel w-full px-2 py-1 text-xs' : 'nodrag nowheel w-full rounded border px-2 py-1 text-xs outline-none';
+  const inputCls = isPixel ? 'px-input nodrag nopan nowheel w-full px-2 py-1 text-xs' : 'nodrag nopan nowheel w-full rounded border px-2 py-1 text-xs outline-none';
   const inputStyle: CSSProperties = isPixel ? {} : {
     background: isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.06)',
     borderColor: border,
     color: text,
   };
   const buttonCls = isPixel
-    ? 'px-btn nodrag nowheel inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px]'
-    : 'nodrag nowheel inline-flex items-center justify-center gap-1 rounded border px-2 py-1 text-[11px]';
+    ? 'px-btn nodrag nopan nowheel inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px]'
+    : 'nodrag nopan nowheel inline-flex items-center justify-center gap-1 rounded border px-2 py-1 text-[11px]';
   const rootStyle: CSSProperties = {
     width: size.w,
     height: size.h,
@@ -428,7 +428,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                       </div>
                       <button
                         type="button"
-                        className="nodrag nowheel inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border"
+                        className="nodrag nopan nowheel inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border"
                         style={{ borderColor: 'rgba(248,113,113,0.45)', color: userCategoryIds.has(category.id) ? '#f87171' : sub, opacity: userCategoryIds.has(category.id) ? 1 : 0.55 }}
                         title={userCategoryIds.has(category.id) ? '删除分类' : '内置分类不能删除'}
                         onClick={() => removeCategory(category.id)}
@@ -468,11 +468,14 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                     key={app.id}
                     role="button"
                     tabIndex={0}
-                    className="nodrag nowheel w-full cursor-pointer rounded border p-2 text-left"
+                    className="nodrag nopan nowheel w-full cursor-pointer rounded border p-2 text-left"
                     style={{ borderColor: border, background: isLight ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.05)', color: text }}
                     onClick={() => selectApp(app)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') selectApp(app);
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        selectApp(app);
+                      }
                     }}
                   >
                     <div className="flex items-center gap-2">
@@ -488,6 +491,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                         className={`${inputCls} flex-1`}
                         style={inputStyle}
                         title="设置应用分类"
+                        onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => event.stopPropagation()}
                         onChange={(event) => {
                           event.stopPropagation();
@@ -504,6 +508,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                         className={buttonCls}
                         style={{ ...inputStyle, borderColor: 'rgba(248,113,113,0.45)', color: userAppIds.has(app.id) ? '#f87171' : sub, opacity: userAppIds.has(app.id) ? 1 : 0.55 }}
                         title={userAppIds.has(app.id) ? '删除应用' : '内置应用不能删除'}
+                        onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
                           removeApp(app);
@@ -602,6 +607,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                   ) : param.kind === 'boolean' ? (
                     <input
                       type="checkbox"
+                      className="nodrag nopan nowheel"
                       checked={!!paramValues[param.key]}
                       onChange={(e) => setParam(param.key, e.target.checked)}
                     />

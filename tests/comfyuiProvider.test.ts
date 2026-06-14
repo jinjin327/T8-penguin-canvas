@@ -17,6 +17,8 @@ const {
 } = await import('../src/utils/comfyuiWorkflow.ts');
 const {
   buildComfyAppFromWorkflow,
+  normalizeComfyAppManifest,
+  paramsToProviderParams,
 } = await import('../src/utils/comfyuiApps.ts');
 function createCustomComfyWorkflow() {
   return {
@@ -596,6 +598,99 @@ test('ComfyUI app builder keeps LIST fields as select params and labels them wit
   assert.deepEqual(aspectRatio?.options, ['1:1', '16:9', '9:16', 'custom']);
   assert.equal(quality?.kind, 'select');
   assert.deepEqual(quality?.options, ['auto', 'low', 'medium', 'high']);
+});
+
+test('ComfyUI app builder scopes duplicated runtime params so one control cannot overwrite another', () => {
+  const app = buildComfyAppFromWorkflow({
+    title: 'Two LoRA workflow',
+    workflowJson: {
+      '10': {
+        class_type: 'LoraLoader',
+        inputs: { lora_name: 'first.safetensors', strength_model: 0.45, strength_clip: 0.55 },
+        _meta: { title: 'Foreground LoRA' },
+      },
+      '11': {
+        class_type: 'LoraLoader',
+        inputs: { lora_name: 'second.safetensors', strength_model: 0.25, strength_clip: 0.35 },
+        _meta: { title: 'Background LoRA' },
+      },
+      '99': {
+        class_type: 'SaveImage',
+        inputs: { images: ['11', 0] },
+      },
+    },
+  });
+
+  const loraNameParams = app.userParams.filter((param) => param.fieldName === 'lora_name');
+  const strengthParams = app.userParams.filter((param) => param.fieldName === 'strength_model');
+
+  assert.equal(loraNameParams.length, 2);
+  assert.equal(strengthParams.length, 2);
+  assert.equal(new Set(loraNameParams.map((param) => param.key)).size, 2);
+  assert.equal(new Set(loraNameParams.map((param) => param.source)).size, 2);
+  assert.equal(new Set(strengthParams.map((param) => param.key)).size, 2);
+  assert.equal(new Set(strengthParams.map((param) => param.source)).size, 2);
+  assert.ok(loraNameParams.every((param) => /LoRA #1[01]/.test(param.label)));
+  assert.ok(strengthParams.every((param) => /LoRA 模型强度 #1[01]/.test(param.label)));
+
+  const sourceByField = new Map(app.fields.map((field) => [`${field.nodeId}.${field.fieldName}`, field.source]));
+  assert.equal(sourceByField.get('10.lora_name'), loraNameParams[0].source);
+  assert.equal(sourceByField.get('11.lora_name'), loraNameParams[1].source);
+  assert.equal(sourceByField.get('10.strength_model'), strengthParams[0].source);
+  assert.equal(sourceByField.get('11.strength_model'), strengthParams[1].source);
+
+  const providerParams = paramsToProviderParams(app, {
+    [loraNameParams[0].key]: 'foreground-v2.safetensors',
+    [loraNameParams[1].key]: 'background-v2.safetensors',
+    [strengthParams[0].key]: 0.7,
+    [strengthParams[1].key]: 0.3,
+  });
+
+  assert.equal(providerParams[loraNameParams[0].source], 'foreground-v2.safetensors');
+  assert.equal(providerParams[loraNameParams[1].source], 'background-v2.safetensors');
+  assert.equal(providerParams[strengthParams[0].source], 0.7);
+  assert.equal(providerParams[strengthParams[1].source], 0.3);
+});
+
+test('ComfyUI app manifest normalization repairs old duplicate param sources without field ids', () => {
+  const manifest = normalizeComfyAppManifest({
+    schema: 't8-comfyui-app-manifest',
+    version: 1,
+    categories: [{ id: 'image', name: '图像', order: 1 }],
+    apps: [{
+      id: 'old-lora-app',
+      title: 'Old LoRA App',
+      categoryId: 'image',
+      workflowJson: {
+        '10': { class_type: 'LoraLoader', inputs: { lora_name: 'first.safetensors' } },
+        '11': { class_type: 'LoraLoader', inputs: { lora_name: 'second.safetensors' } },
+        '99': { class_type: 'SaveImage', inputs: { images: ['11', 0] } },
+      },
+      fields: [
+        { nodeId: '10', fieldName: 'lora_name', source: 'lora_name' },
+        { nodeId: '11', fieldName: 'lora_name', source: 'lora_name' },
+      ],
+      userParams: [
+        { key: 'lora-name', label: 'LoRA', kind: 'text', source: 'lora_name', defaultValue: 'first.safetensors' },
+        { key: 'lora-name', label: 'LoRA', kind: 'text', source: 'lora_name', defaultValue: 'second.safetensors' },
+      ],
+      outputs: [{ key: 'image', kind: 'image' }],
+    }],
+  });
+
+  const app = manifest.apps[0];
+  assert.equal(app.userParams.length, 2);
+  assert.equal(new Set(app.userParams.map((param) => param.key)).size, 2);
+  assert.equal(new Set(app.userParams.map((param) => param.source)).size, 2);
+  assert.equal(app.fields[0].source, app.userParams[0].source);
+  assert.equal(app.fields[1].source, app.userParams[1].source);
+
+  const providerParams = paramsToProviderParams(app, {
+    [app.userParams[0].key]: 'first-fixed.safetensors',
+    [app.userParams[1].key]: 'second-fixed.safetensors',
+  });
+  assert.equal(providerParams[app.userParams[0].source], 'first-fixed.safetensors');
+  assert.equal(providerParams[app.userParams[1].source], 'second-fixed.safetensors');
 });
 
 test('ComfyUI sample workflow and import checklist guide first-time setup', () => {

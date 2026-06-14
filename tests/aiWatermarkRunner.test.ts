@@ -11,12 +11,15 @@ const {
   FALLBACK_MARKS,
   assertModeSupportsKind,
   buildAiWatermarkPlan,
+  classifyAiWatermarkRuntimeError,
   commandCandidates,
   invisibleArgs,
   normalizeInvisiblePipeline,
   normalizeMode,
   normalizeRegions,
   redactCommandArgs,
+  resolveAiWatermarkExecutionDevice,
+  runCommand,
   versionAtLeast,
   visibleArgs,
 } = require('../backend/src/tools/aiWatermark/runner.js');
@@ -102,6 +105,37 @@ test('buildAiWatermarkPlan includes invisible step only when requested', () => {
   assert.deepEqual(plan.steps.map((step: any) => step.label), ['visible-auto', 'invisible', 'metadata-remove']);
   assert.ok(plan.steps[1].args.includes('--device'));
   assert.ok(plan.steps[1].args.includes('cpu'));
+});
+
+test('cuda device falls back to cpu when the selected runtime has CPU-only torch', () => {
+  const resolved = resolveAiWatermarkExecutionDevice('cuda', {
+    ok: true,
+    torchVersion: '2.12.0+cpu',
+    torchCuda: null,
+    compiledCuda: false,
+    cudaAvailable: false,
+    deviceCount: 0,
+  });
+
+  assert.equal(resolved.device, 'cpu');
+  assert.equal(resolved.fallback?.requested, 'cuda');
+  assert.equal(resolved.fallback?.resolved, 'cpu');
+  assert.equal(resolved.fallback?.reason, 'torch-cuda-unavailable');
+  assert.match(resolved.warning || '', /PyTorch.*CPU|CPU.*PyTorch|CUDA/);
+});
+
+test('cuda runtime stack traces are classified into a concise compatibility error', () => {
+  const classified = classifyAiWatermarkRuntimeError(`
+Traceback (most recent call last):
+  File "torch\\cuda\\__init__.py", line 484, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+RuntimeError: Failed to move model to cuda (Torch not compiled with CUDA enabled).
+`);
+
+  assert.equal(classified.code, 'AI_WATERMARK_TORCH_CUDA_UNAVAILABLE');
+  assert.match(classified.message, /当前去水印运行时.*PyTorch.*CUDA/);
+  assert.doesNotMatch(classified.message, /Traceback/);
 });
 
 test('invisible maxResolution clamps tiny nonzero values to a safe diffusion size', () => {
@@ -248,6 +282,47 @@ test('redactCommandArgs hides sensitive invisible watermark tokens in logs', () 
     redactCommandArgs(['invisible', 'source.png', '--hf-token', 'hf_secret_123', '--steps', '50']),
     ['invisible', 'source.png', '--hf-token', '***', '--steps', '50'],
   );
+});
+
+test('runCommand aborts a long-running ai watermark child process', async () => {
+  assert.equal(typeof runCommand, 'function');
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const resultPromise = runCommand(
+    {
+      command: process.execPath,
+      baseArgs: [
+        '-e',
+        'setInterval(() => console.error("still running"), 1000)',
+      ],
+      label: 'test long child',
+      env: process.env,
+    },
+    [],
+    { signal: controller.signal, timeoutMs: 10_000, streamLogs: false },
+  );
+  setTimeout(() => controller.abort(), 80);
+  const result = await resultPromise;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.signal, 'abort');
+  assert.match(result.stderr, /已停止|aborted/i);
+  assert.ok(Date.now() - startedAt < 5_000);
+});
+
+test('frontend ai watermark node exposes abortable processing and a stop button', () => {
+  const service = fs.readFileSync(path.resolve('src/services/aiWatermark.ts'), 'utf8');
+  const node = fs.readFileSync(path.resolve('src/components/nodes/RemoveAiWatermarkNode.tsx'), 'utf8');
+
+  assert.match(service, /signal\?: AbortSignal/);
+  assert.match(service, /warnings\?: string\[\]/);
+  assert.match(service, /signal: options\.signal/);
+  assert.match(node, /abortRef = useRef<AbortController \| null>\(null\)/);
+  assert.match(node, /abortRef\.current\?\.abort\(\)/);
+  assert.match(node, /aiWatermarkWarnings/);
+  assert.match(node, /localWarning/);
+  assert.match(node, /停止/);
+  assert.match(node, /useRunBusStore/);
 });
 
 test('commandCandidates prefers explicit packaged sidecar runtime before generic PATH', () => {

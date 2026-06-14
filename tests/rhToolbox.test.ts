@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const loadRhToolboxUtils = async () => import('../src/utils/rhToolbox.ts');
+const loadRhToolboxCapabilities = async () => import('../src/utils/rhToolboxCapabilities.ts');
 const loadRhToolboxManifest = async () => import('../src/data/rhToolboxManifest.ts');
 
 test('RH toolbox node is registered as a visible executable RH node', () => {
@@ -137,6 +138,81 @@ test('RH toolbox release manifest check is wired into packaging and post-build v
   assert.match(postBuild, /image-cutout-v1/);
   assert.match(postBuild, /tuantiquv10/);
   assert.match(postBuild, /bernini1/);
+});
+
+test('RH toolbox image cutout is exposed as a reusable node capability', async () => {
+  const { RH_TOOLBOX_MANIFEST } = await loadRhToolboxManifest();
+  const {
+    RH_IMAGE_CAPABILITY_PRESETS,
+    buildRhToolboxCapabilityInputValues,
+    resolveRhImageCapabilityPreset,
+    resolveRhToolboxCapability,
+  } = await loadRhToolboxCapabilities();
+  const service = readFileSync(new URL('../src/services/rhToolboxCapabilities.ts', import.meta.url), 'utf8');
+  const button = readFileSync(new URL('../src/components/RhImageCapabilityButton.tsx', import.meta.url), 'utf8');
+  const uploadNode = readFileSync(new URL('../src/components/nodes/UploadNode.tsx', import.meta.url), 'utf8');
+  const outputNode = readFileSync(new URL('../src/components/nodes/OutputNode.tsx', import.meta.url), 'utf8');
+  const roadmap = readFileSync(new URL('../roadmap.md', import.meta.url), 'utf8');
+  const skill = readFileSync(new URL('../skill.md', import.meta.url), 'utf8');
+
+  const tool = resolveRhToolboxCapability(RH_TOOLBOX_MANIFEST, {
+    surface: 'image',
+    capability: 'image.cutout',
+    preferredToolId: 'image-cutout-v1',
+  });
+
+  assert.equal(tool?.id, 'image-cutout-v1');
+  assert.equal(tool?.title, '高清抠图');
+  assert.deepEqual(
+    buildRhToolboxCapabilityInputValues(tool, 'image', '/files/input/a.png'),
+    { 'source-image': '/files/input/a.png' },
+  );
+
+  assert.equal(RH_IMAGE_CAPABILITY_PRESETS.cutout.capability, 'image.cutout');
+  assert.equal(RH_IMAGE_CAPABILITY_PRESETS.cutout.preferredToolId, 'image-cutout-v1');
+  assert.equal(RH_IMAGE_CAPABILITY_PRESETS.upscale.capability, 'image.upscale');
+  assert.equal(RH_IMAGE_CAPABILITY_PRESETS.expand.capability, 'image.expand');
+  assert.equal(resolveRhImageCapabilityPreset('cutout').label, '抠图');
+
+  assert.match(service, /runRhImageCapability/);
+  assert.match(service, /runRhImageCutout/);
+  assert.match(service, /runRhImageCutoutBatch/);
+  assert.match(service, /preferredToolId:\s*'image-cutout-v1'/);
+  assert.match(service, /onItemProgress/);
+  assert.match(service, /retryCount\?: number/);
+  assert.match(service, /continueOnError\?: boolean/);
+  assert.match(service, /failedItems/);
+  assert.match(service, /cancelled/);
+  assert.match(button, /data-rh-capability=\{capability\}/);
+  assert.match(button, /sourceUrls\?: string\[\]/);
+  assert.match(button, /preset\?:/);
+  assert.match(button, /preferredToolId\?: string/);
+  assert.match(button, /label\?: string/);
+  assert.match(button, /RH_IMAGE_CAPABILITY_PRESETS/);
+  assert.match(button, /runRhImageCapabilityBatch/);
+  assert.doesNotMatch(button, /runRhImageCutoutBatch/);
+  assert.match(button, /abortRef\.current\?\.abort\(\)/);
+  assert.match(button, /data-rh-running=\{running \? 'true' : 'false'\}/);
+  assert.match(button, /点击取消/);
+  assert.match(button, /failedItems/);
+  assert.match(uploadNode, /RhImageCapabilityButton/);
+  assert.match(outputNode, /RhImageCapabilityButton/);
+  assert.match(uploadNode, /const imageSourceUrls = useMemo/);
+  assert.match(uploadNode, /sourceUrls=\{imageSourceUrls\}/);
+  assert.match(outputNode, /sourceUrls=\{collected\.images\}/);
+  assert.match(uploadNode, /onComplete=\{\(result\) => handleProduce\(result\.imageUrls\)\}/);
+  assert.match(outputNode, /onComplete=\{\(result\) => handleProduce\(result\.imageUrls\)\}/);
+  assert.match(roadmap, /RH 工具箱能力调度层/);
+  assert.match(roadmap, /image\.cutout/);
+  assert.match(roadmap, /多图串行队列/);
+  assert.match(roadmap, /运行中再次点击可取消/);
+  assert.match(roadmap, /部分成功/);
+  assert.match(roadmap, /重试/);
+  assert.match(skill, /RH 图像能力复用规范/);
+  assert.match(skill, /image\.upscale/);
+  assert.match(skill, /image\.expand/);
+  assert.match(skill, /RhImageCapabilityButton[\s\S]*preset/);
+  assert.match(skill, /runRhImageCapabilityBatch/);
 });
 
 test('RH toolbox builds nodeInfoList from configured mappings without per-tool code', async () => {

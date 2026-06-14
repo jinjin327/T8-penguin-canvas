@@ -104,7 +104,7 @@ test('canvas exposes Figma send, placement shelf, and external file drag protoco
   assert.match(canvas, /startNativeDragOut/);
   assert.match(canvas, /canvasPanLocked/);
   assert.match(canvas, /memoPanOnDrag/);
-  assert.match(canvas, /canvasPanLocked \? false : \[0\]/);
+  assert.match(canvas, /canvasPanLocked \? false : \[\.\.\.CANVAS_PAN_MOUSE_BUTTONS\]/);
   assert.match(canvas, /stopRadialPointerEvent/);
   assert.match(canvas, /window\.addEventListener\('mousemove', onMouseMove, true\)/);
   assert.match(canvas, /Let the real paste event fire first/);

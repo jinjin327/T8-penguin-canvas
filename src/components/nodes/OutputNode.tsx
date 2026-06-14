@@ -18,6 +18,8 @@ import ImageCompareModal from '../ImageCompareModal';
 import CollectionSplitButton from '../CollectionSplitButton';
 import ImageHoverPreview from '../ImageHoverPreview';
 import LoopingVideo from '../LoopingVideo';
+import MediaMetadataBadge from '../MediaMetadataBadge';
+import RhImageCapabilityButton from '../RhImageCapabilityButton';
 import SmartImage from '../SmartImage';
 import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
@@ -634,7 +636,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     rf.addNodes(newNodes);
   };
 
-  const handleProduce = (urls: string[], _meta: ImageEditProduceMeta) => {
+  const handleProduce = (urls: string[], _meta?: ImageEditProduceMeta) => {
     if (!urls || urls.length === 0) return;
     const me = rf.getNode(id);
     const myW = (me as any)?.measured?.width || (me as any)?.width || 320;
@@ -826,37 +828,53 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         accent={effectiveAccent}
         onResize={(_e, p) => setSize({ w: p.width, h: p.height })}
       />
-      {/* 选中时浮动「Edit」按钮 — 仅图像类型可用，与双击预览图等价 */}
+      {/* 选中时浮动图像操作按钮 — Edit 保持本地编辑, 抠图走 RH 工具箱能力层 */}
       {canEditImage && (
-        <button
-          type="button"
+        <div
           className="nodrag nopan"
-          onClick={onClickEditTopBtn}
           onMouseDown={(e) => e.stopPropagation()}
-          title="编辑图像（裁剪 / 宫格切分），等同双击预览图"
           style={{
             position: 'absolute',
             top: -34,
             left: 0,
-            display: 'inline-flex',
+            display: 'flex',
             alignItems: 'center',
-            gap: 4,
-            padding: '4px 10px',
-            height: 26,
-            background: isDark ? 'rgba(28,28,32,0.92)' : 'rgba(255,255,255,0.95)',
-            color: effectiveAccent,
-            border: `1px solid ${effectiveAccent}66`,
-            borderRadius: 6,
-            boxShadow: isDark ? '0 6px 24px rgba(0,0,0,0.4)' : '0 6px 24px rgba(0,0,0,0.12)',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
+            gap: 6,
             zIndex: 30,
           }}
         >
-          <Edit3 size={12} />
-          <span>Edit</span>
-        </button>
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={onClickEditTopBtn}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="编辑图像（裁剪 / 宫格切分），等同双击预览图"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '4px 10px',
+              height: 26,
+              background: isDark ? 'rgba(28,28,32,0.92)' : 'rgba(255,255,255,0.95)',
+              color: effectiveAccent,
+              border: `1px solid ${effectiveAccent}66`,
+              borderRadius: 6,
+              boxShadow: isDark ? '0 6px 24px rgba(0,0,0,0.4)' : '0 6px 24px rgba(0,0,0,0.12)',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            <Edit3 size={12} />
+            <span>Edit</span>
+          </button>
+          <RhImageCapabilityButton
+            sourceUrls={collected.images}
+            accent={effectiveAccent}
+            isDark={isDark}
+            onComplete={(result) => handleProduce(result.imageUrls)}
+          />
+        </div>
       )}
       {/* target handle (左侧) - 上游任意类型可连入 */}
       <Handle
@@ -1119,6 +1137,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   </div>
                   <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                     <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
+                    <MediaMetadataBadge kind="image" url={u} />
                     <a
                       href={u}
                       target="_blank"
@@ -1173,6 +1192,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                 />
                 <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                   <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
+                  <MediaMetadataBadge kind="video" url={u} />
                   <a
                     href={u}
                     target="_blank"
@@ -1224,6 +1244,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                 />
                 <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                   <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
+                  <MediaMetadataBadge kind="audio" url={u} />
                   <a
                     href={u}
                     target="_blank"

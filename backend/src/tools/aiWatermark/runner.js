@@ -18,9 +18,12 @@ const {
 const STATUS_TIMEOUT_MS = 45_000;
 const PROCESS_TIMEOUT_MS = 15 * 60_000;
 const INVISIBLE_TIMEOUT_MS = 2 * 60 * 60_000;
+const PROCESS_HEARTBEAT_MS = 30_000;
+const ABORT_KILL_GRACE_MS = 2_000;
 const RESOLUTION_CACHE_TTL_MS = 5 * 60_000;
 const NEGATIVE_RESOLUTION_CACHE_TTL_MS = 10_000;
 const CAPABILITY_CACHE_TTL_MS = 60_000;
+const TORCH_RUNTIME_CACHE_TTL_MS = 60_000;
 const FALLBACK_MARKS = ['gemini', 'doubao', 'jimeng', 'samsung'];
 const PYTHON_MODULE = 'remove_ai_watermarks.cli';
 const CONTROLNET_MIGRATION_VERSION = '0.8.9';
@@ -28,6 +31,7 @@ const MODERN_INVISIBLE_VERSION = '0.10.0';
 
 let commandResolutionCache = null;
 let capabilityCache = null;
+let torchRuntimeCache = null;
 
 function shortRunId() {
   return Math.random().toString(36).slice(2, 8);
@@ -49,6 +53,17 @@ function redactCommandArgs(args = []) {
 function aiWatermarkLog(runId, message) {
   const tag = runId ? `[ai-watermark ${runId}]` : '[ai-watermark]';
   console.log(`${tag} ${message}`);
+}
+
+function aiWatermarkAbortError() {
+  const error = new Error('已停止去 AI 水印任务');
+  error.name = 'AbortError';
+  error.code = 'AI_WATERMARK_ABORTED';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw aiWatermarkAbortError();
 }
 
 function createStreamLogger(runId, label, streamName) {
@@ -98,6 +113,68 @@ function integer(value, fallback, min, max) {
 function choice(value, allowed, fallback) {
   const v = String(value || '').trim();
   return allowed.includes(v) ? v : fallback;
+}
+
+function normalizeExecutionDevice(value) {
+  return choice(value, ['auto', 'cpu', 'mps', 'cuda', 'xpu'], 'auto');
+}
+
+function resolveAiWatermarkExecutionDevice(requestedDevice, torchRuntime = null) {
+  const requested = normalizeExecutionDevice(requestedDevice);
+  if (requested !== 'cuda') {
+    return { device: requested, warning: '', fallback: null };
+  }
+
+  if (!torchRuntime || torchRuntime.ok === false) {
+    return { device: requested, warning: '', fallback: null };
+  }
+
+  const compiledCuda = torchRuntime.compiledCuda !== undefined
+    ? !!torchRuntime.compiledCuda
+    : !!torchRuntime.torchCuda;
+  const cudaAvailable = torchRuntime.cudaAvailable === true;
+  if (compiledCuda && cudaAvailable) {
+    return { device: requested, warning: '', fallback: null };
+  }
+
+  const reason = !compiledCuda ? 'torch-cuda-unavailable' : 'cuda-device-unavailable';
+  const torchVersion = String(torchRuntime.torchVersion || torchRuntime.version || '').trim();
+  const cudaVersion = String(torchRuntime.torchCuda || '').trim();
+  const detail = !compiledCuda
+    ? `当前去水印运行时的 PyTorch${torchVersion ? ` ${torchVersion}` : ''} 是 CPU 版，没有编译 CUDA。`
+    : `当前去水印运行时的 PyTorch${torchVersion ? ` ${torchVersion}` : ''}${cudaVersion ? ` / CUDA ${cudaVersion}` : ''} 没检测到可用 CUDA 设备。`;
+
+  return {
+    device: 'cpu',
+    warning: `已自动把设备从 CUDA 改为 CPU：${detail} 系统安装 CUDA 不等于本节点 runtime 支持 CUDA；如需 GPU，请把去水印 runtime 内的 PyTorch 换成 CUDA 版。CPU 会明显更慢。`,
+    fallback: {
+      requested,
+      resolved: 'cpu',
+      reason,
+      torchVersion,
+      torchCuda: torchRuntime.torchCuda || null,
+      cudaAvailable,
+      deviceCount: Number(torchRuntime.deviceCount) || 0,
+      deviceName: String(torchRuntime.deviceName || ''),
+    },
+  };
+}
+
+function classifyAiWatermarkRuntimeError(text) {
+  const raw = String(text || '');
+  if (/Torch not compiled with CUDA enabled|Failed to move model to cuda/i.test(raw)) {
+    return {
+      code: 'AI_WATERMARK_TORCH_CUDA_UNAVAILABLE',
+      message: '当前去水印运行时的 PyTorch 不支持 CUDA，无法使用设备 cuda。系统装有 CUDA 还不够，本节点内置 runtime 也必须安装 CUDA 版 PyTorch；请先改用 auto/cpu，或替换 runtime 的 PyTorch 后再选 cuda。',
+    };
+  }
+  if (/No CUDA GPUs are available|CUDA driver version is insufficient|CUDA error/i.test(raw)) {
+    return {
+      code: 'AI_WATERMARK_CUDA_DEVICE_UNAVAILABLE',
+      message: '当前去水印运行时没有检测到可用 CUDA 设备或驱动不可用。请先改用 auto/cpu，或确认本节点 runtime 的 PyTorch、显卡驱动和 CUDA 版本匹配。',
+    };
+  }
+  return null;
 }
 
 function versionTuple(version) {
@@ -386,6 +463,18 @@ function runCommand(candidate, args, options = {}) {
     ? createStreamLogger(options.runId || '', options.streamLabel || candidate.label, 'stderr')
     : null;
   return new Promise((resolve) => {
+    if (options.signal?.aborted) {
+      resolve({
+        ok: false,
+        code: -1,
+        signal: 'abort',
+        stdout: '',
+        stderr: aiWatermarkAbortError().message,
+        command: candidate.label,
+        args: mergedArgs,
+      });
+      return;
+    }
     let child;
     try {
       child = spawn(candidate.command, mergedArgs, {
@@ -408,17 +497,32 @@ function runCommand(candidate, args, options = {}) {
     let stdout = '';
     let stderr = '';
     let settled = false;
-    const timer = setTimeout(() => {
+    let abortResult = null;
+    const startedAt = Date.now();
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (abortForceTimer) clearTimeout(abortForceTimer);
+      if (options.signal && onAbort) options.signal.removeEventListener('abort', onAbort);
+      stdoutLogger?.flush();
+      stderrLogger?.flush();
+    };
+    const finish = (payload) => {
       if (settled) return;
       settled = true;
+      cleanup();
+      resolve(payload);
+    };
+    const killChild = (signal = 'SIGTERM') => {
       try {
-        child.kill('SIGKILL');
+        if (!child.killed) child.kill(signal);
       } catch {
         // ignore
       }
-      stdoutLogger?.flush();
-      stderrLogger?.flush();
-      resolve({
+    };
+    const timer = setTimeout(() => {
+      killChild('SIGKILL');
+      finish({
         ok: false,
         code: -1,
         signal: 'timeout',
@@ -428,6 +532,35 @@ function runCommand(candidate, args, options = {}) {
         args: mergedArgs,
       });
     }, timeoutMs);
+    const heartbeatTimer = options.streamLogs
+      ? setInterval(() => {
+        aiWatermarkLog(
+          options.runId || '',
+          `step "${options.streamLabel || candidate.label}" still running elapsed=${Math.round((Date.now() - startedAt) / 1000)}s timeout=${Math.round(timeoutMs / 1000)}s`,
+        );
+      }, PROCESS_HEARTBEAT_MS)
+      : null;
+    let abortForceTimer = null;
+    const onAbort = () => {
+      if (settled) return;
+      const message = aiWatermarkAbortError().message;
+      abortResult = {
+        ok: false,
+        code: -1,
+        signal: 'abort',
+        stdout,
+        stderr: message,
+        command: candidate.label,
+        args: mergedArgs,
+      };
+      aiWatermarkLog(options.runId || '', `abort requested for "${options.streamLabel || candidate.label}"`);
+      killChild('SIGTERM');
+      abortForceTimer = setTimeout(() => {
+        killChild('SIGKILL');
+        finish(abortResult);
+      }, ABORT_KILL_GRACE_MS);
+    };
+    if (options.signal) options.signal.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
@@ -443,11 +576,11 @@ function runCommand(candidate, args, options = {}) {
     });
     child.on('error', (error) => {
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      stdoutLogger?.flush();
-      stderrLogger?.flush();
-      resolve({
+      if (abortResult) {
+        finish(abortResult);
+        return;
+      }
+      finish({
         ok: false,
         code: -1,
         stdout,
@@ -458,11 +591,16 @@ function runCommand(candidate, args, options = {}) {
     });
     child.on('close', (code, signal) => {
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      stdoutLogger?.flush();
-      stderrLogger?.flush();
-      resolve({
+      if (abortResult) {
+        finish({
+          ...abortResult,
+          code: typeof code === 'number' ? code : -1,
+          stdout,
+          stderr: abortResult.stderr,
+        });
+        return;
+      }
+      finish({
         ok: code === 0,
         code,
         signal,
@@ -676,6 +814,94 @@ function runPythonProbe(probe, code) {
     label: probe.label,
   };
   return runCommand(candidate, [code], { timeoutMs: STATUS_TIMEOUT_MS });
+}
+
+function torchRuntimeFingerprint(resolved) {
+  return [
+    resolved?.candidate?.id || '',
+    resolved?.candidate?.command || '',
+    resolved?.candidate?.pythonCommand || '',
+    JSON.stringify(resolved?.candidate?.pythonPrefix || []),
+    resolved?.candidate?.pythonPath || '',
+    resolved?.version || '',
+    resolved?.resolver || '',
+    aiWatermarkEnvFingerprint(),
+  ].join('\u0000');
+}
+
+function getCachedTorchRuntime(fingerprint) {
+  if (!torchRuntimeCache) return null;
+  if (torchRuntimeCache.fingerprint !== fingerprint) return null;
+  if (Date.now() > torchRuntimeCache.expiresAt) return null;
+  return torchRuntimeCache.value;
+}
+
+function setCachedTorchRuntime(fingerprint, value) {
+  torchRuntimeCache = {
+    fingerprint,
+    value,
+    expiresAt: Date.now() + TORCH_RUNTIME_CACHE_TTL_MS,
+  };
+}
+
+function resolvedRuntimePythonProbe(resolved) {
+  const candidate = resolved?.candidate;
+  if (!candidate?.pythonCommand) return null;
+  return {
+    command: candidate.pythonCommand,
+    argsPrefix: candidate.pythonPrefix || [],
+    env: candidate.env || process.env,
+    label: `${candidate.label} torch probe`,
+  };
+}
+
+async function probeTorchRuntime(resolved) {
+  const fingerprint = torchRuntimeFingerprint(resolved);
+  const cached = getCachedTorchRuntime(fingerprint);
+  if (cached) return cached;
+
+  const probe = resolvedRuntimePythonProbe(resolved);
+  if (!probe) {
+    const value = { ok: false, message: 'resolved runtime has no python probe' };
+    setCachedTorchRuntime(fingerprint, value);
+    return value;
+  }
+
+  const code = `
+import json
+data = {"ok": False, "message": "", "torchVersion": "", "torchCuda": None, "compiledCuda": False, "cudaAvailable": False, "deviceCount": 0, "deviceName": ""}
+try:
+    import torch
+    data["ok"] = True
+    data["torchVersion"] = getattr(torch, "__version__", "")
+    data["torchCuda"] = getattr(torch.version, "cuda", None)
+    data["compiledCuda"] = bool(data["torchCuda"])
+    try:
+        data["cudaAvailable"] = bool(torch.cuda.is_available())
+        data["deviceCount"] = int(torch.cuda.device_count()) if data["cudaAvailable"] else 0
+        if data["cudaAvailable"] and data["deviceCount"] > 0:
+            data["deviceName"] = str(torch.cuda.get_device_name(0))
+    except Exception as cuda_exc:
+        data["message"] = str(cuda_exc)
+    print(json.dumps(data, ensure_ascii=False))
+except Exception as exc:
+    data["message"] = str(exc)
+    print(json.dumps(data, ensure_ascii=False))
+`.trim();
+  const result = await runPythonProbe(probe, code);
+  let value = null;
+  if (result.ok) {
+    value = parseJsonProbeOutput(result.stdout);
+  }
+  if (!value) {
+    value = {
+      ok: false,
+      message: result.stderr || result.stdout || 'torch probe failed',
+    };
+  }
+  value.probe = probe.label;
+  setCachedTorchRuntime(fingerprint, value);
+  return value;
 }
 
 async function detectDynamicCapabilities(resolved) {
@@ -1075,6 +1301,34 @@ function buildAiWatermarkPlan({ mode, sourcePath, outputPath, mediaKind = 'image
   throw new Error(`不支持的模式：${normalizedMode}`);
 }
 
+function modeUsesInvisibleDevice(mode, options = {}) {
+  const normalizedMode = normalizeMode(mode);
+  return normalizedMode === 'invisible' ||
+    normalizedMode === 'all' ||
+    (normalizedMode === 'smart' && bool(options.runInvisible, false));
+}
+
+async function resolveExecutionOptionsForRuntime(resolved, mode, options = {}) {
+  const nextOptions = { ...options };
+  if (!modeUsesInvisibleDevice(mode, nextOptions)) {
+    return { options: nextOptions, warnings: [], deviceFallback: null, torchRuntime: null };
+  }
+  const requestedDevice = normalizeExecutionDevice(nextOptions.device);
+  if (requestedDevice !== 'cuda') {
+    nextOptions.device = requestedDevice;
+    return { options: nextOptions, warnings: [], deviceFallback: null, torchRuntime: null };
+  }
+  const torchRuntime = await probeTorchRuntime(resolved);
+  const resolution = resolveAiWatermarkExecutionDevice(requestedDevice, torchRuntime);
+  nextOptions.device = resolution.device;
+  return {
+    options: nextOptions,
+    warnings: resolution.warning ? [resolution.warning] : [],
+    deviceFallback: resolution.fallback || null,
+    torchRuntime,
+  };
+}
+
 function stepTimeout(step) {
   return step.label === 'invisible' || step.label === 'all' ? INVISIBLE_TIMEOUT_MS : PROCESS_TIMEOUT_MS;
 }
@@ -1096,6 +1350,7 @@ async function executePlan(candidate, plan, context = {}) {
   const runId = context.runId || '';
   aiWatermarkLog(runId, `plan start mode=${plan.mode} steps=${plan.steps.length} runner="${candidate.label}"`);
   for (const [index, step] of plan.steps.entries()) {
+    throwIfAborted(context.signal);
     const stepNo = `${index + 1}/${plan.steps.length}`;
     const logLabel = `${plan.mode}:${step.label}`;
     ensureStepInput(step);
@@ -1112,6 +1367,7 @@ async function executePlan(candidate, plan, context = {}) {
       streamLogs: true,
       streamLabel: logLabel,
       runId,
+      signal: context.signal,
     });
     const elapsedMs = Date.now() - startedAt;
     logs.push({
@@ -1122,8 +1378,16 @@ async function executePlan(candidate, plan, context = {}) {
       stderr: result.stderr.trim().slice(-6000),
     });
     aiWatermarkLog(runId, `step ${stepNo} "${step.label}" done ok=${result.ok} code=${result.code} elapsedMs=${elapsedMs}`);
+    if (result.signal === 'abort' || context.signal?.aborted) throwIfAborted(context.signal);
     if (!result.ok) {
       aiWatermarkLog(runId, `step ${stepNo} "${step.label}" failed`);
+      const classified = classifyAiWatermarkRuntimeError(`${result.stderr}\n${result.stdout}`);
+      if (classified) {
+        const error = new Error(classified.message);
+        error.code = classified.code;
+        error.classification = classified;
+        throw error;
+      }
       throw new Error(result.stderr.trim() || result.stdout.trim() || `${step.label} 执行失败`);
     }
     if (step.label === 'identify') {
@@ -1148,23 +1412,37 @@ async function executePlan(candidate, plan, context = {}) {
   return { logs, report };
 }
 
-async function runAiWatermarkProcess({ sourcePath, mediaKind, mode, options = {} }) {
+async function runAiWatermarkProcess({ sourcePath, mediaKind, mode, options = {}, signal }) {
   const normalizedMode = normalizeMode(mode);
   const runId = shortRunId();
+  throwIfAborted(signal);
   aiWatermarkLog(runId, `request start mode=${normalizedMode} source="${path.basename(String(sourcePath || ''))}" mediaKind=${mediaKind || kindFromPath(sourcePath) || 'unknown'}`);
   const resolved = await resolveAiWatermarkCommand({ prepareEmbeddedRuntime: true });
+  throwIfAborted(signal);
   if (!resolved.installed) {
     aiWatermarkLog(runId, `runtime missing errors=${JSON.stringify((resolved.errors || []).slice(0, 3))}`);
     throw new Error(`未安装 remove-ai-watermarks。${setupHints().slice(0, 2).join('；')}`);
   }
   aiWatermarkLog(runId, `runtime resolved resolver="${resolved.resolver}" version="${resolved.version || '?'}"`);
+  const execution = await resolveExecutionOptionsForRuntime(resolved, normalizedMode, {
+    ...options,
+    upstreamVersion: resolved.version || '',
+  });
+  throwIfAborted(signal);
+  if (execution.deviceFallback) {
+    aiWatermarkLog(
+      runId,
+      `device fallback requested=${execution.deviceFallback.requested} resolved=${execution.deviceFallback.resolved} reason=${execution.deviceFallback.reason}`,
+    );
+  }
   const plan = buildAiWatermarkPlan({
     mode: normalizedMode,
     sourcePath,
     mediaKind: mediaKind || kindFromPath(sourcePath),
-    options: { ...options, upstreamVersion: resolved.version || '' },
+    options: execution.options,
   });
-  const executed = await executePlan(resolved.candidate, plan, { runId });
+  const executed = await executePlan(resolved.candidate, plan, { runId, signal });
+  throwIfAborted(signal);
   if (plan.reportOnly) {
     const text = executed.report?.text || JSON.stringify(executed.report || {}, null, 2);
     aiWatermarkLog(runId, `request complete outputKind=text`);
@@ -1174,6 +1452,8 @@ async function runAiWatermarkProcess({ sourcePath, mediaKind, mode, options = {}
       outputText: text,
       report: executed.report,
       logs: executed.logs,
+      warnings: execution.warnings,
+      deviceFallback: execution.deviceFallback,
     };
   }
   aiWatermarkLog(runId, `request complete outputKind=${kindFromPath(plan.outputPath) || mediaKind || 'image'} output="${path.basename(plan.outputPath)}"`);
@@ -1183,6 +1463,8 @@ async function runAiWatermarkProcess({ sourcePath, mediaKind, mode, options = {}
     outputPath: plan.outputPath,
     outputUrl: outputUrlFromPath(plan.outputPath),
     logs: executed.logs,
+    warnings: execution.warnings,
+    deviceFallback: execution.deviceFallback,
   };
 }
 
@@ -1190,13 +1472,16 @@ module.exports = {
   FALLBACK_MARKS,
   assertModeSupportsKind,
   buildAiWatermarkPlan,
+  classifyAiWatermarkRuntimeError,
   commandCandidates,
   detectCapabilities,
   normalizeMode,
   normalizeRegions,
   normalizeInvisiblePipeline,
   redactCommandArgs,
+  resolveAiWatermarkExecutionDevice,
   resolveAiWatermarkCommand,
+  runCommand,
   runAiWatermarkProcess,
   setupHints,
   allArgs,
