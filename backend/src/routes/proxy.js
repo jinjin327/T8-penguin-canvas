@@ -1476,7 +1476,7 @@ router.post('/llm', async (req, res) => {
     model,
     messages: normalizedMessages,
     temperature: temperature ?? 0.7,
-    max_tokens: max_tokens ?? 4096,
+    max_tokens: max_tokens ?? 16384,
     stream: !!stream && !inputHadVideos,
   };
 
@@ -1553,9 +1553,17 @@ router.post('/llm', async (req, res) => {
         else if (d?.b64_json) imageUrls.push('data:image/png;base64,' + d.b64_json);
       });
     }
+    const finishReason = choice?.finish_reason || choice?.finishReason || '';
     res.json({
       success: true,
-      data: { content, imageUrls, raw: data, model },
+      data: {
+        content,
+        imageUrls,
+        raw: data,
+        model,
+        finishReason,
+        truncated: ['length', 'max_tokens', 'content_length'].includes(String(finishReason || '').toLowerCase()),
+      },
     });
   } catch (e) {
     console.error('proxy/llm 错误:', e);

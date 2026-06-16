@@ -165,6 +165,7 @@ const ImageNode = lazyCanvasNode(() => import('./nodes/ImageNode'), 'ImageNode')
 const LLMNode = lazyCanvasNode(() => import('./nodes/LLMNode'), 'LLMNode');
 const VideoNode = lazyCanvasNode(() => import('./nodes/VideoNode'), 'VideoNode');
 const SeedanceNode = lazyCanvasNode(() => import('./nodes/SeedanceNode'), 'SeedanceNode');
+const DirectorStoryboardNode = lazyCanvasNode(() => import('./nodes/DirectorStoryboardNode'), 'DirectorStoryboardNode');
 const AudioNode = lazyCanvasNode(() => import('./nodes/AudioNode'), 'AudioNode');
 const RunningHubNode = lazyCanvasNode(() => import('./nodes/RunningHubNode'), 'RunningHubNode');
 const RhConfigNode = lazyCanvasNode(() => import('./nodes/RhConfigNode'), 'RhConfigNode');
@@ -229,6 +230,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   image: ImageNode,
   video: VideoNode,
   seedance: SeedanceNode, // 完全对齐 gpt-image-2-web Seedance2.0(独立 /seedance/v3 路径)
+  'director-storyboard': DirectorStoryboardNode,
   audio: AudioNode,
   llm: LLMNode,
   runninghub: RunningHubNode,
@@ -424,6 +426,28 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
     pollInt: 10,
     frameMode: 'auto',
   },
+  'director-storyboard': {
+    model: 'doubao-seedance-2-0-fast-260128',
+    ratio: '16:9',
+    resolution: '480p',
+    generateAudio: true,
+    returnLastFrame: false,
+    watermark: false,
+    webSearch: false,
+    seed: -1,
+    bridgeEnabled: false,
+    bridgeDurationSec: 4,
+    bridgePrompt: '',
+    shots: [
+      { id: 'shot-1', title: 'S1', durationSec: 5, prompt: '', frameMode: 'auto', localRefImages: [], localRefVideos: [], localRefAudios: [] },
+      { id: 'shot-2', title: 'S2', durationSec: 5, prompt: '', frameMode: 'auto', localRefImages: [], localRefVideos: [], localRefAudios: [] },
+      { id: 'shot-3', title: 'S3', durationSec: 5, prompt: '', frameMode: 'auto', localRefImages: [], localRefVideos: [], localRefAudios: [] },
+    ],
+    shotResults: {},
+    videoUrls: [],
+    outputText: '',
+    status: 'idle',
+  },
   cinematic: { kind: 'cinematic', cinematicLanguage: 'en', cinematicStrength: 'balanced' },
   'video-motion': { kind: 'video-motion', motionLanguage: 'en' },
   'portrait-master': {
@@ -573,7 +597,7 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
     system: '',
     prompt: '',
     temperature: 0.7,
-    maxTokens: 4096,
+    maxTokens: 16384,
     stream: true,
     history: [],
   },
@@ -862,6 +886,8 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
     panoramaCompositionGuide: 'off',
     panoramaSceneLegendVisible: true,
     panoramaScenePrompt: '',
+    panoramaStoryboardPromptEnabled: false,
+    panoramaStoryboardPromptText: '｛［人物］是@在做［动作］，｝',
     panoramaShotCamera: {
       mode: 'panorama-view',
       presetId: 'full-body',
@@ -1428,12 +1454,12 @@ function hasFileTransfer(dataTransfer: DataTransfer | null | undefined): boolean
   return Array.from(dataTransfer?.types || []).includes('Files');
 }
 
-type PlacementShelfSource = '粘贴' | '发送' | '生成' | '画布';
+type PlacementShelfSource = '粘贴' | '发送' | '生成' | '画布' | '手动';
 
 interface PlacementShelfItem {
   id: string;
   nodeId: string;
-  kind: MediaKind;
+  kind: MediaKind | 'node';
   url: string;
   title: string;
   previewUrl?: string;
@@ -1499,7 +1525,26 @@ function isLeftRightMouseChord(buttons: number | undefined | null) {
   return (mask & 1) !== 0 && (mask & 2) !== 0;
 }
 
-function placementShelfItemFromNode(node: Node, source: PlacementShelfSource): PlacementShelfItem | null {
+function placementShelfNodeTitle(node: Node): string {
+  const data = (node.data || {}) as any;
+  const meta = NODE_REGISTRY.find((item) => item.type === node.type);
+  const raw =
+    data.title ||
+    data.label ||
+    data.name ||
+    data.displayName ||
+    meta?.label ||
+    node.type ||
+    '节点';
+  const title = String(raw).trim();
+  return title || '节点';
+}
+
+function placementShelfItemFromNode(
+  node: Node,
+  source: PlacementShelfSource,
+  options?: { includeNodeFallback?: boolean },
+): PlacementShelfItem | null {
   const data = (node.data || {}) as any;
   for (const kind of ['image', 'video', 'audio', 'model3d'] as MediaKind[]) {
     const first = getMediaItemsFromData(data, kind)[0];
@@ -1511,6 +1556,17 @@ function placementShelfItemFromNode(node: Node, source: PlacementShelfSource): P
       url: first.url,
       previewUrl: kind === 'image' || kind === 'video' ? first.url : undefined,
       title: first.name || fileNameFromUrl(first.url) || PORT_LABEL[kind],
+      source,
+      createdAt: Date.now(),
+    };
+  }
+  if (options?.includeNodeFallback) {
+    return {
+      id: `${node.id}:node`,
+      nodeId: node.id,
+      kind: 'node',
+      url: '',
+      title: placementShelfNodeTitle(node),
       source,
       createdAt: Date.now(),
     };
@@ -1673,6 +1729,7 @@ function PlacementShelf({
   isDark,
   isPixel,
   onToggle,
+  onClear,
   onMoveNode,
   onRemove,
 }: {
@@ -1681,6 +1738,7 @@ function PlacementShelf({
   isDark: boolean;
   isPixel: boolean;
   onToggle: () => void;
+  onClear: () => void;
   onMoveNode: (item: PlacementShelfItem, point: { x: number; y: number }) => void;
   onRemove: (id: string) => void;
 }) {
@@ -1752,14 +1810,31 @@ function PlacementShelf({
             <LucideIcons.Inbox size={13} className="mr-1 inline-block" />
             放置栏 {visible.length}/{displayLimit}
           </button>
-          <button
-            type="button"
-            className="t8-mini-icon-button"
-            onClick={onToggle}
-            title={open ? '收起' : '展开'}
-          >
-            {open ? <LucideIcons.ChevronDown size={14} /> : <LucideIcons.ChevronUp size={14} />}
-          </button>
+          <div className="flex items-center gap-1">
+            {items.length > 0 && (
+              <button
+                type="button"
+                className="t8-mini-icon-button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onClear();
+                }}
+                aria-label="清空放置栏"
+                title="清空放置栏"
+              >
+                <LucideIcons.Trash2 size={13} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="t8-mini-icon-button"
+              onClick={onToggle}
+              title={open ? '收起' : '展开'}
+            >
+              {open ? <LucideIcons.ChevronDown size={14} /> : <LucideIcons.ChevronUp size={14} />}
+            </button>
+          </div>
         </div>
         <div className="t8-placement-shelf__grid grid grid-cols-5 gap-2">
           {visible.length === 0 && (
@@ -1772,22 +1847,24 @@ function PlacementShelf({
               ? LucideIcons.Image
               : item.kind === 'video'
                 ? LucideIcons.Video
-                : item.kind === 'model3d'
-                  ? LucideIcons.Box
-                  : LucideIcons.Music;
+                : item.kind === 'audio'
+                  ? LucideIcons.Music
+                  : item.kind === 'model3d'
+                    ? LucideIcons.Box
+                    : LucideIcons.Workflow;
             return (
               <div
                 key={item.id}
                 className="nodrag nopan group relative h-14 w-14 cursor-grab overflow-hidden rounded-md"
                 style={itemStyle}
                 title={`${item.source} · ${item.title}\n拖到画布位置会移动原节点，不会复制。`}
-                data-drag-source
-                data-drag-kind={item.kind}
-                data-drag-url={item.url}
-                data-drag-preview={item.previewUrl || item.url}
+                data-drag-source={item.url ? true : undefined}
+                data-drag-kind={item.url ? item.kind : undefined}
+                data-drag-url={item.url || undefined}
+                data-drag-preview={item.url ? (item.previewUrl || item.url) : undefined}
                 data-drag-node-id={item.nodeId}
                 data-resource-title={item.title}
-                draggable
+                draggable={!!item.url}
                 onPointerDown={(event) => {
                   if (event.button !== 0) return;
                   event.preventDefault();
@@ -1795,11 +1872,14 @@ function PlacementShelf({
                   setDrag({ item, x: event.clientX, y: event.clientY });
                 }}
               >
-                {item.kind === 'image' ? (
+                {item.kind === 'image' && item.url ? (
                   <SmartImage src={item.url} alt={item.title} thumbSize={160} className="h-full w-full object-cover" draggable={false} />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-black/65">
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 bg-black/65 px-1 text-center">
                     <Icon size={22} className="text-white/90" />
+                    {item.kind === 'node' && (
+                      <span className="max-w-full truncate text-[9px] font-bold text-white/80">节点</span>
+                    )}
                   </div>
                 )}
                 <div className="absolute left-0 top-0 max-w-full truncate rounded-br bg-black/70 px-1 py-0.5 text-[9px] font-bold text-white">
@@ -1887,6 +1967,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const memoPanOnDrag = useMemo(() => (canvasPanLocked ? false : [...CANVAS_PAN_MOUSE_BUTTONS]), [canvasPanLocked]);
   const [placementShelfItems, setPlacementShelfItems] = useState<PlacementShelfItem[]>([]);
   const [placementShelfOpen, setPlacementShelfOpen] = useState(false);
+  const placementShelfClearedCanvasIdsRef = useRef<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>(null);
   const saveTimersByCanvasRef = useRef<Map<string, number>>(new Map());
@@ -2104,6 +2185,36 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     });
   }, []);
 
+  const addNodesToPlacementShelf = useCallback((nodeIds: string[]) => {
+    const idSet = new Set(nodeIds.filter(Boolean));
+    if (idSet.size === 0) return;
+    const mapped = nodesRef.current
+      .filter((node) => idSet.has(node.id))
+      .map((node) => (
+        placementShelfItemFromNode(node, '手动') ||
+        placementShelfItemFromNode(node, '手动', { includeNodeFallback: true })
+      ))
+      .filter((item): item is PlacementShelfItem => !!item);
+    if (mapped.length === 0) {
+      logBus.warn('没有找到可加入放置栏的节点', '放置栏');
+      return;
+    }
+    setPlacementShelfItems((prev) => {
+      const replacementIds = new Set(mapped.map((item) => item.nodeId));
+      const next = [...mapped, ...prev.filter((item) => !replacementIds.has(item.nodeId))];
+      return next.slice(0, 60);
+    });
+    setPlacementShelfOpen(true);
+    logBus.success(`已添加 ${mapped.length} 个节点到放置栏`, '放置栏');
+  }, []);
+
+  const clearPlacementShelf = useCallback(() => {
+    if (activeId) placementShelfClearedCanvasIdsRef.current.add(activeId);
+    setPlacementShelfItems([]);
+    setPlacementShelfOpen(false);
+    logBus.success('已清空放置栏', '放置栏');
+  }, [activeId]);
+
   const movePlacementShelfNode = useCallback((item: PlacementShelfItem, point: { x: number; y: number }) => {
     const node = nodesRef.current.find((candidate) => candidate.id === item.nodeId);
     if (!node) {
@@ -2293,7 +2404,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         const baselineNextNodeSerialId = normalized.changed
           ? savedNextNodeSerialId || 1
           : normalized.nextNodeSerialId;
-        setPlacementShelfItems(placementShelfItemsFromCanvasNodes(fixedNs, '画布'));
+        setPlacementShelfItems(placementShelfClearedCanvasIdsRef.current.has(requestedCanvasId) ? [] : placementShelfItemsFromCanvasNodes(fixedNs, '画布'));
         setPlacementShelfOpen(false);
         lastSavedByCanvasRef.current.set(requestedCanvasId, JSON.stringify({
           nodes: baselineNodes,
@@ -6637,6 +6748,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           isDark={isDark}
           isPixel={isPixel}
           onToggle={() => setPlacementShelfOpen((prev) => !prev)}
+          onClear={clearPlacementShelf}
           onMoveNode={movePlacementShelfNode}
           onRemove={(id) => setPlacementShelfItems((prev) => prev.filter((item) => item.id !== id))}
         />
@@ -7328,6 +7440,18 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               >
                 <SendIcon size={13} />
                 <span>发送到... ({sendMenuSummary})</span>
+              </button>
+              <button
+                className={menuItemCls}
+                disabled={ids.length === 0}
+                title="把当前选中节点加入左下角放置栏，之后可从放置栏拖动移动原节点"
+                onClick={() => {
+                  closeContextMenu();
+                  addNodesToPlacementShelf(ids);
+                }}
+              >
+                <LucideIcons.Archive size={13} />
+                <span>添加到放置栏</span>
               </button>
               <button
                 className={menuItemCls}

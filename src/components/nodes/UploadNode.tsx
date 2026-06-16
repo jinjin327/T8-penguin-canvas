@@ -9,6 +9,7 @@ import {
   FileVideo,
   Music,
   RotateCcw,
+  Trash2,
   Upload as UploadIcon,
   X,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ import {
   createOutputDataFromItems,
   createUploadDataFromItem,
   createUploadDataFromItems,
+  createUploadMediaRemovalData,
   formatMediaSize,
   getMediaItemsFromData,
   sameMediaUrls,
@@ -332,6 +334,18 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
       ...(rhDuckMode ? { rhDuckHiddenUpload: true } : {}),
     });
     setError(null);
+  };
+
+  const handleRemoveUploadItem = (index: number) => {
+    if (!uploadType) return;
+    const emptyUploadType = lockedUploadType ?? (rhDuckMode ? 'image' : null);
+    update({
+      ...createUploadMediaRemovalData(d, uploadType, index, emptyUploadType),
+      lockedUploadType: lockedUploadType === 'model3d' ? 'model3d' : undefined,
+      ...(rhDuckMode ? { rhDuckHiddenUpload: true } : {}),
+    });
+    setError(null);
+    if (editingUrl === mediaItems[index]?.url) setEditingUrl(null);
   };
 
   const uploadSingleFile = async (file: File, kind: UploadKind): Promise<MediaItem> => {
@@ -753,6 +767,28 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                         alt={item.name || `图像 ${i + 1}`}
                         buttonClassName="absolute right-1.5 top-1.5 z-10 h-7 w-7 p-0 opacity-0 shadow-md transition group-hover/upload-image:opacity-100 focus:opacity-100"
                       />
+                      <button
+                        type="button"
+                        className="nodrag nopan t8-btn t8-mini-icon-button t8-material-delete-button absolute right-1.5 top-10 z-10 h-7 w-7 p-0 opacity-0 shadow-md transition group-hover/upload-image:opacity-100 focus:opacity-100"
+                        title={`删除素材 ${i + 1}`}
+                        aria-label={`删除素材 ${i + 1}`}
+                        style={{ color: 'var(--t8-danger, #ef4444)' }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleRemoveUploadItem(i);
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                     <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/45' : 'text-zinc-500'}`}>
                       <span className="truncate flex-1" title={item.name}>{item.name || `图像 ${i + 1}`}</span>
@@ -787,6 +823,21 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                       <span className="truncate flex-1" title={item.name}>{item.name || `视频 ${i + 1}`}</span>
                       <MediaMetadataBadge kind="video" url={item.url} />
                       {item.size ? <span className="opacity-70">{formatMediaSize(item.size)}</span> : null}
+                      <button
+                        type="button"
+                        className={`nodrag nopan p-0.5 rounded ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                        title={`删除素材 ${i + 1}`}
+                        aria-label={`删除素材 ${i + 1}`}
+                        style={{ color: 'var(--t8-danger, #ef4444)' }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleRemoveUploadItem(i);
+                        }}
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -814,6 +865,21 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                       <span className="truncate flex-1" title={item.name}>{item.name || `音频 ${i + 1}`}</span>
                       <MediaMetadataBadge kind="audio" url={item.url} />
                       {item.size ? <span className="opacity-70">{formatMediaSize(item.size)}</span> : null}
+                      <button
+                        type="button"
+                        className={`nodrag nopan p-0.5 rounded ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                        title={`删除素材 ${i + 1}`}
+                        aria-label={`删除素材 ${i + 1}`}
+                        style={{ color: 'var(--t8-danger, #ef4444)' }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleRemoveUploadItem(i);
+                        }}
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -856,6 +922,23 @@ const UploadNode = ({ id, data, selected, type }: NodeProps) => {
                       >
                         <Download size={10} /> 下载
                       </a>
+                      <button
+                        type="button"
+                        className={`nodrag nopan inline-flex items-center justify-center rounded px-1.5 py-1 text-[10px] ${
+                          isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'
+                        }`}
+                        title={`删除素材 ${i + 1}`}
+                        aria-label={`删除素材 ${i + 1}`}
+                        style={{ color: 'var(--t8-danger, #ef4444)' }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleRemoveUploadItem(i);
+                        }}
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     </div>
                   </div>
                 ))}

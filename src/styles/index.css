@@ -373,6 +373,61 @@ body,
   isolation: isolate;
 }
 
+.t8-main-layout {
+  --t8-sidebar-width: 256px;
+  --t8-sidebar-toggle-left: calc(var(--t8-sidebar-width) - 16px);
+  --t8-sidebar-toggle-top: 62px;
+}
+
+.t8-main-layout--sidebar-collapsed {
+  --t8-sidebar-toggle-left: 10px;
+  --t8-sidebar-toggle-top: 10px;
+}
+
+.t8-main-layout > .t8-canvas-shell {
+  min-width: 0;
+}
+
+.t8-sidebar-toggle {
+  position: absolute;
+  left: var(--t8-sidebar-toggle-left);
+  top: var(--t8-sidebar-toggle-top);
+  z-index: 86;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  color: var(--t8-text-main, #f8fafc);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--t8-bg-panel, #141416) 92%, var(--t8-accent, #38bdf8) 8%),
+      var(--t8-bg-panel, #141416)
+    );
+  border: 1px solid color-mix(in srgb, var(--t8-border-strong, var(--t8-border, rgba(255, 255, 255, 0.18))) 72%, var(--t8-accent, #38bdf8) 28%);
+  border-radius: 8px;
+  box-shadow:
+    var(--t8-shadow-button, 0 10px 24px rgba(0, 0, 0, 0.28)),
+    0 0 0 2px color-mix(in srgb, var(--t8-bg-app, #09090b) 68%, transparent);
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.t8-sidebar-toggle:hover,
+.t8-sidebar-toggle.is-collapsed {
+  color: var(--t8-accent, #38bdf8);
+  border-color: color-mix(in srgb, var(--t8-border-strong, var(--t8-border, rgba(255, 255, 255, 0.18))) 42%, var(--t8-accent, #38bdf8) 58%);
+}
+
+.t8-sidebar-toggle:active {
+  transform: translateY(1px) scale(0.97);
+}
+
 .t8-canvas-shell::before,
 .t8-canvas-shell::after {
   pointer-events: none;
@@ -2989,6 +3044,79 @@ html[data-theme-visual="op"] .t8-group-box__handle {
 .t8-mini-icon-button svg {
   flex: 0 0 auto;
   pointer-events: none;
+}
+
+.t8-output-image-media--grid {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: 180px !important;
+  object-fit: contain !important;
+}
+
+.t8-output-image-action-stack {
+  max-height: calc(100% - 12px);
+  overflow: visible;
+}
+
+.t8-output-image-action-stack .t8-material-action-button {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 28px !important;
+  line-height: 1 !important;
+}
+
+.t8-output-image-action-stack--compact {
+  flex-direction: row !important;
+  right: 4px !important;
+  top: 4px !important;
+  gap: 2px !important;
+  max-width: calc(100% - 8px);
+  max-height: 22px;
+  overflow: hidden;
+}
+
+.t8-output-image-action-stack--above {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  width: 100%;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  margin-bottom: 4px;
+}
+
+.t8-output-image-action-stack--compact .t8-material-action-button {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
+  flex-basis: 22px !important;
+  border-radius: 7px !important;
+}
+
+.t8-output-image-action-stack--compact .t8-material-action-button svg {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+.react-flow__node .t8-output-image-action-stack--compact .t8-material-action-button {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
 }
 
 .panorama-avatar-overlay-toggle {

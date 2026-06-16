@@ -448,6 +448,8 @@ export interface GenerateLlmResult {
   content: string;
   /** 仅 gpt-image-2-all 等出图模型返回 */
   imageUrls?: string[];
+  finishReason?: string;
+  truncated?: boolean;
   raw: any;
   model: string;
 }
@@ -485,6 +487,8 @@ export async function generateExternalLlm(req: GenerateExternalLlmRequest): Prom
   return {
     content: payload.text || payload.content || '',
     imageUrls: Array.isArray(payload.imageUrls) ? payload.imageUrls : undefined,
+    finishReason: payload.finishReason || payload.finish_reason || payload.raw?.choices?.[0]?.finish_reason,
+    truncated: payload.truncated === true || payload.raw?.choices?.[0]?.finish_reason === 'length',
     raw: payload.raw,
     model: req.model,
   };
@@ -495,13 +499,13 @@ export async function generateExternalLlm(req: GenerateExternalLlmRequest): Prom
  * @param req 请求(自动注入 stream:true)
  * @param opts.onDelta 每个增量片段回调(实时拼接)
  * @param opts.signal AbortSignal 支持中断
- * @returns 最终拼接后的完整 content
+ * @returns 最终拼接后的完整 content 与上游 finish_reason
  * 对齐 gpt-image-2-web index.html L8262~L8295 流式解析逻辑。
  */
 export async function generateLlmStream(
   req: GenerateLlmRequest,
   opts: { onDelta?: (chunk: string) => void; signal?: AbortSignal } = {}
-): Promise<{ content: string }> {
+): Promise<{ content: string; finishReason?: string; truncated?: boolean }> {
   const r = await fetch('/api/proxy/llm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -524,6 +528,33 @@ export async function generateLlmStream(
   const decoder = new TextDecoder();
   let assembled = '';
   let buffer = '';
+  let finishReason = '';
+  const finish = () => ({
+    content: assembled,
+    finishReason: finishReason || undefined,
+    truncated: ['length', 'max_tokens', 'content_length'].includes(String(finishReason || '').toLowerCase()),
+  });
+  const processSseLine = (raw: string): boolean => {
+    const line = raw.trim();
+    if (!line.startsWith('data:')) return false;
+    const data = line.slice(5).trim();
+    if (data === '[DONE]') return true;
+    try {
+      const j = JSON.parse(data);
+      const choice = j?.choices?.[0];
+      const delta = choice?.delta?.content;
+      if (choice?.finish_reason || choice?.finishReason) {
+        finishReason = String(choice.finish_reason || choice.finishReason || '');
+      }
+      if (typeof delta === 'string' && delta.length) {
+        assembled += delta;
+        opts.onDelta?.(delta);
+      }
+    } catch {
+      /* 心跳或不完整 JSON 忽略 */
+    }
+    return false;
+  };
   // SSE 按行解析
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -533,23 +564,11 @@ export async function generateLlmStream(
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
     for (const raw of lines) {
-      const line = raw.trim();
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (data === '[DONE]') return { content: assembled };
-      try {
-        const j = JSON.parse(data);
-        const delta = j?.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string' && delta.length) {
-          assembled += delta;
-          opts.onDelta?.(delta);
-        }
-      } catch {
-        /* 心跳或不完整 JSON 忽略 */
-      }
+      if (processSseLine(raw)) return finish();
     }
   }
-  return { content: assembled };
+  if (buffer.trim()) processSseLine(buffer);
+  return finish();
 }
 
 /** File → dataURL(对齐主项目 FileReader.readAsDataURL) */

@@ -1,7 +1,82 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "2.2.6",
-  "lastUpdated": "2026-06-15-electron-release-v226",
+  "version": "2.2.7",
+  "lastUpdated": "2026-06-16-electron-release-v227",
+  "electronReleaseV227": {
+    "version": "2.2.7",
+    "status": "electron-release",
+    "date": "2026-06-16",
+    "description": "v2.2.7 Electron 自动更新版：新增导演分镜台并收口素材操作、侧边栏隐藏、放置栏、3D 全景分镜提示板、宫格编辑拖拽和宫格剪裁去重等工作流细节；本次打包 Electron 并发布 GitHub Release / latest.yml 自动更新资产。",
+    "highlights": [
+      "新增导演分镜台节点：支持分辨率设置、每个分镜 4-15 秒时长、单镜头提示词、多参考图/视频/音频素材、@ 素材提及和面向 Seedance 2.0 多参考图流程的并发生成，分镜完成即可单独输出。",
+      "侧边栏支持 H 快捷键和主题化折叠按钮，隐藏后画布悬浮控制与放置栏自动贴左，减少小屏幕占用。",
+      "放置栏新增一键清空，并在节点右键菜单中支持将当前节点加入放置栏；清空后不会因为后续拖入新节点而恢复旧缓存。",
+      "上传素材和输出素材新增单素材删除与复制到剪贴板入口；多图横版预览保持横向比例，操作按钮移到缩略图上方，避免遮挡下载按钮。",
+      "3D 全景节点新增分镜提示板，开启后可在快照下方拼接黑底白字提示词框，提示词区域高度根据输入行数自适应，避免多行文字被截断。",
+      "宫格编辑支持从浏览器外文件夹、画布上传素材和输出素材拖入任意格子；宫格剪裁修复单张 2x2 图被重复输出多个 4 图输出节点的问题。",
+      "LLM / Vision 对话路径放宽长回答输出限制，配套补齐视频输入和扩展 provider 回归测试。",
+      "Codex 相关节点与大画布素材收集继续做性能收口，降低添加 Codex 节点后画布拖动卡顿。",
+      "公开版本同步到 2.2.7：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.2.7.md 同步；本次生成 Electron 安装包、blockmap 与 latest.yml，并发布 GitHub Release 自动更新资产。"
+    ],
+    "releaseFiles": [
+      "package.json",
+      "package-lock.json",
+      "vite.config.ts",
+      "vite.config.js",
+      "electron/main.cjs",
+      "backend/src/config.js",
+      "features.json",
+      "README.md",
+      "release-notes/v2.2.7.md",
+      "backend/src/providers/openaiCompatible.js",
+      "backend/src/routes/proxy.js",
+      "src/App.tsx",
+      "src/components/Canvas.tsx",
+      "src/components/MaterialContextMenu.tsx",
+      "src/components/nodes/CodexCliAgentNode.tsx",
+      "src/components/nodes/DirectorStoryboardNode.tsx",
+      "src/components/nodes/GridEditorNode.tsx",
+      "src/components/nodes/LLMNode.tsx",
+      "src/components/nodes/OutputNode.tsx",
+      "src/components/nodes/Panorama3DNode.tsx",
+      "src/components/nodes/UploadNode.tsx",
+      "src/components/nodes/useUpstreamMaterials.ts",
+      "src/config/nodeRegistry.ts",
+      "src/config/portTypes.ts",
+      "src/services/generation.ts",
+      "src/styles/index.css",
+      "src/types/canvas.ts",
+      "src/utils/directorStoryboard.ts",
+      "src/utils/gridEditor.ts",
+      "src/utils/imageClipboard.ts",
+      "src/utils/keyboardShortcuts.ts",
+      "src/utils/mediaCollection.ts",
+      "src/utils/panorama3d.ts",
+      "src/utils/upstreamMaterialBuckets.ts"
+    ],
+    "packaging": {
+      "script": "npm run dist:release",
+      "installer": "dist_electron/T8-PenguinCanvas-Setup-2.2.7.exe",
+      "blockmap": "dist_electron/T8-PenguinCanvas-Setup-2.2.7.exe.blockmap",
+      "latestYml": "dist_electron/latest.yml",
+      "updater": "GitHub Release v2.2.7 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "releaseBoundary": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、hermes-agent/**、comfyui-anima-t8/**、Electron 缓存目录和任何私有计费/支付/充值/分组令牌实现进入 GitHub。",
+      "RH 工具箱制作器、FAL 应用制作工具和维护者本机调试素材仍为本地开发工具，不进入公开源码和公开打包产物。",
+      "Release 资产只上传 NSIS 安装包、blockmap 与 latest.yml。"
+    ],
+    "verification": [
+      "node --test tests\\directorStoryboard.test.ts tests\\gridEditor.test.ts tests\\mediaMaterialDeleteUi.test.ts tests\\placementShelf.test.ts tests\\sidebarCollapse.test.ts tests\\outputMaterialPersistence.test.ts tests\\mediaCollection.test.ts tests\\panorama3d.test.ts tests\\llmVideoInput.test.ts tests\\advancedProviderFrontend.test.ts tests\\codexCliAgent.test.ts tests\\keyboardShortcuts.test.ts tests\\groupUpstreamMaterials.test.ts",
+      "npm run type-check",
+      "npm run rh-toolbox:check",
+      "npm run public:check",
+      "npm run build",
+      "git diff --check",
+      "npm run dist:release",
+      "npm run release:verify"
+    ]
+  },
   "electronReleaseV226": {
     "version": "2.2.6",
     "status": "electron-release",
@@ -2152,11 +2227,11 @@
       "T8_RUNTIME_CACHE_DIR": "可选，覆盖运行时归档解压缓存目录；默认打包模式为 %APPDATA%/t8-penguin-canvas/runtime-cache",
       "T8_ENABLE_LOCAL_PRIVATE": "可选，0=强制关闭本机 local-private/extensions 私有扩展；默认只要本机 ignored 私有扩展存在，开发环境和本机打包 release 都会自动带入。GitHub/clean clone 因为没有 local-private 目录，所以不会带充值实现。"
     },
-    "version": "2.2.6",
-    "semverVersion": "2.2.6",
+    "version": "2.2.7",
+    "semverVersion": "2.2.7",
     "versionNumberPolicy": "T8 版本号仍采用 x.y.z 三段，但每一段只允许 0-9；任一段到 9 后下一次发布必须向左进位，禁止任一段出现两位数字。例：1.9.9 的下一版必须是 2.0.0。",
-    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.2.6 Electron 自动更新版：修复动漫标签大师和艺术风格大师强主题适配，两个灵感节点内部变量接入 --t8-* 主题语义系统；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
-    "installer": "v2.2.6 是 Electron 自动更新版本：本次通过 npm run dist:release 生成 dist_electron/T8-PenguinCanvas-Setup-2.2.6.exe、blockmap 与 latest.yml，并发布 GitHub Release 自动更新资产。",
+    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布版本为 v2.2.7 Electron 自动更新版：新增导演分镜台，并收口侧边栏隐藏、放置栏、素材删除/剪贴板、3D 全景分镜提示板、宫格编辑拖拽、宫格剪裁去重和 LLM/Vision 长回答；GitHub 公开源码仍排除本地私有计费/支付/充值/分组令牌实现。",
+    "installer": "v2.2.7 是 Electron 自动更新版本：本次通过 npm run dist:release 生成 dist_electron/T8-PenguinCanvas-Setup-2.2.7.exe、blockmap 与 latest.yml，并发布 GitHub Release 自动更新资产。",
     "updaterInstallMode": "自动更新下载完成后不得静默安装：main.cjs 必须设置 autoInstallOnAppQuit=false，显式安装调用 quitAndInstall(false,true)；electron/build-resources/installer.nsh 通过 SetSilent normal 让新版 NSIS 安装器即使收到旧客户端传入的 /S 也尽量切回前台安装向导。",
     "installerShortcutPolicy": "安装完成后必须创建桌面和开始菜单快捷方式：package.json build.nsis.createDesktopShortcut 必须为 \"always\"，createStartMenuShortcut 必须为 true；electron/build-resources/installer.nsh 必须保留 customInstall 兜底 CreateShortCut \"$newStartMenuLink\" 与 \"$DESKTOP\\${SHORTCUT_NAME}.lnk\"，防止更新安装/keepShortcuts 路径遗漏入口。",
     "updaterEntryPolicy": "顶栏桌面更新入口不得只因 window.t8pc.updater 缺失就静默消失；Electron UA 或 t8pc.getInfo/openExternal 可用时必须显示诊断入口，提示重新安装完整桌面包，Web/纯浏览器环境才隐藏。状态为 not-available 时按钮仍保留“更新”字样，避免用户误以为自动更新入口被删除。",
@@ -2797,7 +2872,7 @@
       "自动更新到带新影片的版本后，旧成就数据仍能解锁并播放新资源。"
     ]
   },
-  "totalNodes": 51,
+  "totalNodes": 52,
   "phases": {
     "phase0": {
       "label": "基础设施",
@@ -4840,7 +4915,7 @@
     },
     "core": {
       "label": "核心节点",
-      "count": 6,
+      "count": 7,
       "nodes": [
         {
           "type": "text",
@@ -4861,6 +4936,11 @@
           "type": "seedance",
           "label": "SD2.0 节点",
           "description": "Seedance 2.0 视频分镜；上游文本/图像/视频/音频缩略图可在节点内单项排除且不断开连线"
+        },
+        {
+          "type": "director-storyboard",
+          "label": "导演分镜台",
+          "description": "秒级长片分镜台：每镜头 4-15 秒，可继承或单独覆盖模型/比例/分辨率，支持独立提示词和参考素材；生成时按分镜无限并发调用 Seedance2.0，多镜头逐个完成逐个输出，首尾帧桥接默认关闭可选启用"
         },
         {
           "type": "audio",
@@ -5740,6 +5820,7 @@
     "penguin-portrait",
     "video",
     "seedance",
+    "director-storyboard",
     "audio",
     "llm",
     "runninghub",
