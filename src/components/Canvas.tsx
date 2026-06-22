@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type DragEvent as ReactDragEvent, type RefObject } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import {
   ReactFlow,
   Background,
@@ -13,8 +13,10 @@ import {
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
+  getBezierPath,
   useReactFlow,
   type Connection,
+  type ConnectionLineComponentProps,
   type Edge,
   type Node,
   type NodeChange,
@@ -121,9 +123,11 @@ import RadialMenuSettingsModal from './RadialMenuSettingsModal';
 import MaterialDragOverlay from './MaterialDragOverlay';
 import ThemeMusicToggle from './ThemeMusicToggle';
 import CreativeDeskLayer from './CreativeDeskLayer';
+import FarmCanvasLayer, { type FarmCanvasFloatingFeedback } from './FarmCanvasLayer';
 import DragonBallRadar from './DragonBallRadar';
 import SaintSeiyaSanctuary from './SaintSeiyaSanctuary';
 import TetrisPanel from './TetrisPanel';
+import FarmStoryPanel, { T8_FARM_STORY_PANEL_COLLAPSED_STORAGE_KEY, type FarmStoryPanelCanvasHint } from './FarmStoryPanel';
 import SendMaterialsModal from './SendMaterialsModal';
 import SmartImage from './SmartImage';
 import { useCanvasHistory } from '../hooks/useCanvasHistory';
@@ -131,13 +135,41 @@ import type { CanvasTemplate } from '../config/canvasTemplates';
 import PlaceholderNode from './nodes/PlaceholderNode';
 import DeletableEdge from './edges/DeletableEdge';
 import { NODE_REGISTRY } from '../config/nodeRegistry';
-import type { CreativeDeskState, NodeType, NodeMeta } from '../types/canvas';
+import type { CreativeDeskState, FarmCanvasState, FarmDecorObjectType, FarmEventLogItem, FarmTool, NodeType, NodeMeta } from '../types/canvas';
 import {
   appendCreativeDeskItem,
   createCreativeDeskImageItem,
   createDefaultCreativeDeskState,
   migrateCreativeDeskToViewportCoordinates,
 } from '../utils/creativeDesk';
+import {
+  FARM_BUILDING_DEFINITIONS,
+  FARM_CROP_DEFINITIONS,
+  FARM_DEFAULT_DECOR_ID,
+  FARM_DECOR_DEFINITIONS,
+  advanceFarmDay,
+  applyFarmTool,
+  buildFarmActivityDigest,
+  buildFarmBeautyRewards,
+  buildFarmBeautyScore,
+  buildFarmFocusGoals,
+  buildFarmMiniMapMarkers,
+  canCompleteFarmNpcVisit,
+  canCompleteFarmOrder,
+  completeFarmNpcVisit,
+  completeFarmOrder,
+  countFarmScarecrowUnprotectedDryCrops,
+  createFarmState,
+  farmDecorIdForResourceObjectType,
+  farmMiniMapMarkerMatchesRouteTarget,
+  farmToolSupportsContinuousAction,
+  isFarmDecorUnlocked,
+  sanitizeFarmCanvasState,
+  type FarmMiniMapMarker,
+  type FarmMiniMapRouteHintTarget,
+  type FarmToolAction,
+} from '../utils/farmCanvas';
+import { farmSoundCueForEvent, farmSoundCueForTool, playFarmActionSound, type FarmSoundCue } from '../utils/farmSound';
 import { readImageNaturalSize } from '../utils/imageNaturalSize';
 import {
   isConnectionValid,
@@ -153,6 +185,662 @@ import {
 const CANVAS_PAN_MOUSE_BUTTONS = [0, 1] as const;
 const RADIAL_MENU_MOUSE_BUTTON = 2;
 const RADIAL_MENU_CONTEXT_SUPPRESS_MS = 700;
+const MAX_FARM_FLOATING_FEEDBACKS = 8;
+const FARM_FLOATING_FEEDBACK_MS = 1350;
+const FARM_JUMP_HIGHLIGHT_MS = 900;
+const FARM_MINIMAP_ROUTE_HINT_MS = 1600;
+const FARM_SOUND_ENABLED_STORAGE_KEY = 't8-farm-story-sfx-enabled';
+const FARM_MINIMAP_WIDTH = 214;
+const FARM_MINIMAP_HEIGHT = 136;
+const FARM_MINIMAP_RIGHT = 24;
+const FARM_MINIMAP_BOTTOM = 32;
+const FARM_MINIMAP_MARKER_LIMIT = 140;
+const FARM_MINIMAP_HEAVY_OBJECT_COUNT = 500;
+const MAX_EDGE_CUT_FEEDBACKS = 4;
+const EDGE_CUT_FEEDBACK_MS = 1100;
+const MAX_EDGE_CONNECT_FEEDBACKS = 3;
+const EDGE_CONNECT_FEEDBACK_MS = 950;
+
+type EdgeCutFeedbackKind = 'rope' | 'water' | 'path' | 'generic';
+type EdgeConnectFeedbackKind = EdgeCutFeedbackKind;
+type FarmNodeVisualState = 'idle' | 'running' | 'success' | 'error' | 'disabled';
+
+interface EdgeCutFeedbackEventDetail {
+  x?: number;
+  y?: number;
+  count?: number;
+  edgeKind?: string;
+  source?: 'button' | 'slash';
+}
+
+interface EdgeCutFeedback {
+  id: string;
+  x: number;
+  y: number;
+  count: number;
+  kind: EdgeCutFeedbackKind;
+  source: 'button' | 'slash';
+  title: string;
+  detail: string;
+}
+
+interface EdgeConnectFeedback {
+  id: string;
+  x: number;
+  y: number;
+  kind: EdgeConnectFeedbackKind;
+  title: string;
+  detail: string;
+}
+
+function FarmStoryConnectionLine({
+  connectionLineStyle,
+  connectionStatus,
+  fromPosition,
+  fromX,
+  fromY,
+  toPosition,
+  toX,
+  toY,
+}: ConnectionLineComponentProps) {
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX: fromX,
+    sourceY: fromY,
+    sourcePosition: fromPosition,
+    targetX: toX,
+    targetY: toY,
+    targetPosition: toPosition,
+  });
+  const status = connectionStatus || 'pending';
+
+  return (
+    <g
+      className={`t8-farm-connection-preview is-${status}`}
+      data-farm-connection-status={status}
+      aria-hidden="true"
+    >
+      <path
+        d={path}
+        fill="none"
+        className={`react-flow__connection-path t8-farm-connection-preview__path is-${status}`}
+        style={connectionLineStyle}
+      />
+      {status === 'invalid' && (
+        <g
+          className="t8-farm-connection-preview__forbidden"
+          transform={`translate(${labelX} ${labelY})`}
+        >
+          <title>端口不兼容，不能连接</title>
+          <rect className="t8-farm-connection-preview__forbidden-post" x="-3" y="8" width="6" height="18" rx="2" />
+          <rect className="t8-farm-connection-preview__forbidden-board" x="-22" y="-15" width="44" height="28" rx="5" />
+          <circle className="t8-farm-connection-preview__forbidden-ring" cx="0" cy="-1" r="8" />
+          <path className="t8-farm-connection-preview__forbidden-slash" d="M -5 -7 L 6 5" />
+        </g>
+      )}
+    </g>
+  );
+}
+
+interface FarmMiniMapRenderableMarker extends FarmMiniMapMarker {
+  leftPct: number;
+  topPct: number;
+  widthPct: number;
+  heightPct: number;
+}
+
+interface FarmContinuousFeedbackBatch {
+  tool: FarmToolAction['tool'];
+  label: string;
+  count: number;
+  x: number;
+  y: number;
+  tone: FarmCanvasFloatingFeedback['tone'];
+  placementEcho?: string;
+  beautyGain?: number;
+  beautyRewardTitle?: string;
+  beautyRewardCount?: number;
+  timerId?: number;
+}
+
+interface FarmToolSelectionFeedback {
+  message: string;
+  tone: FarmCanvasFloatingFeedback['tone'];
+}
+
+type FarmToolbarConsoleTone = 'water' | 'order' | 'visit' | 'mature' | 'guard' | 'focus' | 'stable';
+type FarmToolbarConsoleSection = 'tools' | 'visits' | 'actions' | 'build' | 'focus' | 'activity';
+
+interface FarmToolbarConsoleHint {
+  tone: FarmToolbarConsoleTone;
+  primary: string;
+  secondary: string;
+  section: FarmToolbarConsoleSection;
+  sectionLabel: string;
+  count: number;
+  title: string;
+}
+
+const FARM_TOOLBAR_CONSOLE_SECTION_LABELS: Record<FarmToolbarConsoleSection, string> = {
+  tools: '工具栏',
+  visits: '订单来访',
+  actions: '底部操作',
+  build: '建造装饰',
+  focus: '今日目标',
+  activity: '最近农活',
+};
+
+interface FarmMiniMapRouteHint {
+  target: FarmMiniMapRouteHintTarget;
+  label: string;
+  anchor?: { x: number; y: number };
+  id: string;
+}
+
+function buildFarmToolbarConsoleHint(
+  stateInput: FarmCanvasState | undefined,
+  panelOpen: boolean,
+): FarmToolbarConsoleHint {
+  const state = sanitizeFarmCanvasState(stateInput);
+  const plots = state.objects.filter((object) => object.kind === 'plot');
+  const dryCount = plots.filter((object) =>
+    object.crop &&
+    object.crop.stage !== 'mature' &&
+    object.crop.stage !== 'withered' &&
+    !object.crop.wateredToday).length;
+  const matureCount = plots.filter((object) => object.crop?.stage === 'mature').length;
+  const readyOrderCount = state.orders.filter((order) => canCompleteFarmOrder(state, order.id)).length;
+  const readyNpcVisitCount = state.npcVisits.filter((visit) => !visit.completed && canCompleteFarmNpcVisit(state, visit.id)).length;
+  const scarecrowRiskCount = countFarmScarecrowUnprotectedDryCrops(state);
+  const focusGoal = buildFarmFocusGoals(state, { maxGoals: 1 })[0];
+  const activityDigest = buildFarmActivityDigest(state);
+  let hint: Omit<FarmToolbarConsoleHint, 'sectionLabel' | 'title'>;
+
+  if (dryCount > 0) {
+    hint = {
+      tone: 'water',
+      primary: `补水 ${dryCount}`,
+      secondary: '缺水作物待处理',
+      section: 'tools',
+      count: dryCount,
+    };
+  } else if (readyOrderCount > 0) {
+    hint = {
+      tone: 'order',
+      primary: `交单 ${readyOrderCount}`,
+      secondary: '订单材料已齐',
+      section: 'visits',
+      count: readyOrderCount,
+    };
+  } else if (readyNpcVisitCount > 0) {
+    hint = {
+      tone: 'visit',
+      primary: `来访 ${readyNpcVisitCount}`,
+      secondary: '村民委托可交',
+      section: 'visits',
+      count: readyNpcVisitCount,
+    };
+  } else if (matureCount > 0) {
+    hint = {
+      tone: 'mature',
+      primary: `收获 ${matureCount}`,
+      secondary: '成熟作物可收',
+      section: 'actions',
+      count: matureCount,
+    };
+  } else if (scarecrowRiskCount > 0) {
+    hint = {
+      tone: 'guard',
+      primary: `守护 ${scarecrowRiskCount}`,
+      secondary: '稻草人风险',
+      section: 'build',
+      count: scarecrowRiskCount,
+    };
+  } else if (focusGoal) {
+    hint = {
+      tone: 'focus',
+      primary: `目标 ${focusGoal.progress}/${focusGoal.target}`,
+      secondary: focusGoal.title,
+      section: 'focus',
+      count: focusGoal.target - focusGoal.progress,
+    };
+  } else {
+    hint = {
+      tone: 'stable',
+      primary: '稳定',
+      secondary: activityDigest.todayTotal > 0 ? `今日 ${activityDigest.todayTotal} 条农活` : '今天还没开工',
+      section: 'activity',
+      count: activityDigest.todayTotal,
+    };
+  }
+
+  const sectionLabel = FARM_TOOLBAR_CONSOLE_SECTION_LABELS[hint.section];
+  return {
+    ...hint,
+    sectionLabel,
+    title: `${panelOpen ? '收起' : '展开'}牧场控制台：当前优先 ${hint.primary} · ${hint.secondary} · ${sectionLabel}`,
+  };
+}
+
+function findNearestFarmMiniMapRouteHintMarker(
+  markers: FarmMiniMapRenderableMarker[],
+  anchor?: { x: number; y: number },
+) {
+  if (!markers.length) return null;
+  const locatable = markers.filter((marker) => marker.objectId);
+  const candidates = locatable.length > 0 ? locatable : markers;
+  if (!anchor) return candidates[0] || null;
+  return candidates
+    .slice()
+    .sort((a, b) => {
+      const ax = a.x + a.width / 2;
+      const ay = a.y + a.height / 2;
+      const bx = b.x + b.width / 2;
+      const by = b.y + b.height / 2;
+      return Math.hypot(ax - anchor.x, ay - anchor.y) - Math.hypot(bx - anchor.x, by - anchor.y);
+    })[0] || null;
+}
+
+function farmFeedbackToneForTool(
+  tool: FarmToolAction['tool'],
+  hasError = false,
+): FarmCanvasFloatingFeedback['tone'] {
+  if (hasError) return 'warning';
+  if (tool === 'water') return 'water';
+  if (tool === 'harvest') return 'reward';
+  if (tool === 'build' || tool === 'decor') return 'build';
+  return 'success';
+}
+
+function formatFarmSelectionResourceShortage(
+  cost: { gold?: number; wood?: number; stone?: number },
+  resources: FarmCanvasState['resources'],
+) {
+  const parts = [
+    (cost.gold || 0) > resources.gold ? `金币${resources.gold}/${cost.gold}` : '',
+    (cost.wood || 0) > resources.wood ? `木${resources.wood}/${cost.wood}` : '',
+    (cost.stone || 0) > resources.stone ? `石${resources.stone}/${cost.stone}` : '',
+  ].filter(Boolean);
+  return parts.join(' ');
+}
+
+function buildFarmToolSelectionFeedback(
+  tool: FarmTool,
+  stateInput: FarmCanvasState,
+  options: { resourceDecorLabel?: string } = {},
+): FarmToolSelectionFeedback {
+  const state = sanitizeFarmCanvasState(stateInput);
+  const continuousHint = farmToolSupportsContinuousAction(tool) ? '按住拖动可连续操作。' : '';
+  if (tool === 'select') {
+    return { message: '选择工具：点击牧场对象查看状态。', tone: 'success' };
+  }
+  if (tool === 'hoe') {
+    return { message: `锄地工具：点击空草地开垦。${continuousHint}`, tone: 'success' };
+  }
+  if (tool === 'seed') {
+    const cropId = 'turnip';
+    const seedCount = state.resources.seeds[cropId] || 0;
+    const cropLabel = FARM_CROP_DEFINITIONS[cropId]?.label || '萝卜';
+    return seedCount > 0
+      ? { message: `播种工具：${cropLabel}种子 x${seedCount}。${continuousHint}`, tone: 'success' }
+      : { message: `播种工具：${cropLabel}种子不足，先完成订单补种。`, tone: 'warning' };
+  }
+  if (tool === 'water') {
+    return state.resources.water > 0
+      ? { message: `浇水工具：水桶 ${state.resources.water}。${continuousHint}`, tone: 'water' }
+      : { message: '浇水工具：水桶已空，过一天或建水井补水。', tone: 'warning' };
+  }
+  if (tool === 'harvest') {
+    const matureCount = state.objects.filter((object) => object.kind === 'plot' && object.crop?.stage === 'mature').length;
+    return matureCount > 0
+      ? { message: `收获工具：成熟作物 x${matureCount}。${continuousHint}`, tone: 'reward' }
+      : { message: '收获工具：暂无成熟作物，先浇水等待成长。', tone: 'warning' };
+  }
+  if (tool === 'shovel') {
+    return { message: `铲除工具：清理田地、作物或装饰。${continuousHint}`, tone: 'success' };
+  }
+  if (tool === 'build') {
+    const building = FARM_BUILDING_DEFINITIONS[state.selectedBuildingId || 'hut'] || FARM_BUILDING_DEFINITIONS.hut;
+    const shortage = formatFarmSelectionResourceShortage(building.cost, state.resources);
+    return shortage
+      ? { message: `建造目标：${building.label}，资源不足：${shortage}。`, tone: 'warning' }
+      : { message: `建造目标：${building.label}，点击画布放置。`, tone: 'build' };
+  }
+  if (tool === 'decor') {
+    if (state.selectedResourceDecor) {
+      const label = options.resourceDecorLabel || '资源装饰';
+      return { message: `装饰目标：${label}，点击画布放置。按住拖动可连续放置。`, tone: 'build' };
+    }
+    const decor = FARM_DECOR_DEFINITIONS[state.selectedDecorId || FARM_DEFAULT_DECOR_ID] || FARM_DECOR_DEFINITIONS[FARM_DEFAULT_DECOR_ID];
+    return isFarmDecorUnlocked(state, decor.id)
+      ? { message: `装饰目标：${decor.label}，点击画布放置。按住拖动可连续放置。`, tone: 'build' }
+      : { message: `装饰目标：${decor.label}尚未解锁，先完成订单。`, tone: 'warning' };
+  }
+  if (tool === 'move') {
+    return state.selectedObjectId
+      ? { message: '移动工具：点击新位置搬运已选对象。', tone: 'build' }
+      : { message: '移动工具：先点击一个牧场对象，再点新位置。', tone: 'warning' };
+  }
+  if (tool === 'delete') {
+    return state.objects.length > 0
+      ? { message: `删除工具：当前可清理对象 x${state.objects.length}。${continuousHint}`, tone: 'warning' }
+      : { message: '删除工具：当前没有可清理的牧场对象。', tone: 'warning' };
+  }
+  return { message: '牧场工具已选中。', tone: 'success' };
+}
+
+function compactFarmFloatingMessage(message: string) {
+  const text = String(message || '').replace(/\s+/g, ' ').trim();
+  return text.length > 42 ? `${text.slice(0, 42)}...` : text;
+}
+
+function farmContinuousFeedbackLabel(tool: FarmToolAction['tool']) {
+  if (tool === 'hoe') return '已开垦';
+  if (tool === 'seed') return '已播种';
+  if (tool === 'water') return '已浇水';
+  if (tool === 'harvest') return '已收获';
+  if (tool === 'shovel' || tool === 'delete') return '已清理';
+  if (tool === 'decor') return '已布置';
+  return '';
+}
+
+function findNewFarmPlacedObjectId(
+  previous: FarmCanvasState,
+  next: FarmCanvasState,
+  tool: FarmToolAction['tool'],
+) {
+  if (tool !== 'build' && tool !== 'decor') return null;
+  const previousIds = new Set(previous.objects.map((object) => object.id));
+  const expectedKind = tool === 'build' ? 'building' : 'decor';
+  const placedObject = next.objects.find((object) => object.kind === expectedKind && !previousIds.has(object.id));
+  return placedObject?.id || null;
+}
+
+function farmBeautyGainForAction(
+  previous: FarmCanvasState,
+  next: FarmCanvasState,
+  tool: FarmToolAction['tool'],
+) {
+  if (tool !== 'build' && tool !== 'decor') return 0;
+  const previousScore = buildFarmBeautyScore(previous).score;
+  const nextScore = buildFarmBeautyScore(next).score;
+  return Math.max(0, nextScore - previousScore);
+}
+
+function farmBeautyRewardUnlockForAction(
+  previous: FarmCanvasState,
+  next: FarmCanvasState,
+  tool: FarmToolAction['tool'],
+) {
+  if (tool !== 'build' && tool !== 'decor') return null;
+  const previousUnlocked = new Set(
+    buildFarmBeautyRewards(previous)
+      .filter((reward) => reward.unlocked)
+      .map((reward) => reward.id),
+  );
+  const newlyUnlocked = buildFarmBeautyRewards(next)
+    .filter((reward) => reward.unlocked && !previousUnlocked.has(reward.id));
+  if (newlyUnlocked.length === 0) return null;
+  return {
+    title: newlyUnlocked[0].title,
+    count: newlyUnlocked.length,
+  };
+}
+
+function farmPlacementEchoForAction(feedback: string, tool: FarmToolAction['tool']) {
+  if (tool === 'build' && feedback.startsWith('已建造 ')) return feedback.replace(/^已建造\s*/, '落成：');
+  if (tool === 'decor' && feedback.startsWith('已放置 ')) return feedback.replace(/^已放置\s*/, '布置：');
+  return '';
+}
+
+function farmMiniMapMarkerFeedback(marker: FarmMiniMapMarker) {
+  if (marker.kind === 'mature') return `已定位成熟作物：${marker.label}`;
+  if (marker.kind === 'dry') return `已定位待浇水作物：${marker.label}`;
+  if (marker.kind === 'withered') return `已定位枯萎作物：${marker.label}`;
+  if (marker.kind === 'order') return `已定位订单目标：${marker.label}`;
+  if (marker.kind === 'npc') return `已定位来访目标：${marker.label}`;
+  if (marker.kind === 'rare') return `已定位惊喜事件：${marker.label}`;
+  if (marker.kind === 'animal') return `已定位动物：${marker.label}`;
+  if (marker.kind === 'cluster') return `已定位标记簇：${marker.label}`;
+  return `已定位：${marker.label}`;
+}
+
+function farmMiniMapMarkerTone(kind: FarmMiniMapMarker['kind']): FarmCanvasFloatingFeedback['tone'] {
+  if (kind === 'dry') return 'water';
+  if (kind === 'withered') return 'warning';
+  if (kind === 'building' || kind === 'path' || kind === 'cluster') return 'build';
+  if (kind === 'mature' || kind === 'order' || kind === 'npc' || kind === 'rare') return 'reward';
+  return 'success';
+}
+
+function farmMiniMapMarkerSoundCue(kind: FarmMiniMapMarker['kind']): FarmSoundCue {
+  if (kind === 'mature' || kind === 'rare') return 'harvest';
+  if (kind === 'dry') return 'water';
+  if (kind === 'withered') return 'select';
+  if (kind === 'order' || kind === 'npc') return 'order';
+  if (kind === 'building') return 'build';
+  return 'select';
+}
+
+function farmNodeVisualStateFromData(data: unknown): FarmNodeVisualState {
+  const source = (data || {}) as Record<string, any>;
+  if (source.disabled || source.isDisabled || source.locked) return 'disabled';
+  const status = String(source.status || source.runStatus || '').toLowerCase();
+  const busyStatus = ['generating', 'running', 'submitting', 'polling', 'streaming', 'loading'];
+  if (source.isRunning || source.isPolling || source.busy || busyStatus.includes(status)) return 'running';
+  if (status === 'success' || status === 'completed' || status === 'complete' || status === 'done') return 'success';
+  if (status === 'error' || status === 'failed' || status === 'failure' || source.error) return 'error';
+  return 'idle';
+}
+
+function withFarmNodeVisualState(node: Node): Node {
+  if (node.type === 'groupBox' || node.type === 'bulkPhantom') return node;
+  const visualState = farmNodeVisualStateFromData(node.data);
+  const currentClassName = typeof node.className === 'string' ? node.className : '';
+  const className = `${currentClassName} t8-farm-node-state is-farm-node-${visualState}`.trim();
+  if (className === currentClassName) return node;
+  return { ...node, className };
+}
+
+function normalizeEdgeCutKind(kind: unknown): EdgeCutFeedbackKind {
+  if (kind === 'rope' || kind === 'water' || kind === 'path') return kind;
+  return 'generic';
+}
+
+function edgeCutUnit(kind: EdgeCutFeedbackKind) {
+  if (kind === 'rope') return '根麻绳';
+  if (kind === 'water') return '条水渠';
+  if (kind === 'path') return '段田埂';
+  return '条连线';
+}
+
+function farmConnectionKindFromPortType(portType: PortType | null | undefined): EdgeConnectFeedbackKind {
+  if (portType === 'image' || portType === 'video' || portType === 'audio' || portType === 'model3d') return 'water';
+  if (portType === 'any' || portType === 'config' || portType === 'metadata') return 'path';
+  if (portType === 'text') return 'rope';
+  return portType ? 'rope' : 'generic';
+}
+
+function buildEdgeCutFeedbackCopy(
+  count: number,
+  kind: EdgeCutFeedbackKind,
+  source: 'button' | 'slash',
+  visualStyle: string,
+) {
+  const unit = edgeCutUnit(kind);
+  if (visualStyle === 'farm-story') {
+    const action = source === 'button' ? '剪枝剪咔嚓' : '镰刀划过';
+    return {
+      title: `${action} · 已断开 ${count} ${unit}`,
+      detail: kind === 'water' ? '水渠已截流，素材流向已独立。' : kind === 'path' ? '田埂小路已切开，控制流不再相连。' : '断藤蔓已收好，画布保持清爽。',
+    };
+  }
+  return {
+    title: `已断开 ${count} ${unit}`,
+    detail: source === 'button' ? '中点按钮断开完成。' : '划线剪断完成。',
+  };
+}
+
+function buildEdgeConnectFeedbackCopy(kind: EdgeConnectFeedbackKind, visualStyle: string) {
+  if (visualStyle === 'farm-story') {
+    if (kind === 'water') {
+      return {
+        title: '接上水渠',
+        detail: '媒体素材流向已经连通。',
+      };
+    }
+    if (kind === 'path') {
+      return {
+        title: '铺好田埂',
+        detail: '控制小路已经接到目标。',
+      };
+    }
+    if (kind === 'rope') {
+      return {
+        title: '牵好麻绳',
+        detail: '数据流已经绑到目标。',
+      };
+    }
+  }
+  return {
+    title: '已连接',
+    detail: '节点连线已建立。',
+  };
+}
+
+function clampEdgeCutFeedbackPosition(x: number, y: number) {
+  const width = typeof window !== 'undefined' ? window.innerWidth : 420;
+  const height = typeof window !== 'undefined' ? window.innerHeight : 260;
+  return {
+    x: Math.min(Math.max(Number.isFinite(x) ? x : width / 2, 92), Math.max(92, width - 92)),
+    y: Math.min(Math.max(Number.isFinite(y) ? y : height / 2, 88), Math.max(88, height - 34)),
+  };
+}
+
+function clampMiniMapPercent(value: number, min = 3, max = 97) {
+  if (!Number.isFinite(value)) return 50;
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampMiniMapSizePercent(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function getFarmMiniMapNodeRect(node: Node) {
+  const typed = node as Node & { width?: number; height?: number; measured?: { width?: number; height?: number } };
+  const x = Number(node.position?.x);
+  const y = Number(node.position?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x,
+    y,
+    width: Number(typed.width || typed.measured?.width || (node.type === 'groupBox' ? 480 : 280)),
+    height: Number(typed.height || typed.measured?.height || (node.type === 'groupBox' ? 320 : 180)),
+  };
+}
+
+function buildFarmMiniMapBounds(markers: FarmMiniMapMarker[], nodes: Node[]) {
+  const rects = [
+    ...nodes.map(getFarmMiniMapNodeRect).filter((rect): rect is { x: number; y: number; width: number; height: number } => Boolean(rect)),
+    ...markers.map((marker) => ({
+      x: marker.x,
+      y: marker.y,
+      width: marker.width,
+      height: marker.height,
+    })),
+  ].filter((rect) => Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0);
+
+  if (rects.length === 0) {
+    return { x: -512, y: -320, width: 1024, height: 640 };
+  }
+
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+  const padding = Math.min(768, Math.max(96, Math.max(width, height) * 0.08));
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: width + padding * 2,
+    height: height + padding * 2,
+  };
+}
+
+function layoutFarmMiniMapMarkers(markers: FarmMiniMapMarker[], nodes: Node[]): FarmMiniMapRenderableMarker[] {
+  if (markers.length === 0) return [];
+  const bounds = buildFarmMiniMapBounds(markers, nodes);
+  return markers.map((marker) => {
+    const centerX = marker.x + marker.width / 2;
+    const centerY = marker.y + marker.height / 2;
+    const isAreaMarker = marker.kind === 'building' || marker.kind === 'path' || marker.kind === 'cluster';
+    return {
+      ...marker,
+      leftPct: clampMiniMapPercent(((centerX - bounds.x) / bounds.width) * 100),
+      topPct: clampMiniMapPercent(((centerY - bounds.y) / bounds.height) * 100),
+      widthPct: clampMiniMapSizePercent((marker.width / bounds.width) * 100, isAreaMarker ? 2.8 : 1.8, marker.kind === 'path' ? 18 : marker.kind === 'cluster' ? 11 : 13),
+      heightPct: clampMiniMapSizePercent((marker.height / bounds.height) * 100, isAreaMarker ? 2.4 : 1.8, marker.kind === 'path' ? 8 : marker.kind === 'cluster' ? 9 : 11),
+    };
+  });
+}
+
+function farmPortTypeFromHandleId(handleId: string | null | undefined): PortType | null {
+  const id = String(handleId || '').toLowerCase();
+  if (!id) return null;
+  if (id.includes('model') || id.includes('3d')) return 'model3d';
+  if (id.includes('metadata') || id.includes('meta') || id.includes('portrait')) return 'metadata';
+  if (id.includes('config')) return 'config';
+  if (id.includes('audio') || id.includes('sound') || id.includes('voice')) return 'audio';
+  if (id.includes('video') || id.includes('movie')) return 'video';
+  if (id.includes('image') || id.includes('img') || id.includes('frame') || id === 'first' || id === 'last' || id === 'a' || id === 'b') return 'image';
+  if (id.includes('text') || id.includes('prompt') || id.includes('caption')) return 'text';
+  if (id.includes('any')) return 'any';
+  return null;
+}
+
+function primaryFarmPortType(types: PortType[]): PortType | null {
+  if (types.length === 0) return null;
+  const concrete = types.filter((type) => type !== 'any');
+  if (concrete.length === 1) return concrete[0];
+  if (types.length === 1) return types[0];
+  if (types.includes('any')) return 'any';
+  return 'any';
+}
+
+function inferFarmHandlePortType(
+  node: Node | null | undefined,
+  handleType: 'source' | 'target',
+  handleId: string | null | undefined,
+): PortType | null {
+  const declaredTypes = handleType === 'source' ? getNodeOutputs(node) : getNodeInputs(node);
+  const typeFromId = farmPortTypeFromHandleId(handleId);
+  if (typeFromId && (declaredTypes.length === 0 || declaredTypes.includes(typeFromId) || declaredTypes.includes('any'))) {
+    return typeFromId;
+  }
+  return primaryFarmPortType(declaredTypes);
+}
+
+function farmAchievementTypeForEvent(kind?: FarmEventLogItem['kind']): api.AchievementEventPayload['type'] | null {
+  if (kind === 'plot_tilled') return 'farm.plot_tilled';
+  if (kind === 'crop_planted') return 'farm.crop_planted';
+  if (kind === 'crop_watered') return 'farm.crop_watered';
+  if (kind === 'crop_harvested') return 'farm.crop_harvested';
+  if (kind === 'order_completed') return 'farm.order_completed';
+  if (kind === 'building_placed') return 'farm.building_placed';
+  if (kind === 'decor_placed') return 'farm.decor_placed';
+  if (kind === 'rare_event') return 'farm.rare_crop';
+  return null;
+}
+
+function farmAchievementKindForEvent(event: FarmEventLogItem) {
+  if (event.rareEventId) return event.rareEventId;
+  if (event.cropId) return event.cropId;
+  if (event.objectKind) return event.objectKind;
+  if (event.kind === 'order_completed') return 'order';
+  return 'farm';
+}
 
 function lazyCanvasNode(load: () => Promise<any>, displayName: string): ComponentType<any> {
   const LazyNode = lazy(load);
@@ -1953,6 +2641,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const isSoccer = visualStyle === 'soccer-hero';
   const isDragonBall = visualStyle === 'dragon-ball';
   const isTetris = visualStyle === 'tetris';
+  const isFarmStory = visualStyle === 'farm-story';
   const themeTokens = getTemplateMode(currentTemplate, theme).tokens;
   const { screenToFlowPosition, setCenter, getViewport, setViewport, fitView } = useReactFlow();
   const radialSlotsRaw = useRadialMenuStore((s) => s.slots);
@@ -1969,6 +2658,43 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [creativeDesk, setCreativeDesk] = useState<CreativeDeskState>(() => createDefaultCreativeDeskState());
+  const [farmCanvas, setFarmCanvas] = useState<FarmCanvasState>(() => createFarmState());
+  const [farmCanvasEditing, setFarmCanvasEditing] = useState(false);
+  const [farmStoryPanelOpen, setFarmStoryPanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(T8_FARM_STORY_PANEL_COLLAPSED_STORAGE_KEY) === '0';
+    } catch {
+      return false;
+    }
+  });
+  const [farmStoryPriorityFocusRequestId, setFarmStoryPriorityFocusRequestId] = useState(0);
+  const [farmCanvasFeedback, setFarmCanvasFeedback] = useState('点击工具后，在画布空白处开始经营。');
+  const [farmFloatingFeedbacks, setFarmFloatingFeedbacks] = useState<FarmCanvasFloatingFeedback[]>([]);
+  const [farmJumpHighlightObjectId, setFarmJumpHighlightObjectId] = useState<string | null>(null);
+  const [farmMiniMapRouteHint, setFarmMiniMapRouteHint] = useState<FarmMiniMapRouteHint | null>(null);
+  const [farmResourceDecorItems, setFarmResourceDecorItems] = useState<api.ResourceItem[]>([]);
+  const [farmResourceDecorLoading, setFarmResourceDecorLoading] = useState(false);
+  const [edgeCutFeedbacks, setEdgeCutFeedbacks] = useState<EdgeCutFeedback[]>([]);
+  const [edgeConnectFeedbacks, setEdgeConnectFeedbacks] = useState<EdgeConnectFeedback[]>([]);
+  const [farmSoundEnabled, setFarmSoundEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem(FARM_SOUND_ENABLED_STORAGE_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const farmMatureJumpIndexRef = useRef(0);
+  const farmJumpHighlightTimerRef = useRef<number | null>(null);
+  const farmMiniMapRouteHintTimerRef = useRef<number | null>(null);
+  const farmResourceDecorLoadedRef = useRef(false);
+  const farmFloatingFeedbackTimersRef = useRef<Map<string, number>>(new Map());
+  const farmContinuousFeedbackBatchRef = useRef<FarmContinuousFeedbackBatch | null>(null);
+  const edgeCutFeedbackTimersRef = useRef<Map<string, number>>(new Map());
+  const edgeConnectFeedbackTimersRef = useRef<Map<string, number>>(new Map());
+  const farmAchievementEventIdsRef = useRef<Set<string>>(new Set());
+  const lastCanvasPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [creativeDeskEditing, setCreativeDeskEditing] = useState(false);
   const [creativeDeskActiveItemId, setCreativeDeskActiveItemId] = useState<string | null>(null);
   const [creativeDeskResources, setCreativeDeskResources] = useState<api.ResourceItem[]>([]);
@@ -1986,7 +2712,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const [loaded, setLoaded] = useState(false);
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>(null);
   const saveTimersByCanvasRef = useRef<Map<string, number>>(new Map());
-  const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; creativeDesk: CreativeDeskState; snapshot: string; nextNodeSerialId: number }>>(new Map());
+  const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; creativeDesk: CreativeDeskState; farmCanvas: FarmCanvasState; snapshot: string; nextNodeSerialId: number }>>(new Map());
   const lastSavedByCanvasRef = useRef<Map<string, string>>(new Map());
   const lastSavedNodeCountByCanvasRef = useRef<Map<string, number>>(new Map());
   const nextNodeSerialIdRef = useRef(1);
@@ -2008,12 +2734,306 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const yyhPortraitOutputUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['yyh-portrait-output']));
   const hiddenOutputSyncRef = useRef<Set<string>>(new Set());
 
+  useEffect(() => () => {
+    farmFloatingFeedbackTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    farmFloatingFeedbackTimersRef.current.clear();
+    if (farmContinuousFeedbackBatchRef.current?.timerId) {
+      window.clearTimeout(farmContinuousFeedbackBatchRef.current.timerId);
+    }
+    farmContinuousFeedbackBatchRef.current = null;
+    if (farmJumpHighlightTimerRef.current) {
+      window.clearTimeout(farmJumpHighlightTimerRef.current);
+    }
+    farmJumpHighlightTimerRef.current = null;
+    if (farmMiniMapRouteHintTimerRef.current) {
+      window.clearTimeout(farmMiniMapRouteHintTimerRef.current);
+    }
+    farmMiniMapRouteHintTimerRef.current = null;
+    edgeCutFeedbackTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    edgeCutFeedbackTimersRef.current.clear();
+    edgeConnectFeedbackTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    edgeConnectFeedbackTimersRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    setFarmFloatingFeedbacks([]);
+    if (farmContinuousFeedbackBatchRef.current?.timerId) {
+      window.clearTimeout(farmContinuousFeedbackBatchRef.current.timerId);
+    }
+    farmContinuousFeedbackBatchRef.current = null;
+    if (farmJumpHighlightTimerRef.current) {
+      window.clearTimeout(farmJumpHighlightTimerRef.current);
+    }
+    farmJumpHighlightTimerRef.current = null;
+    setFarmJumpHighlightObjectId(null);
+    if (farmMiniMapRouteHintTimerRef.current) {
+      window.clearTimeout(farmMiniMapRouteHintTimerRef.current);
+    }
+    farmMiniMapRouteHintTimerRef.current = null;
+    setFarmMiniMapRouteHint(null);
+    setEdgeCutFeedbacks([]);
+    setEdgeConnectFeedbacks([]);
+    edgeConnectFeedbackTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    edgeConnectFeedbackTimersRef.current.clear();
+    farmAchievementEventIdsRef.current.clear();
+  }, [loadedCanvasId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(FARM_SOUND_ENABLED_STORAGE_KEY, farmSoundEnabled ? '1' : '0');
+    } catch {
+      // Local preference only.
+    }
+  }, [farmSoundEnabled]);
+
+  const playFarmSound = useCallback((cue: FarmSoundCue) => {
+    playFarmActionSound(cue, { enabled: farmSoundEnabled });
+  }, [farmSoundEnabled]);
+
+  const handleFarmToggleSound = useCallback((enabled: boolean) => {
+    setFarmSoundEnabled(enabled);
+    if (enabled) playFarmActionSound('select', { enabled: true });
+  }, []);
+
+  const trackFarmAchievementFromEvent = useCallback((event?: FarmEventLogItem, previousEventId?: string) => {
+    if (!event || event.id === previousEventId) return;
+    const type = farmAchievementTypeForEvent(event.kind);
+    if (!type || farmAchievementEventIdsRef.current.has(event.id)) return;
+    farmAchievementEventIdsRef.current.add(event.id);
+    if (farmAchievementEventIdsRef.current.size > 200) {
+      farmAchievementEventIdsRef.current = new Set(Array.from(farmAchievementEventIdsRef.current).slice(-120));
+    }
+    trackAchievementEvent({
+      type,
+      theme: 'farm-story',
+      kind: farmAchievementKindForEvent(event),
+    });
+  }, []);
+
+  const trackFarmAchievementsFromEvents = useCallback((events: FarmEventLogItem[] | undefined, previousEventId?: string) => {
+    if (!Array.isArray(events)) return;
+    for (const event of events) {
+      if (event.id === previousEventId) break;
+      trackFarmAchievementFromEvent(event);
+    }
+  }, [trackFarmAchievementFromEvent]);
+
+  const pushFarmFloatingFeedback = useCallback((feedback: Omit<FarmCanvasFloatingFeedback, 'id'>) => {
+    if (!feedback.message) return;
+    const id = `farm-float-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const nextFeedback: FarmCanvasFloatingFeedback = {
+      ...feedback,
+      id,
+      message: compactFarmFloatingMessage(feedback.message),
+    };
+    setFarmFloatingFeedbacks((prev) => {
+      const next = [nextFeedback, ...prev].slice(0, MAX_FARM_FLOATING_FEEDBACKS);
+      const keptIds = new Set(next.map((item) => item.id));
+      prev.forEach((item) => {
+        if (keptIds.has(item.id)) return;
+        const timerId = farmFloatingFeedbackTimersRef.current.get(item.id);
+        if (timerId) window.clearTimeout(timerId);
+        farmFloatingFeedbackTimersRef.current.delete(item.id);
+      });
+      return next;
+    });
+    const timerId = window.setTimeout(() => {
+      setFarmFloatingFeedbacks((prev) => prev.filter((item) => item.id !== id));
+      farmFloatingFeedbackTimersRef.current.delete(id);
+    }, FARM_FLOATING_FEEDBACK_MS);
+    farmFloatingFeedbackTimersRef.current.set(id, timerId);
+  }, []);
+
+  const flashFarmObject = useCallback((objectId: string) => {
+    if (!objectId) return;
+    if (farmJumpHighlightTimerRef.current) {
+      window.clearTimeout(farmJumpHighlightTimerRef.current);
+    }
+    setFarmJumpHighlightObjectId(objectId);
+    farmJumpHighlightTimerRef.current = window.setTimeout(() => {
+      setFarmJumpHighlightObjectId((current) => (current === objectId ? null : current));
+      farmJumpHighlightTimerRef.current = null;
+    }, FARM_JUMP_HIGHLIGHT_MS);
+  }, []);
+
+  const flashFarmMiniMapRouteHint = useCallback((target: FarmMiniMapRouteHintTarget | undefined, label = '', anchor?: { x: number; y: number }) => {
+    if (!target) return;
+    if (farmMiniMapRouteHintTimerRef.current) {
+      window.clearTimeout(farmMiniMapRouteHintTimerRef.current);
+    }
+    setFarmMiniMapRouteHint({
+      target,
+      label,
+      anchor,
+      id: `farm-route-${Date.now()}`,
+    });
+    farmMiniMapRouteHintTimerRef.current = window.setTimeout(() => {
+      setFarmMiniMapRouteHint((current) => (current?.target === target ? null : current));
+      farmMiniMapRouteHintTimerRef.current = null;
+    }, FARM_MINIMAP_ROUTE_HINT_MS);
+  }, []);
+
+  const flushFarmContinuousFeedback = useCallback(() => {
+    const batch = farmContinuousFeedbackBatchRef.current;
+    if (!batch) return;
+    if (batch.timerId) window.clearTimeout(batch.timerId);
+    farmContinuousFeedbackBatchRef.current = null;
+    const placementSuffix = batch.placementEcho ? ` · ${batch.placementEcho}` : '';
+    const beautySuffix = batch.beautyGain ? ` · 漂亮度 +${batch.beautyGain}` : '';
+    const beautyRewardSuffix = batch.beautyRewardCount
+      ? batch.beautyRewardCount > 1
+        ? ` · 美化奖励 +${batch.beautyRewardCount}`
+        : ` · 解锁${batch.beautyRewardTitle || '美化奖励'}`
+      : '';
+    pushFarmFloatingFeedback({
+      x: batch.x,
+      y: batch.y,
+      message: `${batch.label} x${batch.count}${placementSuffix}${beautySuffix}${beautyRewardSuffix}`,
+      tone: batch.beautyGain || batch.beautyRewardCount ? 'reward' : batch.tone,
+    });
+  }, [pushFarmFloatingFeedback]);
+
+  const queueFarmContinuousFeedback = useCallback((entry: Omit<FarmContinuousFeedbackBatch, 'count' | 'timerId'>) => {
+    const previous = farmContinuousFeedbackBatchRef.current;
+    if (previous && previous.tool !== entry.tool) {
+      flushFarmContinuousFeedback();
+    } else if (previous?.timerId) {
+      window.clearTimeout(previous.timerId);
+    }
+    const current = farmContinuousFeedbackBatchRef.current;
+    const count = current && current.tool === entry.tool ? current.count + 1 : 1;
+    const beautyGain = Math.max(0, Math.round(Number(entry.beautyGain) || 0))
+      + (current && current.tool === entry.tool ? current.beautyGain || 0 : 0);
+    const beautyRewardCount = Math.max(0, Math.round(Number(entry.beautyRewardCount) || 0))
+      + (current && current.tool === entry.tool ? current.beautyRewardCount || 0 : 0);
+    const nextBatch: FarmContinuousFeedbackBatch = {
+      ...entry,
+      count,
+      placementEcho: entry.placementEcho || (current && current.tool === entry.tool ? current.placementEcho : undefined),
+      beautyGain: beautyGain || undefined,
+      beautyRewardTitle: current && current.tool === entry.tool
+        ? current.beautyRewardTitle || entry.beautyRewardTitle
+        : entry.beautyRewardTitle,
+      beautyRewardCount: beautyRewardCount || undefined,
+      timerId: window.setTimeout(() => {
+        flushFarmContinuousFeedback();
+      }, 320),
+    };
+    farmContinuousFeedbackBatchRef.current = nextBatch;
+  }, [flushFarmContinuousFeedback]);
+
+  const pushEdgeCutFeedback = useCallback((detail: EdgeCutFeedbackEventDetail) => {
+    if (typeof window === 'undefined') return;
+    const count = Math.max(1, Math.min(99, Math.round(Number(detail.count) || 1)));
+    const kind = normalizeEdgeCutKind(detail.edgeKind);
+    const source = detail.source === 'button' ? 'button' : 'slash';
+    const position = clampEdgeCutFeedbackPosition(
+      Number(detail.x ?? lastCanvasPointerRef.current?.x ?? window.innerWidth / 2),
+      Number(detail.y ?? lastCanvasPointerRef.current?.y ?? window.innerHeight / 2),
+    );
+    const copy = buildEdgeCutFeedbackCopy(count, kind, source, visualStyle);
+    const id = `edge-cut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const feedback: EdgeCutFeedback = {
+      id,
+      count,
+      kind,
+      source,
+      x: position.x,
+      y: position.y,
+      title: copy.title,
+      detail: copy.detail,
+    };
+    setEdgeCutFeedbacks((prev) => {
+      const next = [feedback, ...prev].slice(0, MAX_EDGE_CUT_FEEDBACKS);
+      const keptIds = new Set(next.map((item) => item.id));
+      prev.forEach((item) => {
+        if (keptIds.has(item.id)) return;
+        const timerId = edgeCutFeedbackTimersRef.current.get(item.id);
+        if (timerId) window.clearTimeout(timerId);
+        edgeCutFeedbackTimersRef.current.delete(item.id);
+      });
+      return next;
+    });
+    const timerId = window.setTimeout(() => {
+      setEdgeCutFeedbacks((prev) => prev.filter((item) => item.id !== id));
+      edgeCutFeedbackTimersRef.current.delete(id);
+    }, EDGE_CUT_FEEDBACK_MS);
+    edgeCutFeedbackTimersRef.current.set(id, timerId);
+  }, [visualStyle]);
+
+  const pushEdgeConnectFeedback = useCallback((detail: { portType?: PortType | null; edgeKind?: string; x?: number; y?: number }) => {
+    if (typeof window === 'undefined') return;
+    const kind = normalizeEdgeCutKind(detail.edgeKind || farmConnectionKindFromPortType(detail.portType));
+    const position = clampEdgeCutFeedbackPosition(
+      Number(detail.x ?? lastCanvasPointerRef.current?.x ?? window.innerWidth / 2),
+      Number(detail.y ?? lastCanvasPointerRef.current?.y ?? window.innerHeight / 2),
+    );
+    const copy = buildEdgeConnectFeedbackCopy(kind, visualStyle);
+    const id = `edge-connect-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const feedback: EdgeConnectFeedback = {
+      id,
+      kind,
+      x: position.x,
+      y: position.y,
+      title: copy.title,
+      detail: copy.detail,
+    };
+    setEdgeConnectFeedbacks((prev) => {
+      const next = [feedback, ...prev].slice(0, MAX_EDGE_CONNECT_FEEDBACKS);
+      const keptIds = new Set(next.map((item) => item.id));
+      prev.forEach((item) => {
+        if (keptIds.has(item.id)) return;
+        const timerId = edgeConnectFeedbackTimersRef.current.get(item.id);
+        if (timerId) window.clearTimeout(timerId);
+        edgeConnectFeedbackTimersRef.current.delete(item.id);
+      });
+      return next;
+    });
+    const timerId = window.setTimeout(() => {
+      setEdgeConnectFeedbacks((prev) => prev.filter((item) => item.id !== id));
+      edgeConnectFeedbackTimersRef.current.delete(id);
+    }, EDGE_CONNECT_FEEDBACK_MS);
+    edgeConnectFeedbackTimersRef.current.set(id, timerId);
+  }, [visualStyle]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleEdgeCutFeedback = (event: Event) => {
+      pushEdgeCutFeedback(((event as CustomEvent<EdgeCutFeedbackEventDetail>).detail || {}) as EdgeCutFeedbackEventDetail);
+    };
+    window.addEventListener('penguin:edge-cut-feedback', handleEdgeCutFeedback);
+    return () => window.removeEventListener('penguin:edge-cut-feedback', handleEdgeCutFeedback);
+  }, [pushEdgeCutFeedback]);
+
+  const getFarmViewportCenter = useCallback(() => {
+    const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
+    const rect = flowEl?.getBoundingClientRect();
+    return screenToFlowPosition({
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+    });
+  }, [screenToFlowPosition]);
+
+  const handleFarmFollowupCanvasHint = useCallback((hint: FarmStoryPanelCanvasHint) => {
+    const center = getFarmViewportCenter();
+    setFarmCanvasFeedback(hint.message);
+    if (hint.routeTarget) {
+      flashFarmMiniMapRouteHint(hint.routeTarget, hint.routeLabel || hint.message, center);
+    }
+    pushFarmFloatingFeedback({
+      x: center.x,
+      y: center.y,
+      message: hint.message,
+      tone: hint.tone,
+    });
+  }, [flashFarmMiniMapRouteHint, getFarmViewportCenter, pushFarmFloatingFeedback]);
+
   // 选中节点 / 剪贴板
   const [selectedCount, setSelectedCount] = useState(0);
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[]; incomingEdges?: Edge[]; outgoingEdges?: Edge[] } | null>(null);
   const [clipboardCount, setClipboardCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastCanvasPointerRef = useRef<{ x: number; y: number } | null>(null);
   const internalPasteTimerRef = useRef<number | null>(null);
   const internalClipboardCopiedAtRef = useRef(0);
   const lastExternalMediaPasteRef = useRef<{ signature: string; mediaSignature: string; at: number } | null>(null);
@@ -2119,6 +3139,61 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   useEffect(() => {
     radialMenuRef.current = radialMenu;
   }, [radialMenu]);
+
+  const annotateFarmPortHandles = useCallback(() => {
+    if (!isFarmStory || typeof document === 'undefined') return;
+    const nodeById = new Map(nodesRef.current.map((node) => [node.id, node]));
+    document.querySelectorAll<HTMLElement>('.react-flow__handle').forEach((handleEl) => {
+      const nodeId =
+        handleEl.getAttribute('data-nodeid') ||
+        handleEl.closest('.react-flow__node')?.getAttribute('data-id') ||
+        '';
+      const rawHandleType =
+        handleEl.getAttribute('data-handletype') ||
+        (handleEl.classList.contains('source') ? 'source' : handleEl.classList.contains('target') ? 'target' : '');
+      if (rawHandleType !== 'source' && rawHandleType !== 'target') return;
+      const node = nodeById.get(nodeId);
+      const portType = inferFarmHandlePortType(node, rawHandleType, handleEl.getAttribute('data-handleid'));
+      if (!portType) {
+        handleEl.removeAttribute('data-t8-port-type');
+        handleEl.removeAttribute('data-t8-port-label');
+        if (handleEl.getAttribute('data-t8-port-aria') === 'farm-story') {
+          handleEl.removeAttribute('aria-label');
+          handleEl.removeAttribute('data-t8-port-aria');
+        }
+        return;
+      }
+      handleEl.setAttribute('data-t8-port-type', portType);
+      handleEl.setAttribute('data-t8-port-label', PORT_LABEL[portType]);
+      handleEl.setAttribute('data-t8-port-aria', 'farm-story');
+      handleEl.setAttribute('aria-label', `${PORT_LABEL[portType]}${rawHandleType === 'source' ? '输出' : '输入'}端口`);
+    });
+  }, [isFarmStory]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const clearFarmPortHandles = () => {
+      document.querySelectorAll<HTMLElement>('.react-flow__handle[data-t8-port-type]').forEach((handleEl) => {
+        handleEl.removeAttribute('data-t8-port-type');
+        handleEl.removeAttribute('data-t8-port-label');
+        if (handleEl.getAttribute('data-t8-port-aria') === 'farm-story') {
+          handleEl.removeAttribute('aria-label');
+          handleEl.removeAttribute('data-t8-port-aria');
+        }
+      });
+    };
+    if (!isFarmStory) {
+      clearFarmPortHandles();
+      return undefined;
+    }
+    annotateFarmPortHandles();
+    const root = document.querySelector('.react-flow') || document.body;
+    const observer = new MutationObserver(() => annotateFarmPortHandles());
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [annotateFarmPortHandles, isFarmStory, nodes]);
 
   const suppressRadialContextMenu = useCallback(() => {
     radialContextMenuSuppressedUntilRef.current = Date.now() + RADIAL_MENU_CONTEXT_SUPPRESS_MS;
@@ -2378,6 +3453,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       setNodes([]);
       setEdges([]);
       setCreativeDesk(createDefaultCreativeDeskState());
+      setFarmCanvas(createFarmState());
+      setFarmCanvasEditing(false);
+      setFarmCanvasFeedback('点击工具后，在画布空白处开始经营。');
       setCreativeDeskEditing(false);
       setCreativeDeskActiveItemId(null);
       setPlacementShelfItems([]);
@@ -2399,6 +3477,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         const ns = pendingSave?.nodes || data.nodes || [];
         const es = pendingSave?.edges || data.edges || [];
         const nextCreativeDesk = pendingSave?.creativeDesk || migrateCreativeDeskToViewportCoordinates(data.creativeDesk, data.viewport);
+        const nextFarmCanvas = pendingSave?.farmCanvas || sanitizeFarmCanvasState(data.farmCanvas);
         const savedNextNodeSerialId = pendingSave?.nextNodeSerialId ?? data.nextNodeSerialId;
         // ⚡ 兑底补丁: 历史画布中可能存在 connectable=false 的旧 groupBox 节点
         // (5656721 事故期间创建的 group), 加载时强制打开可连接以恢复右侧聚合输出口
@@ -2413,6 +3492,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         setNodes(fixedNs);
         setEdges(es);
         setCreativeDesk(nextCreativeDesk);
+        setFarmCanvas(nextFarmCanvas);
+        setFarmCanvasEditing(false);
+        setFarmCanvasFeedback('点击工具后，在画布空白处开始经营。');
         setCreativeDeskEditing(false);
         setCreativeDeskActiveItemId(null);
         const baselineNodes = normalized.changed ? fixedNsBeforeSerials : fixedNs;
@@ -2425,6 +3507,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           nodes: baselineNodes,
           edges: es,
           creativeDesk: nextCreativeDesk,
+          farmCanvas: nextFarmCanvas,
           nextNodeSerialId: baselineNextNodeSerialId,
         }));
         lastSavedNodeCountByCanvasRef.current.set(requestedCanvasId, baselineNodes.length);
@@ -2440,6 +3523,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         setNodes([]);
         setEdges([]);
         setCreativeDesk(createDefaultCreativeDeskState());
+        setFarmCanvas(createFarmState());
+        setFarmCanvasEditing(false);
+        setFarmCanvasFeedback('点击工具后，在画布空白处开始经营。');
         setCreativeDeskEditing(false);
         setCreativeDeskActiveItemId(null);
         setPlacementShelfItems([]);
@@ -2515,7 +3601,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       (ed) => ed.source !== BULK_PHANTOM_ID && ed.target !== BULK_PHANTOM_ID
     );
     const nextNodeSerialId = nextNodeSerialIdRef.current;
-    const snapshot = JSON.stringify({ nodes: persistNodes, edges: persistEdges, creativeDesk, nextNodeSerialId });
+    const snapshot = JSON.stringify({ nodes: persistNodes, edges: persistEdges, creativeDesk, farmCanvas, nextNodeSerialId });
     const canvasIdForSave = activeId;
     const previousSnapshot = lastSavedByCanvasRef.current.get(canvasIdForSave) || '';
     if (snapshot === previousSnapshot) return;
@@ -2531,11 +3617,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       nodes: persistNodes,
       edges: persistEdges,
       creativeDesk,
+      farmCanvas,
       nextNodeSerialId,
       snapshot,
     });
     const timer = window.setTimeout(async () => {
-      const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport(), nextNodeSerialId, creativeDesk };
+      const payload = { nodes: persistNodes, edges: persistEdges, viewport: getViewport(), nextNodeSerialId, creativeDesk, farmCanvas };
       try {
         await api.saveCanvasData(canvasIdForSave, payload, { allowEmpty: allowEmptySave });
         api.autoSaveCanvasData(canvasIdForSave, payload).catch((e) => {
@@ -2563,7 +3650,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       }
     }, 800);
     saveTimersByCanvasRef.current.set(canvasIdForSave, timer);
-  }, [nodes, edges, creativeDesk, activeId, loaded, loadedCanvasId, getViewport, dragSaveTick]);
+  }, [nodes, edges, creativeDesk, farmCanvas, activeId, loaded, loadedCanvasId, getViewport, dragSaveTick]);
 
   const getCreativeDeskCenter = useCallback(() => {
     const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
@@ -2589,10 +3676,33 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     }
   }, []);
 
+  const loadFarmResourceDecorItems = useCallback(async () => {
+    setFarmResourceDecorLoading(true);
+    try {
+      const result = await api.getResourceItems({ kind: 'image' });
+      if (!result.success) throw new Error(result.error || '资源库读取失败');
+      const items = result.data || [];
+      farmResourceDecorLoadedRef.current = true;
+      setFarmResourceDecorItems(items);
+      setFarmCanvasFeedback(items.length > 0 ? `已载入 ${items.length} 张资源库图片，可制作牧场装饰。` : '资源库暂无图像，先上传图片再制作牧场装饰。');
+    } catch (err: any) {
+      farmResourceDecorLoadedRef.current = true;
+      setFarmCanvasFeedback(err?.message || '资源库读取失败');
+    } finally {
+      setFarmResourceDecorLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!creativeDeskEditing) return;
     void loadCreativeDeskResources();
   }, [creativeDeskEditing, loadCreativeDeskResources]);
+
+  useEffect(() => {
+    if (!isFarmStory || !farmCanvasEditing) return;
+    if (farmResourceDecorLoadedRef.current || farmResourceDecorItems.length > 0 || farmResourceDecorLoading) return;
+    void loadFarmResourceDecorItems();
+  }, [farmCanvasEditing, farmResourceDecorItems.length, farmResourceDecorLoading, isFarmStory, loadFarmResourceDecorItems]);
 
   const handleCreativeDeskUploadFiles = useCallback(async (files: File[]) => {
     const images = files.filter((file) => inferCanvasMediaKind(file) === 'image');
@@ -2668,6 +3778,341 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const result = await api.updateResourceItem(item.id, { touch: true });
     if (!result.success) console.warn('创作台资源使用时间更新失败', result.error);
   }, []);
+
+  const handleFarmToggleEditing = useCallback((enabled: boolean) => {
+    setFarmCanvasEditing(enabled);
+    if (enabled) {
+      setCreativeDeskEditing(false);
+      setRadialSettingsOpen(false);
+      setModelHelpOpen(false);
+      setFarmCanvasFeedback('已进入牧场编辑，选择工具后点击画布空白处操作。');
+      return;
+    }
+    setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'select' }));
+    setFarmCanvasFeedback('已退出牧场编辑。');
+  }, []);
+
+  const showFarmToolSelectionFeedback = useCallback((feedback: FarmToolSelectionFeedback) => {
+    flushFarmContinuousFeedback();
+    const center = getFarmViewportCenter();
+    setFarmCanvasFeedback(feedback.message);
+    pushFarmFloatingFeedback({
+      x: center.x,
+      y: center.y,
+      message: feedback.message,
+      tone: feedback.tone,
+    });
+    playFarmSound('select');
+  }, [flushFarmContinuousFeedback, getFarmViewportCenter, playFarmSound, pushFarmFloatingFeedback]);
+
+  const handleFarmSelectTool = useCallback((tool: FarmTool) => {
+    const nextFarmCanvas = sanitizeFarmCanvasState({
+      ...farmCanvas,
+      selectedTool: tool,
+      selectedResourceDecor: tool === 'decor' ? farmCanvas.selectedResourceDecor : undefined,
+    });
+    setFarmCanvas(nextFarmCanvas);
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    showFarmToolSelectionFeedback(buildFarmToolSelectionFeedback(tool, nextFarmCanvas));
+  }, [farmCanvas, showFarmToolSelectionFeedback]);
+
+  const handleFarmSelectBuilding = useCallback((buildingId: string) => {
+    const building = FARM_BUILDING_DEFINITIONS[buildingId] || FARM_BUILDING_DEFINITIONS.hut;
+    const nextFarmCanvas = sanitizeFarmCanvasState({
+      ...farmCanvas,
+      selectedTool: 'build',
+      selectedBuildingId: building.id,
+      selectedResourceDecor: undefined,
+    });
+    setFarmCanvas(nextFarmCanvas);
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    showFarmToolSelectionFeedback(buildFarmToolSelectionFeedback('build', nextFarmCanvas));
+  }, [farmCanvas, showFarmToolSelectionFeedback]);
+
+  const handleFarmSelectDecor = useCallback((decorId: string) => {
+    const decor = FARM_DECOR_DEFINITIONS[decorId] || FARM_DECOR_DEFINITIONS[FARM_DEFAULT_DECOR_ID];
+    const nextFarmCanvas = sanitizeFarmCanvasState({
+      ...farmCanvas,
+      selectedTool: 'decor',
+      selectedDecorId: decor.id,
+      selectedResourceDecor: undefined,
+    });
+    setFarmCanvas(nextFarmCanvas);
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    showFarmToolSelectionFeedback(buildFarmToolSelectionFeedback('decor', nextFarmCanvas));
+  }, [farmCanvas, showFarmToolSelectionFeedback]);
+
+  const handleFarmSelectResourceDecor = useCallback((resourceId: string, objectType: FarmDecorObjectType) => {
+    const resource = farmResourceDecorItems.find((item) => item.id === resourceId);
+    if (!resource) {
+      setFarmCanvasFeedback('这张资源库图片暂不可用，请刷新资源库后重试。');
+      void loadFarmResourceDecorItems();
+      return;
+    }
+    const decorId = farmDecorIdForResourceObjectType(objectType);
+    const decor = FARM_DECOR_DEFINITIONS[decorId] || FARM_DECOR_DEFINITIONS[FARM_DEFAULT_DECOR_ID];
+    const typeLabel = objectType === 'banner'
+      ? '旗帜'
+      : objectType === 'poster-wall'
+        ? '海报墙'
+        : objectType === 'tile'
+          ? '地砖'
+          : '招牌';
+    const nextFarmCanvas = sanitizeFarmCanvasState({
+      ...farmCanvas,
+      selectedTool: 'decor',
+      selectedDecorId: decor.id,
+      selectedResourceDecor: {
+        resourceId: resource.id,
+        skinId: `resource-${objectType}`,
+        objectType,
+      },
+    });
+    setFarmCanvas(nextFarmCanvas);
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    showFarmToolSelectionFeedback(buildFarmToolSelectionFeedback('decor', nextFarmCanvas, {
+      resourceDecorLabel: `${resource.title || resource.id} -> ${typeLabel}`,
+    }));
+    void api.updateResourceItem(resource.id, { touch: true }).catch((err) => {
+      console.warn('牧场资源装饰使用时间更新失败', err);
+    });
+  }, [farmCanvas, farmResourceDecorItems, loadFarmResourceDecorItems, showFarmToolSelectionFeedback]);
+
+  const handleFarmCanvasAction = useCallback((action: FarmToolAction) => {
+    setFarmCanvas((prev) => {
+      const result = applyFarmTool(prev, action);
+      setFarmCanvasFeedback(result.feedback);
+      const gridSize = result.state.gridSize || 64;
+      const snappedX = Math.round(action.x / gridSize) * gridSize + gridSize / 2;
+      const snappedY = Math.round(action.y / gridSize) * gridSize + gridSize / 2;
+      const tone = farmFeedbackToneForTool(action.tool, Boolean(result.error));
+      const beautyGain = result.changed && !result.error
+        ? farmBeautyGainForAction(prev, result.state, action.tool)
+        : 0;
+      const placementEcho = result.changed && !result.error
+        ? farmPlacementEchoForAction(result.feedback, action.tool)
+        : '';
+      const beautyRewardUnlock = result.changed && !result.error
+        ? farmBeautyRewardUnlockForAction(prev, result.state, action.tool)
+        : null;
+      const continuousLabel = result.changed && !result.error && farmToolSupportsContinuousAction(action.tool)
+        ? farmContinuousFeedbackLabel(action.tool)
+        : '';
+      if (continuousLabel) {
+        queueFarmContinuousFeedback({
+          tool: action.tool,
+          label: continuousLabel,
+          x: snappedX,
+          y: snappedY,
+          tone,
+          placementEcho,
+          beautyGain,
+          beautyRewardTitle: beautyRewardUnlock?.title,
+          beautyRewardCount: beautyRewardUnlock?.count,
+        });
+      } else {
+        flushFarmContinuousFeedback();
+        pushFarmFloatingFeedback({
+          x: snappedX,
+          y: snappedY,
+          message: placementEcho || result.feedback,
+          tone,
+        });
+      }
+      playFarmSound(result.changed && !result.error
+        ? farmSoundCueForEvent(result.state.eventLog[0]?.kind)
+        : farmSoundCueForTool(action.tool, Boolean(result.error)));
+      if (result.changed && !result.error) {
+        const placedObjectId = findNewFarmPlacedObjectId(prev, result.state, action.tool);
+        if (placedObjectId) flashFarmObject(placedObjectId);
+        if (beautyGain > 0 && !continuousLabel) {
+          pushFarmFloatingFeedback({
+            x: snappedX,
+            y: snappedY - gridSize * 0.45,
+            message: `漂亮度 +${beautyGain}`,
+            tone: 'reward',
+          });
+        }
+        if (beautyRewardUnlock && !continuousLabel) {
+          pushFarmFloatingFeedback({
+            x: snappedX,
+            y: snappedY - gridSize * 0.85,
+            message: beautyRewardUnlock.count > 1
+              ? `美化奖励 +${beautyRewardUnlock.count}`
+              : `解锁美化奖励：${beautyRewardUnlock.title}`,
+            tone: 'reward',
+          });
+        }
+        trackFarmAchievementsFromEvents(result.state.eventLog, prev.eventLog[0]?.id);
+      }
+      return result.state;
+    });
+  }, [flashFarmObject, flushFarmContinuousFeedback, playFarmSound, pushFarmFloatingFeedback, queueFarmContinuousFeedback, trackFarmAchievementsFromEvents]);
+
+  const handleFarmCancelContinuousAction = useCallback((reason: 'escape' | 'contextmenu' | 'blur') => {
+    flushFarmContinuousFeedback();
+    const center = getFarmViewportCenter();
+    const message = reason === 'blur'
+      ? '已暂停连续农活'
+      : reason === 'contextmenu'
+        ? '右键已取消连续农活'
+        : '已取消连续农活';
+    setFarmCanvasFeedback(message);
+    pushFarmFloatingFeedback({
+      x: center.x,
+      y: center.y,
+      message,
+      tone: 'warning',
+    });
+    playFarmSound('select');
+  }, [flushFarmContinuousFeedback, getFarmViewportCenter, playFarmSound, pushFarmFloatingFeedback]);
+
+  const handleFarmFinishContinuousAction = useCallback(() => {
+    flushFarmContinuousFeedback();
+  }, [flushFarmContinuousFeedback]);
+
+  const handleFarmAdvanceDay = useCallback(() => {
+    setFarmCanvas((prev) => {
+      const next = advanceFarmDay(prev);
+      const message = next.lastDailySummary?.message || '新的一天开始了，已浇水的作物继续成长。';
+      const center = getFarmViewportCenter();
+      setFarmCanvasFeedback(message);
+      pushFarmFloatingFeedback({
+        x: center.x,
+        y: center.y,
+        message,
+        tone: next.lastDailySummary?.newMatureCrops ? 'reward' : 'success',
+      });
+      playFarmSound(next.lastDailySummary?.newMatureCrops ? 'harvest' : 'day');
+      return next;
+    });
+  }, [getFarmViewportCenter, playFarmSound, pushFarmFloatingFeedback]);
+
+  const handleFarmCompleteOrder = useCallback((orderId: string) => {
+    setFarmCanvas((prev) => {
+      const result = completeFarmOrder(prev, orderId);
+      const center = getFarmViewportCenter();
+      setFarmCanvasFeedback(result.feedback);
+      pushFarmFloatingFeedback({
+        x: center.x,
+        y: center.y,
+        message: result.feedback,
+        tone: result.error ? 'warning' : 'reward',
+      });
+      playFarmSound(result.error ? 'error' : 'order');
+      if (result.changed && !result.error) {
+        trackFarmAchievementsFromEvents(result.state.eventLog, prev.eventLog[0]?.id);
+      }
+      return result.state;
+    });
+  }, [getFarmViewportCenter, playFarmSound, pushFarmFloatingFeedback, trackFarmAchievementsFromEvents]);
+
+  const handleFarmCompleteNpcVisit = useCallback((visitId: string) => {
+    setFarmCanvas((prev) => {
+      const result = completeFarmNpcVisit(prev, visitId);
+      const center = getFarmViewportCenter();
+      setFarmCanvasFeedback(result.feedback);
+      pushFarmFloatingFeedback({
+        x: center.x,
+        y: center.y,
+        message: result.feedback,
+        tone: result.error ? 'warning' : 'reward',
+      });
+      playFarmSound(result.error ? 'error' : 'order');
+      if (result.changed && !result.error) {
+        trackFarmAchievementsFromEvents(result.state.eventLog, prev.eventLog[0]?.id);
+      }
+      return result.state;
+    });
+  }, [getFarmViewportCenter, playFarmSound, pushFarmFloatingFeedback, trackFarmAchievementsFromEvents]);
+
+  const handleFarmJumpToMature = useCallback(() => {
+    const state = sanitizeFarmCanvasState(farmCanvas);
+    const matureObjects = state.objects.filter((object) => object.kind === 'plot' && object.crop?.stage === 'mature');
+    if (matureObjects.length === 0) {
+      setFarmCanvasFeedback('当前没有成熟作物。');
+      const center = getFarmViewportCenter();
+      flushFarmContinuousFeedback();
+      setFarmJumpHighlightObjectId(null);
+      pushFarmFloatingFeedback({
+        x: center.x,
+        y: center.y,
+        message: '当前没有成熟作物',
+        tone: 'warning',
+      });
+      playFarmSound('error');
+      return;
+    }
+    const index = farmMatureJumpIndexRef.current % matureObjects.length;
+    farmMatureJumpIndexRef.current = index + 1;
+    const target = matureObjects[index];
+    const targetCenterX = target.x + (target.widthCells * state.gridSize) / 2;
+    const targetCenterY = target.y + (target.heightCells * state.gridSize) / 2;
+    const { zoom } = getViewport();
+    setCenter(
+      targetCenterX,
+      targetCenterY,
+      { zoom, duration: 420 },
+    );
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'harvest' }));
+    setFarmCanvasFeedback(`已定位成熟作物 ${index + 1}/${matureObjects.length}，收获工具已就绪。`);
+    flushFarmContinuousFeedback();
+    flashFarmObject(target.id);
+    pushFarmFloatingFeedback({
+      x: targetCenterX,
+      y: targetCenterY,
+      message: `成熟作物 ${index + 1}/${matureObjects.length}`,
+      tone: 'reward',
+    });
+    playFarmSound('harvest');
+  }, [farmCanvas, flashFarmObject, flushFarmContinuousFeedback, getFarmViewportCenter, getViewport, playFarmSound, pushFarmFloatingFeedback, setCenter]);
+
+  const handleFarmMiniMapMarkerClick = useCallback((event: ReactMouseEvent<HTMLButtonElement>, marker: FarmMiniMapRenderableMarker) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const centerX = marker.x + marker.width / 2;
+    const centerY = marker.y + marker.height / 2;
+    const { zoom } = getViewport();
+    setCenter(centerX, centerY, { zoom, duration: 420 });
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    if (marker.kind === 'mature') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'harvest' }));
+    } else if (marker.kind === 'dry') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'water' }));
+    } else if (marker.kind === 'withered') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'shovel' }));
+    }
+    const message = farmMiniMapMarkerFeedback(marker);
+    setFarmCanvasFeedback(message);
+    flushFarmContinuousFeedback();
+    if (marker.objectId) flashFarmObject(marker.objectId);
+    pushFarmFloatingFeedback({
+      x: centerX,
+      y: centerY,
+      message,
+      tone: farmMiniMapMarkerTone(marker.kind),
+    });
+    playFarmSound(farmMiniMapMarkerSoundCue(marker.kind));
+  }, [flashFarmObject, flushFarmContinuousFeedback, getViewport, playFarmSound, pushFarmFloatingFeedback, setCenter]);
 
   // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   // 可选 atScreen 传入屏幕坐标，节点会落在该点(用于右键画布空白区添加)
@@ -3357,6 +4802,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           edges: [...targetEdges, ...instance.edges],
           viewport: data.viewport || { x: 0, y: 0, zoom: 1 },
           nextNodeSerialId: freshSerials.nextNodeSerialId,
+          creativeDesk: data.creativeDesk,
+          farmCanvas: sanitizeFarmCanvasState(data.farmCanvas),
         };
         await api.saveCanvasData(targetCanvasId, payload);
         api.autoSaveCanvasData(targetCanvasId, payload).catch(() => {});
@@ -3447,6 +4894,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         edges: cleaned.edges,
         viewport: data.viewport || { x: 0, y: 0, zoom: 1 },
         nextNodeSerialId: freshSerials.nextNodeSerialId,
+        creativeDesk: data.creativeDesk,
+        farmCanvas: sanitizeFarmCanvasState(data.farmCanvas),
       };
       await api.saveCanvasData(targetCanvasId, payload);
       api.autoSaveCanvasData(targetCanvasId, payload).catch(() => {});
@@ -3756,6 +5205,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       viewport: getViewport(),
       nextNodeSerialId: nextNodeSerialIdRef.current,
       creativeDesk,
+      farmCanvas,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -3766,7 +5216,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [nodes, edges, activeId, getViewport, creativeDesk]);
+  }, [nodes, edges, activeId, getViewport, creativeDesk, farmCanvas]);
 
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -3792,6 +5242,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           setNodes(normalized.nodes);
           setEdges(importedEdges);
           setCreativeDesk(migrateCreativeDeskToViewportCoordinates(source.creativeDesk, source.viewport));
+          setFarmCanvas(sanitizeFarmCanvasState(source.farmCanvas));
         } catch (err) {
           alert('导入失败:JSON 解析错误');
           console.error(err);
@@ -4889,19 +6340,24 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       const outs = src ? getNodeOutputs(src) : [];
       const ins = tgt ? getNodeInputs(tgt) : [];
       const matched = outs.find((o) => ins.includes(o) || o === 'any' || ins.includes('any'));
+      const matchedPortType = matched ?? 'any';
       const color = matched && matched !== 'any' ? PORT_COLOR[matched] : undefined;
       setEdges((eds) =>
         addEdge(
           {
             ...params,
             ...(color ? { style: { stroke: color, strokeWidth: 2 } } : {}),
-            data: { portType: matched ?? 'any' },
+            data: { portType: matchedPortType },
           },
           eds
         )
       );
+      if (isFarmStory) {
+        pushEdgeConnectFeedback({ portType: matchedPortType });
+        playFarmSound(farmConnectionKindFromPortType(matchedPortType) === 'water' ? 'water' : 'select');
+      }
     },
-    [resetConnectionPanMode, assignActiveNodeSerials]
+    [resetConnectionPanMode, assignActiveNodeSerials, isFarmStory, playFarmSound, pushEdgeConnectFeedback]
   );
 
   // ReactFlow 拖线连接时的实时校验(在连线处于“预览”阶段就拦截不兼容连接)
@@ -5220,11 +6676,37 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     let cutSet: Set<string> = new Set();
     let cutting = false;
 
+    const getDominantCutKind = (): EdgeCutFeedbackKind => {
+      const counts: Record<EdgeCutFeedbackKind, number> = {
+        rope: 0,
+        water: 0,
+        path: 0,
+        generic: 0,
+      };
+      document.querySelectorAll('.react-flow__edge.cut-marked').forEach((edgeEl) => {
+        const kindAttr =
+          edgeEl.getAttribute('data-t8-edge-kind') ||
+          edgeEl.querySelector('[data-t8-edge-kind]')?.getAttribute('data-t8-edge-kind');
+        counts[normalizeEdgeCutKind(kindAttr)] += 1;
+      });
+      return (Object.keys(counts) as EdgeCutFeedbackKind[]).reduce((best, kind) =>
+        counts[kind] > counts[best] ? kind : best
+      , 'generic');
+    };
+
     const finishCut = () => {
       if (!cutting) return;
       cutting = false;
       // 提交删除
       if (cutSet.size > 0) {
+        const lastPoint = cutPoints[cutPoints.length - 1];
+        pushEdgeCutFeedback({
+          x: lastPoint?.[0],
+          y: lastPoint?.[1],
+          count: cutSet.size,
+          edgeKind: getDominantCutKind(),
+          source: 'slash',
+        });
         const idsToCut = new Set(cutSet);
         setEdges((prev) => prev.filter((ed) => !idsToCut.has(ed.id)));
       }
@@ -5625,7 +7107,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         .querySelectorAll('.react-flow__edge.cut-marked')
         .forEach((el) => el.classList.remove('cut-marked'));
     };
-  }, [screenToFlowPosition]);
+  }, [pushEdgeCutFeedback, screenToFlowPosition]);
 
   // 计算候选节点列表(根据起始节点输出/输入类型过滤)
   const pickerCandidates = useMemo<Array<NodeMeta & { matchedTypes: PortType[] }>>(() => {
@@ -5693,6 +7175,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       const outs = src ? getNodeOutputs(src) : [];
       const ins = tgt ? getNodeInputs(tgt) : [];
       const matched = outs.find((o) => ins.includes(o) || o === 'any' || ins.includes('any'));
+      const matchedPortType = matched ?? 'any';
       const color = matched && matched !== 'any' ? PORT_COLOR[matched] : undefined;
 
       setEdges((eds) =>
@@ -5700,14 +7183,18 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           {
             ...params,
             ...(color ? { style: { stroke: color, strokeWidth: 2 } } : {}),
-            data: { portType: matched ?? 'any' },
+            data: { portType: matchedPortType },
           },
           eds
         )
       );
+      if (isFarmStory) {
+        pushEdgeConnectFeedback({ portType: matchedPortType });
+        playFarmSound(farmConnectionKindFromPortType(matchedPortType) === 'water' ? 'water' : 'select');
+      }
       setPicker(null);
     },
-    [picker, nodes, assignActiveNodeSerials]
+    [picker, nodes, assignActiveNodeSerials, isFarmStory, playFarmSound, pushEdgeConnectFeedback]
   );
 
   const handleConnectPickerToNodeId = useCallback(() => {
@@ -6685,11 +8172,92 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
 
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';
-  const isDecorativeEdgeVisual = isSlamdunk || isSoccer || isDragonBall || isTetris;
+  const isDecorativeEdgeVisual = isSlamdunk || isSoccer || isDragonBall || isTetris || isFarmStory;
   const heavyEdgeMotion = isDecorativeEdgeVisual && edges.length >= EDGE_MOTION_HEAVY_EDGE_COUNT;
   const edgeMotionReduced = isDecorativeEdgeVisual && (viewportMoving || nodeDragging);
   const edgeMotionMode = isDecorativeEdgeVisual ? (edgeMotionReduced ? 'reduced' : 'scoped') : undefined;
   const heavyCanvasSurface = nodes.length >= 96 || edges.length >= EDGE_MOTION_HEAVY_EDGE_COUNT;
+  const farmStoryToolbarHint = useMemo(
+    () => (isFarmStory ? buildFarmToolbarConsoleHint(farmCanvas, farmStoryPanelOpen) : undefined),
+    [farmCanvas, farmStoryPanelOpen, isFarmStory],
+  );
+  const farmMiniMapMarkers = useMemo(
+    () => (isFarmStory ? buildFarmMiniMapMarkers(farmCanvas, { maxMarkers: FARM_MINIMAP_MARKER_LIMIT }) : []),
+    [farmCanvas, isFarmStory],
+  );
+  const farmMiniMapRenderableMarkers = useMemo(
+    () => (isFarmStory ? layoutFarmMiniMapMarkers(farmMiniMapMarkers, nodes) : []),
+    [farmMiniMapMarkers, isFarmStory, nodes],
+  );
+  const farmMiniMapRouteHintMarkers = useMemo(
+    () => (
+      farmMiniMapRouteHint
+        ? farmMiniMapRenderableMarkers.filter((marker) => farmMiniMapMarkerMatchesRouteTarget(marker, farmMiniMapRouteHint.target))
+        : []
+    ),
+    [farmMiniMapRenderableMarkers, farmMiniMapRouteHint],
+  );
+  const farmMiniMapRouteHintMarker = useMemo(() => {
+    return findNearestFarmMiniMapRouteHintMarker(farmMiniMapRouteHintMarkers, farmMiniMapRouteHint?.anchor);
+  }, [farmMiniMapRouteHint?.anchor, farmMiniMapRouteHintMarkers]);
+  const farmMiniMapRouteHintCountLabel = useMemo(() => {
+    if (!farmMiniMapRouteHint) return '';
+    const routeHitCount = farmMiniMapRouteHintMarkers.reduce((total, marker) => total + (marker.clusterCount || 1), 0);
+    if (routeHitCount <= 0) return '暂无目标';
+    const unit = farmMiniMapRouteHint.target === 'ready-order'
+      ? '单'
+      : farmMiniMapRouteHint.target === 'building-yield-summary'
+        ? '项'
+        : '处';
+    return `${routeHitCount}${unit}`;
+  }, [farmMiniMapRouteHint, farmMiniMapRouteHintMarkers]);
+  useEffect(() => {
+    if (!farmMiniMapRouteHint) return;
+    if (!farmMiniMapRouteHintMarker) {
+      const center = getFarmViewportCenter();
+      pushFarmFloatingFeedback({
+        x: center.x,
+        y: center.y,
+        message: `路线暂无目标：${farmMiniMapRouteHint.label}`,
+        tone: 'warning',
+      });
+      return;
+    }
+    const centerX = farmMiniMapRouteHintMarker.x + farmMiniMapRouteHintMarker.width / 2;
+    const centerY = farmMiniMapRouteHintMarker.y + farmMiniMapRouteHintMarker.height / 2;
+    const { zoom } = getViewport();
+    setCenter(centerX, centerY, { zoom, duration: 420 });
+    setFarmCanvasEditing(true);
+    setCreativeDeskEditing(false);
+    setRadialSettingsOpen(false);
+    setModelHelpOpen(false);
+    if (farmMiniMapRouteHint.target === 'mature-crop' || farmMiniMapRouteHintMarker.kind === 'mature') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'harvest' }));
+    } else if (farmMiniMapRouteHint.target === 'water' || farmMiniMapRouteHintMarker.kind === 'dry') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'water' }));
+    } else if (farmMiniMapRouteHint.target === 'withered-crop' || farmMiniMapRouteHintMarker.kind === 'withered') {
+      setFarmCanvas((prev) => sanitizeFarmCanvasState({ ...prev, selectedTool: 'shovel' }));
+    }
+    if (farmMiniMapRouteHintMarker.objectId) {
+      flashFarmObject(farmMiniMapRouteHintMarker.objectId);
+    }
+    pushFarmFloatingFeedback({
+      x: centerX,
+      y: centerY,
+      message: `已点亮路线：${farmMiniMapRouteHint.label || farmMiniMapRouteHintMarker.label} · ${farmMiniMapRouteHintCountLabel}`,
+      tone: farmMiniMapMarkerTone(farmMiniMapRouteHintMarker.kind),
+    });
+  }, [farmMiniMapRouteHint, farmMiniMapRouteHintCountLabel, farmMiniMapRouteHintMarker, flashFarmObject, getFarmViewportCenter, getViewport, pushFarmFloatingFeedback, setCenter]);
+  const renderedNodes = useMemo(
+    () => (isFarmStory ? nodes.map(withFarmNodeVisualState) : nodes),
+    [isFarmStory, nodes],
+  );
+  const farmMiniMapHeavySurface = isFarmStory
+    && ((farmCanvas.objects.length + farmCanvas.animals.length) >= FARM_MINIMAP_HEAVY_OBJECT_COUNT
+      || farmMiniMapMarkers.length >= FARM_MINIMAP_MARKER_LIMIT);
+  const farmMiniMapVisible = isFarmStory
+    && farmMiniMapRenderableMarkers.length > 0
+    && !((viewportMoving || nodeDragging) && (heavyCanvasSurface || farmMiniMapHeavySurface));
   const guideColor = themeTokens.edgeSelected;
   const edgeStroke = themeTokens.edge;
   const dotColor = themeTokens.gridDot;
@@ -6697,6 +8265,10 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
 
   const memoNodeTypes = useMemo(() => nodeTypes, []);
   const memoEdgeTypes = useMemo(() => edgeTypes, []);
+  const memoConnectionLineComponent = useMemo(
+    () => (isFarmStory ? FarmStoryConnectionLine : undefined),
+    [isFarmStory],
+  );
 
   // ⚠️ 以下几个在 ReactFlow 的 fieldsToTrack 列表中, 必须稳定引用,
   // 否则每次父组件 render 都会让 StoreUpdater 重复 store.setState 反复触发订阅者,
@@ -6736,6 +8308,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       <div
         className="t8-canvas-shell flex-1 flex items-center justify-center"
         data-theme-visual={visualStyle}
+        data-theme-mode={theme}
         style={{ background: bgColor, color: themeTokens.textMuted }}
       >
         <div className="text-center">
@@ -6764,6 +8337,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                 if (next) {
                   setRadialSettingsOpen(false);
                   setModelHelpOpen(false);
+                  setFarmCanvasEditing(false);
                 }
                 return next;
               });
@@ -6785,6 +8359,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                 if (next) {
                   setModelHelpOpen(false);
                   setCreativeDeskEditing(false);
+                  setFarmCanvasEditing(false);
                 }
                 return next;
               });
@@ -6806,6 +8381,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                 if (next) {
                   setRadialSettingsOpen(false);
                   setCreativeDeskEditing(false);
+                  setFarmCanvasEditing(false);
                 }
                 return next;
               });
@@ -6816,14 +8392,18 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           <ThemeMusicToggle template={currentTemplate} />
           <Controls
             style={{
-              background: isOp
+              background: isFarmStory
+                ? themeTokens.panelBg
+                : isOp
                 ? themeTokens.panelBg
                 : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
-              border: isOp
+              border: isFarmStory
+                ? `3px solid ${themeTokens.secondary}`
+                : isOp
                 ? `3px solid ${themeTokens.textMain}`
                 : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-              borderRadius: isOp ? '16px 16px 8px 8px' : 8,
-              boxShadow: isOp ? `4px 4px 0 ${themeTokens.textMain}` : undefined,
+              borderRadius: isFarmStory ? 10 : isOp ? '16px 16px 8px 8px' : 8,
+              boxShadow: isFarmStory ? `4px 4px 0 ${themeTokens.edge}` : isOp ? `4px 4px 0 ${themeTokens.textMain}` : undefined,
             }}
           />
         </div>
@@ -6893,6 +8473,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     <div
       className={`t8-canvas-shell flex-1 relative${connectionPanModeActive ? ' connection-pan-mode-active' : ''}${edgeMotionReduced ? ' t8-edge-motion-reduced' : ''}${viewportMoving ? ' t8-viewport-moving' : ''}${nodeDragging ? ' t8-node-dragging' : ''}`}
       data-theme-visual={visualStyle}
+      data-theme-mode={theme}
       data-edge-motion={edgeMotionMode}
       data-edge-load={heavyEdgeMotion ? 'heavy' : undefined}
       style={{ background: bgColor }}
@@ -6924,9 +8505,41 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         onToggleOutputMaterialPersistence={toggleOutputMaterialPersistence}
         onAlignSelection={handleAlignSelection}
       >
+        {isFarmStory && (
+          <button
+            type="button"
+            className={`t8-toolbar-button t8-farm-story-toolbar-toggle relative flex h-8 w-8 items-center justify-center rounded-md transition-colors${farmStoryPanelOpen ? ' is-active' : ''}`}
+            data-farm-control-console-toggle="toolbar"
+            data-farm-control-console-priority={farmStoryToolbarHint?.tone}
+            data-farm-control-console-priority-label={farmStoryToolbarHint?.primary}
+            data-farm-control-console-priority-section={farmStoryToolbarHint?.section}
+            data-farm-control-console-priority-section-label={farmStoryToolbarHint?.sectionLabel}
+            data-farm-control-console-priority-count={farmStoryToolbarHint?.count}
+            data-farm-control-console-state={farmStoryPanelOpen ? 'open' : 'closed'}
+            data-farm-control-console-focus-request={farmStoryPriorityFocusRequestId || undefined}
+            aria-label={farmStoryToolbarHint?.title || (farmStoryPanelOpen ? '收起牧场控制台' : '展开牧场控制台')}
+            title={farmStoryToolbarHint?.title || (farmStoryPanelOpen ? '收起牧场控制台' : '展开牧场控制台')}
+            aria-expanded={farmStoryPanelOpen}
+            aria-pressed={farmStoryPanelOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              const nextOpen = !farmStoryPanelOpen;
+              if (nextOpen) {
+                setRadialSettingsOpen(false);
+                setModelHelpOpen(false);
+                setCreativeDeskEditing(false);
+                setFarmStoryPriorityFocusRequestId((value) => value + 1);
+              }
+              setFarmStoryPanelOpen(nextOpen);
+            }}
+          >
+            <LucideIcons.Sprout size={15} />
+            <span aria-hidden="true" data-farm-toolbar-priority-dot="true" />
+          </button>
+        )}
         <TetrisPanel
-          visualStyle={visualStyle}
-          viewportMoving={viewportMoving}
+            visualStyle={visualStyle}
+            viewportMoving={viewportMoving}
           nodeDragging={nodeDragging}
         />
         <DragonBallRadar
@@ -6940,6 +8553,34 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           nodeDragging={nodeDragging}
         />
       </CanvasToolbar>
+      <FarmStoryPanel
+        visualStyle={visualStyle}
+        themeMode={theme}
+        open={farmStoryPanelOpen}
+        onOpenChange={setFarmStoryPanelOpen}
+        showInlineToggle={false}
+        priorityFocusRequestId={farmStoryPriorityFocusRequestId}
+        viewportMoving={viewportMoving}
+        nodeDragging={nodeDragging}
+        farmCanvas={farmCanvas}
+        editing={farmCanvasEditing}
+        feedback={farmCanvasFeedback}
+        soundEnabled={farmSoundEnabled}
+        onToggleEditing={handleFarmToggleEditing}
+        onToggleSound={handleFarmToggleSound}
+        onSelectTool={handleFarmSelectTool}
+        onSelectBuilding={handleFarmSelectBuilding}
+        onSelectDecor={handleFarmSelectDecor}
+        resourceDecorItems={farmResourceDecorItems}
+        resourceDecorLoading={farmResourceDecorLoading}
+        onRefreshResourceDecor={loadFarmResourceDecorItems}
+        onSelectResourceDecor={handleFarmSelectResourceDecor}
+        onJumpToMature={handleFarmJumpToMature}
+        onAdvanceDay={handleFarmAdvanceDay}
+        onCompleteOrder={handleFarmCompleteOrder}
+        onCompleteNpcVisit={handleFarmCompleteNpcVisit}
+        onFollowupCanvasHint={handleFarmFollowupCanvasHint}
+      />
       <TerminalPanel />
       {connectionPanModeActive && (
         <div className="t8-connection-pan-hud" data-canvas-floating-ui="connection-pan-hud">
@@ -6973,6 +8614,41 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           </span>
         </div>
       )}
+      {edgeCutFeedbacks.map((feedback) => (
+        <div
+          key={feedback.id}
+          data-canvas-floating-ui="edge-cut-feedback"
+          className={`t8-edge-cut-feedback is-${feedback.source} is-${feedback.kind}`}
+          data-edge-cut-kind={feedback.kind}
+          data-edge-cut-source={feedback.source}
+          style={{ left: feedback.x, top: feedback.y }}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="t8-edge-cut-feedback__icon" aria-hidden="true" />
+          <span className="t8-edge-cut-feedback__copy">
+            <span className="t8-edge-cut-feedback__title">{feedback.title}</span>
+            <span className="t8-edge-cut-feedback__detail">{feedback.detail}</span>
+          </span>
+        </div>
+      ))}
+      {edgeConnectFeedbacks.map((feedback) => (
+        <div
+          key={feedback.id}
+          data-canvas-floating-ui="edge-connect-feedback"
+          className={`t8-edge-connect-feedback is-${feedback.kind}`}
+          data-edge-connect-kind={feedback.kind}
+          style={{ left: feedback.x, top: feedback.y }}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="t8-edge-connect-feedback__icon" aria-hidden="true" />
+          <span className="t8-edge-connect-feedback__copy">
+            <span className="t8-edge-connect-feedback__title">{feedback.title}</span>
+            <span className="t8-edge-connect-feedback__detail">{feedback.detail}</span>
+          </span>
+        </div>
+      ))}
       {radialMenu && (
         <RadialNodeMenu
           center={radialMenu.center}
@@ -6991,7 +8667,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         onChange={handleImportFile}
       />
       <ReactFlow
-        nodes={nodes}
+        nodes={renderedNodes}
         edges={edges}
         nodeTypes={memoNodeTypes}
         edgeTypes={memoEdgeTypes}
@@ -7001,6 +8677,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         isValidConnection={onIsValidConnection}
+        connectionLineComponent={memoConnectionLineComponent}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
@@ -7030,6 +8707,19 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           gap={20}
           size={isPixel ? 1.6 : 1.2}
           color={dotColor}
+        />
+        <FarmCanvasLayer
+          farmCanvas={farmCanvas}
+          editing={farmCanvasEditing}
+          visualStyle={visualStyle}
+          resourceDecorItems={farmResourceDecorItems}
+          viewportMoving={viewportMoving}
+          nodeDragging={nodeDragging}
+          feedbacks={farmFloatingFeedbacks}
+          highlightedObjectId={farmJumpHighlightObjectId}
+          onAction={handleFarmCanvasAction}
+          onCancelContinuousAction={handleFarmCancelContinuousAction}
+          onFinishContinuousAction={handleFarmFinishContinuousAction}
         />
         {!creativeDeskEditing && (
           <CreativeDeskLayer
@@ -7103,9 +8793,11 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
             setCenter(position.x, position.y, { zoom, duration: 400 });
           }}
           style={{
-            width: isOp ? 144 : isNaruto ? 182 : isEva ? 258 : isYyh ? 224 : isSlamdunk ? 214 : isSoccer ? 224 : isDragonBall ? 192 : undefined,
-            height: isOp ? 144 : isNaruto ? 122 : isEva ? 172 : isYyh ? 144 : isSlamdunk ? 128 : isSoccer ? 136 : isDragonBall ? 192 : undefined,
-            background: isOp
+            width: isFarmStory ? 214 : isOp ? 144 : isNaruto ? 182 : isEva ? 258 : isYyh ? 224 : isSlamdunk ? 214 : isSoccer ? 224 : isDragonBall ? 192 : undefined,
+            height: isFarmStory ? 136 : isOp ? 144 : isNaruto ? 122 : isEva ? 172 : isYyh ? 144 : isSlamdunk ? 128 : isSoccer ? 136 : isDragonBall ? 192 : undefined,
+            background: isFarmStory
+              ? themeTokens.panelBg
+              : isOp
               ? themeTokens.panelBg
               : isNaruto
                 ? themeTokens.panelBg
@@ -7120,7 +8812,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               : isDragonBall
                 ? themeTokens.panelBg
               : isDark ? 'rgba(20,20,22,.9)' : 'rgba(255,255,255,.9)',
-            border: isOp
+            border: isFarmStory
+              ? `3px solid ${themeTokens.secondary}`
+              : isOp
               ? `4px double ${themeTokens.textMain}`
               : isNaruto
                 ? `3px solid ${themeTokens.textMain}`
@@ -7135,10 +8829,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               : isDragonBall
                   ? `3px solid ${themeTokens.warning}`
                 : `1px solid ${isDark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.08)'}`,
-            borderRadius: isOp ? 999 : isNaruto ? '18px 18px 12px 12px' : isEva ? 8 : isYyh ? 12 : isSlamdunk ? 10 : isSoccer ? 12 : isDragonBall ? 999 : 8,
-            right: isOp ? 24 : isNaruto ? 24 : isEva ? 24 : isYyh ? 24 : isSlamdunk ? 24 : isSoccer ? 24 : isDragonBall ? 28 : undefined,
-            bottom: isOp ? 42 : isNaruto ? 40 : isEva ? 24 : isYyh ? 28 : isSlamdunk ? 32 : isSoccer ? 32 : isDragonBall ? 34 : undefined,
-            boxShadow: isOp
+            borderRadius: isFarmStory ? 10 : isOp ? 999 : isNaruto ? '18px 18px 12px 12px' : isEva ? 8 : isYyh ? 12 : isSlamdunk ? 10 : isSoccer ? 12 : isDragonBall ? 999 : 8,
+            right: isFarmStory ? 24 : isOp ? 24 : isNaruto ? 24 : isEva ? 24 : isYyh ? 24 : isSlamdunk ? 24 : isSoccer ? 24 : isDragonBall ? 28 : undefined,
+            bottom: isFarmStory ? 32 : isOp ? 42 : isNaruto ? 40 : isEva ? 24 : isYyh ? 28 : isSlamdunk ? 32 : isSoccer ? 32 : isDragonBall ? 34 : undefined,
+            boxShadow: isFarmStory
+              ? `0 0 0 5px ${themeTokens.warning}, 5px 5px 0 ${themeTokens.edge}, 0 18px 46px rgba(76,49,20,.24)`
+              : isOp
               ? `0 0 0 7px ${themeTokens.warning}, 5px 5px 0 ${themeTokens.textMain}`
               : isNaruto
                 ? themeTokens.shadowPanel
@@ -7154,12 +8850,81 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                   ? `0 0 0 5px ${themeTokens.secondary}, 5px 5px 0 ${themeTokens.textMain}, 0 18px 46px rgba(0,0,0,.28), inset 0 0 34px ${themeTokens.warning}33`
               : undefined,
             cursor: 'pointer',
-            overflow: isOp || isNaruto || isEva || isYyh || isSlamdunk || isSoccer || isDragonBall ? 'hidden' : undefined,
+            overflow: isFarmStory || isOp || isNaruto || isEva || isYyh || isSlamdunk || isSoccer || isDragonBall ? 'hidden' : undefined,
             display: (viewportMoving || nodeDragging) && heavyCanvasSurface ? 'none' : undefined,
           }}
-          maskColor={isOp ? 'rgba(15,124,140,.28)' : isNaruto ? 'rgba(255,91,31,.22)' : isEva ? 'rgba(156,255,0,.18)' : isYyh ? 'rgba(67,247,255,.16)' : isSlamdunk ? 'rgba(240,123,34,.22)' : isSoccer ? 'rgba(18,107,216,.22)' : isDragonBall ? 'rgba(255,176,0,.22)' : isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
-          nodeColor={() => (isOp ? themeTokens.secondary : isNaruto ? themeTokens.accent : isEva ? themeTokens.danger : isYyh ? themeTokens.success : isSlamdunk ? themeTokens.accent : isSoccer ? themeTokens.accent : isDragonBall ? themeTokens.warning : isDark ? '#a1a1aa' : '#52525b')}
+          maskColor={isFarmStory ? 'rgba(111,191,74,.22)' : isOp ? 'rgba(15,124,140,.28)' : isNaruto ? 'rgba(255,91,31,.22)' : isEva ? 'rgba(156,255,0,.18)' : isYyh ? 'rgba(67,247,255,.16)' : isSlamdunk ? 'rgba(240,123,34,.22)' : isSoccer ? 'rgba(18,107,216,.22)' : isDragonBall ? 'rgba(255,176,0,.22)' : isDark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'}
+          nodeColor={() => (isFarmStory ? themeTokens.secondary : isOp ? themeTokens.secondary : isNaruto ? themeTokens.accent : isEva ? themeTokens.danger : isYyh ? themeTokens.success : isSlamdunk ? themeTokens.accent : isSoccer ? themeTokens.accent : isDragonBall ? themeTokens.warning : isDark ? '#a1a1aa' : '#52525b')}
         />
+        {farmMiniMapVisible && (
+          <div
+            className="t8-farm-minimap-markers"
+            data-canvas-floating-ui="farm-minimap-markers"
+            data-farm-minimap-marker-count={farmMiniMapRenderableMarkers.length}
+            data-farm-minimap-route-hint-target={farmMiniMapRouteHint?.target || undefined}
+            data-farm-minimap-route-hint-label={farmMiniMapRouteHint?.label || undefined}
+            data-farm-minimap-route-hint-count={farmMiniMapRouteHint ? farmMiniMapRouteHintMarkers.length : undefined}
+            data-farm-minimap-route-hint-count-label={farmMiniMapRouteHint ? farmMiniMapRouteHintCountLabel : undefined}
+            data-farm-minimap-route-hint-empty={farmMiniMapRouteHint && farmMiniMapRouteHintMarkers.length === 0 ? 'true' : undefined}
+            data-farm-minimap-route-hint-marker-id={farmMiniMapRouteHintMarker?.id || undefined}
+            style={{
+              width: FARM_MINIMAP_WIDTH,
+              height: FARM_MINIMAP_HEIGHT,
+              right: FARM_MINIMAP_RIGHT,
+              bottom: FARM_MINIMAP_BOTTOM,
+            }}
+          >
+            <div className="t8-farm-minimap-markers__legend">
+              <span data-farm-minimap-legend="mature">收</span>
+              <span data-farm-minimap-legend="dry">水</span>
+              <span data-farm-minimap-legend="withered">枯</span>
+              <span data-farm-minimap-legend="building">屋</span>
+              <span data-farm-minimap-legend="animal">畜</span>
+              <span data-farm-minimap-legend="npc">访</span>
+              <span data-farm-minimap-legend="rare">星</span>
+              <span data-farm-minimap-legend="order">单</span>
+              <span data-farm-minimap-legend="cluster">簇</span>
+            </div>
+            {farmMiniMapRenderableMarkers.map((marker) => {
+              const markerRouteHint = farmMiniMapRouteHint ? farmMiniMapMarkerMatchesRouteTarget(marker, farmMiniMapRouteHint.target) : false;
+              const markerRouteHintStep = markerRouteHint ? farmMiniMapRouteHintMarkers.findIndex((routeMarker) => routeMarker.id === marker.id) + 1 : 0;
+              return (
+                <button
+                  key={marker.id}
+                  type="button"
+                  className={`t8-farm-minimap-marker is-${marker.kind}${markerRouteHint ? ' is-route-hint' : ''}`}
+                  data-farm-minimap-kind={marker.kind}
+                  data-farm-minimap-object-id={marker.objectId || undefined}
+                  data-farm-minimap-order-id={marker.orderId || undefined}
+                  data-farm-minimap-npc-visit-id={marker.npcVisitId || undefined}
+                  data-farm-minimap-visitor-id={marker.visitorId || undefined}
+                  data-farm-minimap-rare-event-id={marker.rareEventId || undefined}
+                  data-farm-minimap-animal-id={marker.animalId || undefined}
+                  data-farm-minimap-cluster-count={marker.clusterCount || undefined}
+                  data-farm-minimap-cluster-kinds={marker.clusterKinds?.join(',') || undefined}
+                  data-farm-minimap-route-targets={marker.routeTargets?.join(' ') || undefined}
+                  data-farm-minimap-route-hint={markerRouteHint ? 'true' : undefined}
+                  data-farm-minimap-route-hint-active={markerRouteHint && marker.id === farmMiniMapRouteHintMarker?.id ? 'true' : undefined}
+                  data-farm-minimap-route-hint-step={markerRouteHintStep || undefined}
+                  data-farm-minimap-clickable="true"
+                  aria-label={`定位${marker.label}`}
+                  title={marker.label}
+                  onPointerDownCapture={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => handleFarmMiniMapMarkerClick(event, marker)}
+                  style={{
+                    left: `${marker.leftPct}%`,
+                    top: `${marker.topPct}%`,
+                    width: `${marker.widthPct}%`,
+                    height: `${marker.heightPct}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
         {/* 选中可执行节点时的浮动操作栏 (执行 / 中止 / 关闭) */}
         <NodeActionBar />
       </ReactFlow>

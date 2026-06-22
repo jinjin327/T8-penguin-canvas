@@ -245,11 +245,19 @@ export async function composePanoramaStoryboardPromptDataUrl(sourceDataUrl: stri
   ctx.drawImage(img, 0, 0, width, height);
   ctx.fillStyle = '#050505';
   ctx.fillRect(0, height, width, panel.panelHeight);
+  ctx.shadowColor = 'rgba(0, 0, 0, .96)';
+  ctx.shadowBlur = Math.max(2, Math.round(panel.fontSize * 0.12));
+  ctx.shadowOffsetY = Math.max(1, Math.round(panel.fontSize * 0.04));
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = 'rgba(0, 0, 0, .98)';
+  ctx.lineWidth = Math.max(2, Math.round(panel.fontSize * 0.08));
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 ${panel.fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.font = `900 ${panel.fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
   ctx.textBaseline = 'top';
   panel.lines.forEach((line, index) => {
     const y = height + panel.paddingY + index * panel.lineHeight;
+    ctx.strokeText(line || ' ', panel.paddingX, y, width - panel.paddingX * 2);
     ctx.fillText(line || ' ', panel.paddingX, y, width - panel.paddingX * 2);
   });
   return out.toDataURL('image/png');
