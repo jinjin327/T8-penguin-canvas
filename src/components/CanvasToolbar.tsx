@@ -32,6 +32,7 @@ import {
   AlignHorizontalSpaceBetween,
   AlignVerticalSpaceBetween,
   Grid3x3,
+  ScanLine,
 } from 'lucide-react';
 import { useThemeStore } from '../stores/theme';
 import { useLogStore } from '../stores/logs';
@@ -85,6 +86,8 @@ interface CanvasToolbarProps {
   historyCount: number;
   historyOpen: boolean;
   onToggleHistory: () => void;
+  onCreateGenerationTarget: () => void;
+  onExportResourcePackage: () => void;
   onAlignSelection: (action: NodeAlignAction) => void;
   children?: ReactNode;
 }
@@ -115,6 +118,8 @@ export default function CanvasToolbar({
   historyCount,
   historyOpen,
   onToggleHistory,
+  onCreateGenerationTarget,
+  onExportResourcePackage,
   onAlignSelection,
   children,
 }: CanvasToolbarProps) {
@@ -488,11 +493,27 @@ export default function CanvasToolbar({
         </button>
         <button
           className={baseBtn}
+          onClick={onCreateGenerationTarget}
+          title="生成目标框：先摆位置，再把 AI 结果填入"
+          aria-label="生成目标框"
+        >
+          <ScanLine size={15} />
+        </button>
+        <button
+          className={baseBtn}
           onClick={onFindNodeById}
           title="查找 NodeID"
           aria-label="查找 NodeID"
         >
           <Search size={15} />
+        </button>
+        <button
+          className={baseBtn}
+          onClick={onExportResourcePackage}
+          title="资源包：导出当前画布素材清单"
+          aria-label="导出资源包"
+        >
+          <Archive size={15} />
         </button>
 
         <div className={sep} />

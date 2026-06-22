@@ -23,7 +23,7 @@ import {
   type EdgeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Play, Copy, CopyPlus, Trash2, FolderPlus, PackagePlus, Library, Download, Workflow, Send as SendIcon } from 'lucide-react';
+import { Play, Copy, CopyPlus, Trash2, FolderPlus, PackagePlus, Library, Download, Workflow, Send as SendIcon, Sparkles } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useCanvasStore } from '../stores/canvas';
 import { useThemeStore } from '../stores/theme';
@@ -120,6 +120,12 @@ import {
 } from '../utils/materialSet';
 import { chooseDefaultSendMode, resolveEffectiveSendMode } from '../utils/sendMode';
 import { buildGenerationHistoryDataKey, collectGenerationHistory } from '../utils/generationHistory';
+import {
+  CREATIVE_TARGET_NODE_TYPE,
+  buildCreativeTargetResult,
+  collectCanvasSelectionSummary,
+  createCanvasResourcePackageManifest,
+} from '../utils/canvasCreativeWorkflow';
 import * as api from '../services/api';
 import { logBus } from '../stores/logs';
 import CanvasToolbar from './CanvasToolbar';
@@ -1012,6 +1018,7 @@ const LoopNode = lazyCanvasNode(() => import('./nodes/LoopNode'), 'LoopNode');
 const PickFromSetNode = lazyCanvasNode(() => import('./nodes/PickFromSetNode'), 'PickFromSetNode');
 const TextSplitNode = lazyCanvasNode(() => import('./nodes/TextSplitNode'), 'TextSplitNode');
 const MaterialSetNode = lazyCanvasNode(() => import('./nodes/MaterialSetNode'), 'MaterialSetNode');
+const GenerationTargetNode = lazyCanvasNode(() => import('./nodes/GenerationTargetNode'), 'GenerationTargetNode');
 const UploadNode = lazyCanvasNode(() => import('./nodes/UploadNode'), 'UploadNode');
 const OutputNode = lazyCanvasNode(() => import('./nodes/OutputNode'), 'OutputNode');
 const GroupBoxNode = lazyCanvasNode(() => import('./nodes/GroupBoxNode'), 'GroupBoxNode');
@@ -1069,6 +1076,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   'pick-from-set': PickFromSetNode,
   'text-split': TextSplitNode,
   'material-set': MaterialSetNode,
+  'generation-target': GenerationTargetNode,
   resize: ResizeNode,
   combine: CombineNode,
   'remove-bg': RemoveBgNode,
@@ -1409,6 +1417,18 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   upload: { uploadType: null },
   'model-3d-upload': { uploadType: 'model3d', lockedUploadType: 'model3d' },
   'material-set': { materialSetKind: null, materialSetItems: [] },
+  'generation-target': {
+    targetType: 'image',
+    title: '生成目标框',
+    prompt: '',
+    model: 'gpt-image-2',
+    aspectRatio: '1:1',
+    sizeLevel: '1K',
+    status: 'idle',
+    resultUrl: '',
+    resultUrls: [],
+    resultVersions: [],
+  },
   // RH 工具节点（v1.2.10.1+）：启动器状态字段 + 运行状态字段（与 RunningHubNode 对齐）
   // 启动器：rhToolsActiveCategoryId / rhToolsActiveAppId / rhToolsSearchQuery
   // 运行态：appInfo / paramValues / instanceType / status / taskId / urls / error / rhCode / materialOrder
@@ -4439,6 +4459,45 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     [screenToFlowPosition, nodes, getViewport, setCenter, assignActiveNodeSerials, visualStyle]
   );
 
+  const handleCreateGenerationTarget = useCallback(() => {
+    addNode(CREATIVE_TARGET_NODE_TYPE as NodeType);
+  }, [addNode]);
+
+  const handleCreateImageFromSelection = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    const summaryNodes = nodesRef.current.map((node) => ({ ...node, selected: idSet.has(node.id) }));
+    const summary = collectCanvasSelectionSummary(summaryNodes, { canvasId: activeId || undefined });
+    const prompt = summary.texts.map((item) => item.text).join('\n\n').trim();
+    const referenceImages = summary.images.map((item) => item.url);
+    if (!prompt && referenceImages.length === 0) {
+      logBus.warn('选区里没有可用于生成的提示词或图片', '选区生成');
+      return;
+    }
+    const newNode: Node = {
+      id: `image-selection-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'image',
+      position: placeSingleNode(
+        summary.defaultResultPosition.x,
+        summary.defaultResultPosition.y,
+        'image',
+        nodesRef.current,
+        { source: 'placement:selection-ai' },
+      ),
+      selected: true,
+      data: {
+        ...(INITIAL_DATA.image || {}),
+        prompt,
+        referenceImages,
+        creativeSourceNodeIds: summary.selectedNodeIds,
+        creativeSelectionBounds: summary.bounds,
+      },
+    };
+    const assigned = assignActiveNodeSerials([newNode], nodesRef.current);
+    setNodes([...nodesRef.current.map((node) => ({ ...node, selected: false })), ...assigned]);
+    registerPlacementShelfNodes(assigned, '生成');
+    logBus.success('已在选区右侧创建图像生成节点', '选区生成');
+  }, [activeId, assignActiveNodeSerials, registerPlacementShelfNodes]);
+
   useEffect(() => {
     const handleWebImageMessage = (event: MessageEvent) => {
       if (event.source !== window) return;
@@ -4460,6 +4519,40 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       if (specs.length === 0) {
         logBus.warn('网页图片反推没有可发送的提示词或生成图片', '网页反推');
         return;
+      }
+
+      const selectedTarget = nodesRef.current.find((node) => node.selected && node.type === CREATIVE_TARGET_NODE_TYPE);
+      if (selectedTarget) {
+        const mode = normalizeWebImageSendMode(payload.mode);
+        const prompt = cleanWebImageText(payload.prompt);
+        const imageItems = webImagePayloadImages(payload);
+        if ((mode === 'image' || mode === 'both') && imageItems.length > 0) {
+          const built = buildCreativeTargetResult(
+            selectedTarget,
+            imageItems.map((item) => item.url),
+            {
+              mode: 'replace',
+              sourceNodeIds: [],
+              prompt,
+            },
+          );
+          setNodes(nodesRef.current.map((node) =>
+            node.id === selectedTarget.id
+              ? { ...node, data: { ...(node.data as any), ...built.targetPatch }, selected: true }
+              : { ...node, selected: false },
+          ));
+          logBus.success('网页图片反推结果已填入选中的生成目标框', '网页反推');
+          return;
+        }
+        if (prompt) {
+          setNodes(nodesRef.current.map((node) =>
+            node.id === selectedTarget.id
+              ? { ...node, data: { ...(node.data as any), prompt, status: 'idle', error: '' }, selected: true }
+              : { ...node, selected: false },
+          ));
+          logBus.success('网页图片反推提示词已写入选中的生成目标框', '网页反推');
+          return;
+        }
       }
 
       const flowEl = document.querySelector('.react-flow') as HTMLElement | null;
@@ -5573,6 +5666,39 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     URL.revokeObjectURL(url);
   }, [nodes, edges, activeId, getViewport, creativeDesk, farmCanvas]);
 
+  const handleExportResourcePackage = useCallback(() => {
+    const title = canvases.find((canvas) => canvas.id === activeId)?.name || `画布 ${activeId || ''}`.trim() || '当前画布';
+    const manifest = createCanvasResourcePackageManifest({
+      canvasId: activeId || 'export',
+      title,
+      canvas: {
+        nodes,
+        edges,
+        viewport: getViewport(),
+        creativeDesk,
+        farmCanvas,
+        nextNodeSerialId: nextNodeSerialIdRef.current,
+      },
+      portable: false,
+    });
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `canvas-resource-package-${activeId || 'export'}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    const missing = manifest.missingFiles.length;
+    logBus.success(
+      missing > 0
+        ? `资源包清单已导出：${manifest.resources.length} 个资源，${missing} 个疑似缺失`
+        : `资源包清单已导出：${manifest.resources.length} 个资源`,
+      '资源包',
+    );
+  }, [activeId, canvases, nodes, edges, getViewport, creativeDesk, farmCanvas]);
+
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -5586,7 +5712,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         try {
           const txt = String(reader.result || '');
           const json = JSON.parse(txt);
-          const source = json?.canvasData && typeof json.canvasData === 'object' ? json.canvasData : json;
+          const source =
+            json?.schema === 't8-canvas-resource-package' && json?.canvas && typeof json.canvas === 'object'
+              ? json.canvas
+              : json?.canvasData && typeof json.canvasData === 'object'
+                ? json.canvasData
+                : json;
           const importedNodes = Array.isArray(source.nodes) ? source.nodes : [];
           const importedEdges = Array.isArray(source.edges) ? source.edges : [];
           if (!confirm(`导入将替换当前画布(${importedNodes.length} 个节点 / ${importedEdges.length} 条连线),是否继续?`)) {
@@ -8906,6 +9037,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         historyCount={generationHistoryItems.length}
         historyOpen={generationHistoryOpen}
         onToggleHistory={() => setGenerationHistoryOpen((value) => !value)}
+        onCreateGenerationTarget={handleCreateGenerationTarget}
+        onExportResourcePackage={handleExportResourcePackage}
         onAlignSelection={handleAlignSelection}
       >
         {isFarmStory && (
@@ -9534,6 +9667,12 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
           0,
         );
         const mergeCandidate = getMaterialSetMergeCandidate(ids);
+        const creativeSelectionSummary = collectCanvasSelectionSummary(
+          nodes.map((node) => ({ ...node, selected: ids.includes(node.id) })),
+          { canvasId: activeId || undefined },
+        );
+        const canCreateSelectionImage =
+          creativeSelectionSummary.texts.length > 0 || creativeSelectionSummary.images.length > 0;
         const materialSetNode = ids.length === 1 ? nodes.find((n) => n.id === ids[0] && n.type === 'material-set') : null;
         const materialSetKind = isMaterialSetKind((materialSetNode?.data as any)?.materialSetKind)
           ? ((materialSetNode?.data as any).materialSetKind as MaterialSetKind)
@@ -9673,6 +9812,18 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                   合并到素材集
                   {mergeCandidate ? ` (${mergeCandidate.items.length})` : ''}
                 </span>
+              </button>
+              <button
+                className={menuItemCls}
+                disabled={!canCreateSelectionImage}
+                title={canCreateSelectionImage ? '把选区文字和图片整理成右侧图像生成节点' : '选区里没有可用提示词或图像'}
+                onClick={() => {
+                  closeContextMenu();
+                  handleCreateImageFromSelection(ids);
+                }}
+              >
+                <Sparkles size={13} />
+                <span>选区生成图像</span>
               </button>
               {materialSetNode && (
                 <button
